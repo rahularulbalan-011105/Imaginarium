@@ -1,0 +1,193 @@
+import * as THREE from 'three'
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { TransformControls } from 'three/addons/controls/TransformControls.js'
+import { objectManager } from './ObjectManager.js'
+import { wireManager } from './WireManager.js'
+
+class SceneManager {
+  constructor() {
+    this.scene = null
+    this.renderer = null
+    this.camera = null
+    this.orbitControls = null
+    this.transformControls = null
+    this.grid = null
+    this.axes = null
+    this.animationId = null
+    this.onTransformChange = null
+    this.onDraggingChanged = null
+  }
+
+  init(canvas, width, height) {
+    this.scene = new THREE.Scene()
+    this.scene.background = new THREE.Color(0xffffff)
+    this.scene.fog = new THREE.FogExp2(0xffffff, 0.008)
+
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    this.renderer.setSize(width, height)
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.shadowMap.enabled = true
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping
+    this.renderer.toneMappingExposure = 1.2
+
+    this.camera = new THREE.PerspectiveCamera(60, width / height, 0.01, 10000)
+    this.camera.position.set(12, 10, 12)
+    this.camera.lookAt(0, 0, 0)
+
+    // Lights
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5)
+    this.scene.add(ambient)
+
+    const sun = new THREE.DirectionalLight(0xfff4e0, 1.0)
+    sun.position.set(15, 25, 15)
+    sun.castShadow = true
+    sun.shadow.mapSize.set(2048, 2048)
+    sun.shadow.camera.near = 0.1
+    sun.shadow.camera.far = 200
+    sun.shadow.camera.left = -30
+    sun.shadow.camera.right = 30
+    sun.shadow.camera.top = 30
+    sun.shadow.camera.bottom = -30
+    this.scene.add(sun)
+
+    const fill = new THREE.DirectionalLight(0x8090cc, 0.4)
+    fill.position.set(-10, 5, -15)
+    this.scene.add(fill)
+
+    // Grid
+    this.grid = new THREE.GridHelper(60, 60, 0xaaaaaa, 0xcccccc)
+    this.grid.position.y = 0
+    this.scene.add(this.grid)
+
+    // Axes
+    this.axes = new THREE.AxesHelper(6)
+    this.scene.add(this.axes)
+
+    // OrbitControls
+    this.orbitControls = new OrbitControls(this.camera, this.renderer.domElement)
+    this.orbitControls.enableDamping = true
+    this.orbitControls.dampingFactor = 0.06
+    this.orbitControls.minDistance = 0.5
+    this.orbitControls.maxDistance = 500
+
+    // TransformControls — smaller, elegant gizmo
+    this.transformControls = new TransformControls(this.camera, this.renderer.domElement)
+    this.transformControls.size = 0.25
+    this.transformControls.addEventListener('dragging-changed', (e) => {
+      this.orbitControls.enabled = !e.value
+      if (this.onDraggingChanged) this.onDraggingChanged(e.value)
+    })
+    this.transformControls.addEventListener('objectChange', () => {
+      if (this.onTransformChange) this.onTransformChange()
+    })
+    this.scene.add(this.transformControls)
+
+    objectManager.init(this.scene)
+    wireManager.init(this.scene, this.camera)
+    this._startLoop()
+    return this
+  }
+
+  // Injected by App so the loop can drive motor animation without a circular import
+  onAnimationTick = null
+
+  _startLoop() {
+    const tick = () => {
+      this.animationId = requestAnimationFrame(tick)
+      this.orbitControls?.update()
+      this._updateGizmoScale()
+      wireManager.update()
+      if (this.onAnimationTick) this.onAnimationTick()
+      this.renderer.render(this.scene, this.camera)
+    }
+    tick()
+  }
+
+  // Keep the transform gizmo a constant apparent screen size by scaling with
+  // the camera-to-object distance. Without this, arrows look huge when zoomed
+  // in and tiny when zoomed out.
+  _updateGizmoScale() {
+    const tc = this.transformControls
+    if (!tc?.object) return
+    const dist = this.camera.position.distanceTo(tc.object.position)
+    // ~14% of the distance gives a compact, professional-looking gizmo.
+    // Clamp so it never becomes invisible or overwhelmingly large.
+    tc.size = Math.max(0.15, Math.min(0.6, dist * 0.07))
+  }
+
+  stopLoop() {
+    if (this.animationId) {
+      cancelAnimationFrame(this.animationId)
+      this.animationId = null
+    }
+  }
+
+  resize(width, height) {
+    if (!this.camera || !this.renderer) return
+    this.camera.aspect = width / height
+    this.camera.updateProjectionMatrix()
+    this.renderer.setSize(width, height)
+  }
+
+  attachTransformTo(mesh) {
+    if (mesh) this.transformControls.attach(mesh)
+    else this.transformControls.detach()
+  }
+
+  detachTransform() {
+    this.transformControls.detach()
+  }
+
+  setTransformMode(mode) {
+    if (this.transformControls) this.transformControls.setMode(mode)
+  }
+
+  setGridVisible(v) { if (this.grid) this.grid.visible = v }
+  setAxesVisible(v) { if (this.axes) this.axes.visible = v }
+
+  resetCamera() {
+    this.camera.position.set(12, 10, 12)
+    this.orbitControls.target.set(0, 0, 0)
+    this.orbitControls.update()
+  }
+
+  fitToView(objectId) {
+    const mesh = objectManager.getMesh(objectId)
+    if (!mesh) return
+    const box = new THREE.Box3().setFromObject(mesh)
+    const center = box.getCenter(new THREE.Vector3())
+    const size = box.getSize(new THREE.Vector3())
+    const dist = Math.max(size.x, size.y, size.z) * 2.5
+    const dir = this.camera.position.clone().sub(this.orbitControls.target).normalize()
+    this.camera.position.copy(center).addScaledVector(dir, dist)
+    this.orbitControls.target.copy(center)
+    this.orbitControls.update()
+  }
+
+  pickObject(event, canvasBounds) {
+    const raycaster = new THREE.Raycaster()
+    const mouse = new THREE.Vector2(
+      ((event.clientX - canvasBounds.left) / canvasBounds.width) * 2 - 1,
+      -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1
+    )
+    raycaster.setFromCamera(mouse, this.camera)
+    // recursive=true so Group children are tested; skip wire lines
+    const allObjects = objectManager.getAllMeshes().filter(o => !o.userData.isWire)
+    const hits = raycaster.intersectObjects(allObjects, true)
+    if (hits.length === 0) return null
+    // Resolve child hit → root object (for Groups like arduino/motor)
+    const id = objectManager.resolveId(hits[0].object)
+    return id ? objectManager.getMesh(id) : hits[0].object
+  }
+
+  dispose() {
+    this.stopLoop()
+    this.orbitControls?.dispose()
+    this.transformControls?.dispose()
+    this.renderer?.dispose()
+    objectManager.clearAll()
+  }
+}
+
+export const sceneManager = new SceneManager()
