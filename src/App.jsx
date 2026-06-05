@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Header from './components/Header.jsx'
 import Toolbar from './components/Toolbar.jsx'
 import Viewport from './components/Viewport.jsx'
@@ -16,6 +16,7 @@ import { sceneManager } from './managers/SceneManager.js'
 import { objectManager } from './managers/ObjectManager.js'
 import { storageManager } from './managers/StorageManager.js'
 import { simulationManager } from './managers/SimulationManager.js'
+import { driveManager } from './managers/DriveManager.js'
 import { wireManager } from './managers/WireManager.js'
 import { buildProjectSnapshot, snapRotationToAxes } from './utils/helpers.js'
 import { preloadModels } from './utils/modelLoader.js'
@@ -35,6 +36,7 @@ function LoadingScreen() {
 // ── Main editor — all hooks live here, no early returns ───────────────────────
 function AppEditor() {
   const addObject = useSceneStore((s) => s.addObject)
+  const insertObject = useSceneStore((s) => s.insertObject)
   const deleteSelected = useSceneStore((s) => s.deleteSelected)
   const duplicateObject = useSceneStore((s) => s.duplicateObject)
   const selectedId = useSceneStore((s) => s.selectedId)
@@ -45,7 +47,9 @@ function AppEditor() {
   const setTransformMode = useUiStore((s) => s.setTransformMode)
   const activePanel = useUiStore((s) => s.activePanel)
   const setActivePanel = useUiStore((s) => s.setActivePanel)
+  const simActive = useUiStore((s) => s.simActive)
   const { snapshot, undo, redo } = useHistory()
+  const clipboard = useRef(null)
 
   const addWireConnection    = useElectronicsStore((s) => s.addWireConnection)
   const removeWireConnection = useElectronicsStore((s) => s.removeWireConnection)
@@ -57,7 +61,10 @@ function AppEditor() {
     !ELEC_TYPES.includes(objA.type) &&
     !ELEC_TYPES.includes(objB.type)
 
-  // ── Motor + LED animation in the Three.js render loop ────────────────────
+  // ── Motor + LED animation, and differential drive physics ────────────────
+  const simActiveRef = useRef(false)
+  simActiveRef.current = simActive
+
   useEffect(() => {
     sceneManager.onAnimationTick = () => {
       if (simulationManager.isRunning()) {
@@ -68,9 +75,20 @@ function AppEditor() {
           objectManager.animateLed(id, brightness)
         }
       }
+      // Drive physics runs every frame when simulation mode is active
+      if (simActiveRef.current) driveManager.step()
     }
     return () => { sceneManager.onAnimationTick = null }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Enter / exit drive mode when simActive toggles ───────────────────────
+  useEffect(() => {
+    if (simActive) {
+      driveManager.enter(useSceneStore.getState().objects)
+    } else {
+      driveManager.exit((id, updates) => useSceneStore.getState().updateObject(id, updates))
+    }
+  }, [simActive])
 
   // ── Wire callbacks ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -103,6 +121,32 @@ function AppEditor() {
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
+
+      // Ctrl+C — copy selected (non-electronics only)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+        const obj = useSceneStore.getState().objects.find(o => o.id === selectedId)
+        if (obj && !ELEC_TYPES.includes(obj.type)) {
+          clipboard.current = JSON.parse(JSON.stringify(obj))
+        }
+        return
+      }
+      // Ctrl+V — paste clipboard
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        if (clipboard.current) {
+          const src = clipboard.current
+          const pasted = {
+            ...JSON.parse(JSON.stringify(src)),
+            id: crypto.randomUUID(),
+            name: src.name + '_copy',
+            position: { x: src.position.x + 2, y: src.position.y, z: src.position.z + 2 },
+            metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          }
+          insertObject(pasted)
+          snapshot()
+        }
+        return
+      }
+
       if (isTyping) return
       if (SHAPE_KEYS[e.key]) { addObject(SHAPE_KEYS[e.key]); snapshot(); return }
 
@@ -133,12 +177,17 @@ function AppEditor() {
           break
         case 'w': case 'W': setTransformMode('translate'); break
         case 'e': case 'E': setTransformMode('rotate'); break
-        case 'r': case 'R': setTransformMode('scale'); break
+        case 'r': case 'R': {
+          // Block scale mode for electronics
+          const selObj = useSceneStore.getState().objects.find(o => o.id === selectedId)
+          if (!selObj || !ELEC_TYPES.includes(selObj.type)) setTransformMode('scale')
+          break
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [selectedId, snapshot, undo, redo, addObject, deleteSelected, duplicateObject, toggleGrid, toggleAxes, setTransformMode])
+  }, [selectedId, snapshot, undo, redo, addObject, insertObject, deleteSelected, duplicateObject, toggleGrid, toggleAxes, setTransformMode])
 
   // ── Right sidebar logic ───────────────────────────────────────────────────
   const TABS = [

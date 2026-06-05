@@ -85,6 +85,11 @@ class ObjectManager {
     this._applyTransform(o, obj)
     o.visible = obj.visible !== false
 
+    // Keep attachmentOffset in userData in sync with Zustand
+    if (obj.attachmentOffset !== undefined) {
+      o.userData.attachmentOffset = obj.attachmentOffset
+    }
+
     // Non-electronics: update material color
     if (!ELECTRONICS.has(obj.type) && obj.type !== 'csg') {
       if (o.material) {
@@ -130,7 +135,48 @@ class ObjectManager {
     rotorGroup.getWorldQuaternion(rotorWorldQuat)
     const localQuat = rotorWorldQuat.clone().invert().multiply(worldQuat)
 
-    // Base position: center on shaft axis at snapX (or derive from world pos)
+    const ap = mesh.userData.attachmentOffset
+
+    if (ap?.normal) {
+      // ── Face-flush / perpendicular-to-shaft attachment ──────────────────────
+      const rotorAxis = motorMesh.userData.rotorAxis ?? 'y'
+
+      // Shaft direction in WORLD space (motor may be rotated, so apply rotorWorldQuat)
+      const shaftDirLocal = new THREE.Vector3()
+      shaftDirLocal[rotorAxis] = 1
+      const shaftDirWorld = shaftDirLocal.clone().applyQuaternion(rotorWorldQuat)
+
+      // Face normal from mesh local → world space
+      const faceNormalWorld = new THREE.Vector3(ap.normal.x, ap.normal.y, ap.normal.z)
+        .normalize().applyQuaternion(worldQuat)
+
+      // Rotate so the picked face becomes perpendicular to the shaft
+      // (face normal anti-parallel to shaft direction = face plane ⊥ shaft axis).
+      // Do this entirely in world space, then convert to rotor-local once.
+      let alignedWorldQuat = worldQuat.clone()
+      if (faceNormalWorld.lengthSq() > 0.0001) {
+        const alignQuat = new THREE.Quaternion()
+          .setFromUnitVectors(faceNormalWorld, shaftDirWorld.clone().negate())
+        alignedWorldQuat = alignQuat.multiply(worldQuat)
+      }
+      const newLocalQuat = rotorWorldQuat.clone().invert().multiply(alignedWorldQuat)
+
+      // Offset: move mesh so the picked point lands at the shaft tip (rotorGroup origin)
+      const attachPt = new THREE.Vector3(
+        ap.x * mesh.scale.x,
+        ap.y * mesh.scale.y,
+        ap.z * mesh.scale.z
+      ).applyQuaternion(newLocalQuat)
+
+      if (mesh.parent) mesh.parent.remove(mesh)
+      rotorGroup.add(mesh)
+      mesh.position.copy(new THREE.Vector3().sub(attachPt))
+      mesh.quaternion.copy(newLocalQuat)
+      this.attachedObjects.set(objectId, motorId)
+      return true
+    }
+
+    // ── Standard snap-based attachment (no face picked) ────────────────────────
     const worldPos = new THREE.Vector3()
     mesh.getWorldPosition(worldPos)
     const localPos = rotorGroup.worldToLocal(worldPos.clone())
@@ -158,16 +204,22 @@ class ObjectManager {
               if (c.x < minXc) minXc = c.x
               if (c.x > maxXc) maxXc = c.x
             }
-        if (alignX === 'front') localPos.x = snapX - maxXc  // +X face at snapX
-        if (alignX === 'back')  localPos.x = snapX - minXc  // -X face at snapX
+        if (alignX === 'front') localPos.x = snapX - maxXc
+        if (alignX === 'back')  localPos.x = snapX - minXc
       }
+    }
+
+    // Simple offset (attachment point set but no face normal)
+    if (ap) {
+      const offset = new THREE.Vector3(ap.x * mesh.scale.x, ap.y * mesh.scale.y, ap.z * mesh.scale.z)
+      offset.applyQuaternion(localQuat)
+      localPos.sub(offset)
     }
 
     if (mesh.parent) mesh.parent.remove(mesh)
     rotorGroup.add(mesh)
     mesh.position.copy(localPos)
-    mesh.quaternion.copy(localQuat)  // Preserve user's orientation
-
+    mesh.quaternion.copy(localQuat)
     this.attachedObjects.set(objectId, motorId)
     return true
   }
@@ -409,6 +461,172 @@ class ObjectManager {
     o.userData.rotorAxis        = axis
     o.userData.currentRotorName = meshName
     return true
+  }
+
+  // ── Attachment-point marker ───────────────────────────────────────────────
+
+  setAttachmentMarker(id, localPos) {
+    const o = this.objects.get(id)
+    if (!o) return
+    this.clearAttachmentMarker(id)
+    const marker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18, 10, 10),
+      new THREE.MeshBasicMaterial({ color: 0xff6600, depthTest: false, transparent: true, opacity: 0.9 })
+    )
+    marker.position.copy(localPos)
+    marker.userData.isAttachMarker = true
+    o.add(marker)
+    o.userData.attachMarker = marker
+  }
+
+  clearAttachmentMarker(id) {
+    const o = this.objects.get(id)
+    if (!o?.userData.attachMarker) return
+    o.remove(o.userData.attachMarker)
+    o.userData.attachMarker.geometry?.dispose()
+    o.userData.attachMarker.material?.dispose()
+    delete o.userData.attachMarker
+  }
+
+  // ── Surface-to-surface rigid attach ──────────────────────────────────────
+
+  // Align patchB's object so its surface is face-to-face with patchA's surface.
+  // patchA stays fixed; patchB's object is moved/rotated.
+  // Returns { position, rotation } for the Zustand store update, or null on failure.
+  attachBySurface(patchA, patchB) {
+    const meshA = this.objects.get(patchA.objectId)
+    const meshB = this.objects.get(patchB.objectId)
+    if (!meshA || !meshB) return null
+
+    meshA.updateMatrixWorld(true)
+    meshB.updateMatrixWorld(true)
+
+    // World-space center and outward normal of patch A
+    const wqA = new THREE.Quaternion(); meshA.getWorldQuaternion(wqA)
+    const nA  = new THREE.Vector3(patchA.localNormal.x, patchA.localNormal.y, patchA.localNormal.z)
+      .applyQuaternion(wqA).normalize()
+    const cA  = new THREE.Vector3(patchA.localCenter.x, patchA.localCenter.y, patchA.localCenter.z)
+      .applyMatrix4(meshA.matrixWorld)
+
+    // World-space center and outward normal of patch B
+    const wqB = new THREE.Quaternion(); meshB.getWorldQuaternion(wqB)
+    const nB  = new THREE.Vector3(patchB.localNormal.x, patchB.localNormal.y, patchB.localNormal.z)
+      .applyQuaternion(wqB).normalize()
+    const cB  = new THREE.Vector3(patchB.localCenter.x, patchB.localCenter.y, patchB.localCenter.z)
+      .applyMatrix4(meshB.matrixWorld)
+
+    // Step 1: Rotate meshB so nB → -nA (patches face each other)
+    const rotQ       = new THREE.Quaternion().setFromUnitVectors(nB, nA.clone().negate())
+    const newWorldQB = rotQ.clone().multiply(wqB)
+
+    // Step 2: Translate meshB so cB (after rotation) lands on cA
+    const meshBPos = new THREE.Vector3(); meshB.getWorldPosition(meshBPos)
+    const newCB    = cB.clone().sub(meshBPos).applyQuaternion(rotQ).add(meshBPos)
+    const newPos   = meshBPos.clone().add(cA.clone().sub(newCB))
+
+    meshB.position.copy(newPos)
+    meshB.quaternion.copy(newWorldQB)
+    meshB.updateMatrixWorld(true)
+    meshA.updateMatrixWorld(true)
+
+    // Relative transform: child (B) expressed in parent (A)'s local space
+    const relMat = meshA.matrixWorld.clone().invert().multiply(meshB.matrixWorld)
+
+    const euler = new THREE.Euler().setFromQuaternion(newWorldQB)
+    return {
+      position: { x: newPos.x,   y: newPos.y,   z: newPos.z   },
+      rotation: { x: euler.x,    y: euler.y,     z: euler.z    },
+      relativeMatrix: relMat.toArray(),
+    }
+  }
+
+  // Compute the new world-space position+rotation for the dependent object in a
+  // rigid bond when the "mover" object has just been transformed.
+  // isPar = true  → mover is parent, compute child's new world pose
+  // isPar = false → mover is child,  compute parent's new world pose
+  // Returns { position, rotation } ready for updateObject(), or null on failure.
+  propagateBond(moverId, relativeMatrix, isPar, depId) {
+    const moverMesh = this.objects.get(moverId)
+    const depMesh   = this.objects.get(depId)
+    if (!moverMesh || !depMesh) return null
+
+    moverMesh.updateMatrixWorld(true)
+    const relMat = new THREE.Matrix4().fromArray(relativeMatrix)
+    const newWorldMat = isPar
+      ? moverMesh.matrixWorld.clone().multiply(relMat)                   // child = parent × rel
+      : moverMesh.matrixWorld.clone().multiply(relMat.clone().invert())  // parent = child × rel⁻¹
+
+    const pos  = new THREE.Vector3()
+    const quat = new THREE.Quaternion()
+    const scl  = new THREE.Vector3()
+    newWorldMat.decompose(pos, quat, scl)
+    const euler = new THREE.Euler().setFromQuaternion(quat)
+
+    // Apply directly to mesh for immediate visual response
+    depMesh.position.copy(pos)
+    depMesh.rotation.set(euler.x, euler.y, euler.z)
+    depMesh.updateMatrixWorld(true)
+
+    return {
+      position: { x: pos.x,   y: pos.y,   z: pos.z   },
+      rotation: { x: euler.x, y: euler.y, z: euler.z },
+    }
+  }
+
+  // Rotate selectedId by angleDeg degrees around the bond's contact-surface normal,
+  // pivoting at the contact point so the face stays in place.
+  // Returns { position, rotation, relativeMatrix } for store updates, or null.
+  rotateBondedObjectOnSurface(selectedId, bond, angleDeg = 90) {
+    const { parentId, childId, contactLocalNormal, contactLocalCenter } = bond
+    const parentMesh = this.objects.get(parentId)
+    const childMesh  = this.objects.get(childId)
+    if (!parentMesh || !childMesh || !contactLocalNormal || !contactLocalCenter) return null
+
+    parentMesh.updateMatrixWorld(true)
+    childMesh.updateMatrixWorld(true)
+
+    // Contact point and outward normal in world space (always stored in parent's local space)
+    const parentWorldQuat = new THREE.Quaternion()
+    parentMesh.getWorldQuaternion(parentWorldQuat)
+
+    const contactWorld = new THREE.Vector3(
+      contactLocalCenter.x, contactLocalCenter.y, contactLocalCenter.z
+    ).applyMatrix4(parentMesh.matrixWorld)
+
+    const normalWorld = new THREE.Vector3(
+      contactLocalNormal.x, contactLocalNormal.y, contactLocalNormal.z
+    ).applyQuaternion(parentWorldQuat).normalize()
+
+    const rotQ  = new THREE.Quaternion().setFromAxisAngle(normalWorld, angleDeg * Math.PI / 180)
+    const tPos  = new THREE.Matrix4().makeTranslation(contactWorld.x, contactWorld.y, contactWorld.z)
+    const tNeg  = new THREE.Matrix4().makeTranslation(-contactWorld.x, -contactWorld.y, -contactWorld.z)
+    const rMat  = new THREE.Matrix4().makeRotationFromQuaternion(rotQ)
+    const pivot = new THREE.Matrix4().copy(tPos).multiply(rMat).multiply(tNeg)
+
+    const selectedMesh = this.objects.get(selectedId)
+    if (!selectedMesh) return null
+
+    const newWorldMat = pivot.clone().multiply(selectedMesh.matrixWorld.clone())
+    const pos  = new THREE.Vector3()
+    const quat = new THREE.Quaternion()
+    const scl  = new THREE.Vector3()
+    newWorldMat.decompose(pos, quat, scl)
+    const euler = new THREE.Euler().setFromQuaternion(quat)
+
+    selectedMesh.position.copy(pos)
+    selectedMesh.rotation.set(euler.x, euler.y, euler.z)
+    selectedMesh.updateMatrixWorld(true)
+
+    // Recompute relative matrix so future bond propagation reflects the new orientation
+    parentMesh.updateMatrixWorld(true)
+    childMesh.updateMatrixWorld(true)
+    const newRelMat = parentMesh.matrixWorld.clone().invert().multiply(childMesh.matrixWorld)
+
+    return {
+      position:       { x: pos.x,   y: pos.y,   z: pos.z   },
+      rotation:       { x: euler.x, y: euler.y, z: euler.z },
+      relativeMatrix: newRelMat.toArray(),
+    }
   }
 
   getMesh(id) { return this.objects.get(id) }

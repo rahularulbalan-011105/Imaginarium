@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { useSurfaceStore } from '../stores/surfaceStore.js'
+import { useRigidStore } from '../stores/rigidStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { r3, radToDeg, degToRad, snapRotationToAxes } from '../utils/helpers.js'
@@ -36,8 +38,106 @@ function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
 
 const MATERIAL_TYPES = ['standard', 'metallic', 'transparent']
 
+// Emits an event the Viewport listens to for entering pick mode
+export const attachPointEvents = new EventTarget()
+
+function PatchDimInput({ label, value, onChange }) {
+  const [local, setLocal] = useState(String(value.toFixed(3)))
+
+  // Keep local in sync when store value changes externally (e.g. drag resize)
+  useEffect(() => { setLocal(String(value.toFixed(3))) }, [value])
+
+  const commit = () => {
+    const v = parseFloat(local)
+    if (!isNaN(v) && v > 0.01) onChange(v)
+    else setLocal(String(value.toFixed(3)))
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[9px] font-bold text-cyan-500 uppercase w-3 shrink-0">{label}</span>
+      <input
+        type="number"
+        value={local}
+        min="0.01"
+        step="0.1"
+        onChange={e => setLocal(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => e.key === 'Enter' && commit()}
+        className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-cyan-500"
+      />
+    </div>
+  )
+}
+
+function SurfacePatchPanel({ patches, canAttach, onAttach, onRemove, onUpdatePatch, objects }) {
+  return (
+    <div className="flex flex-col gap-2 p-3">
+      <div className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold mb-1">
+        ⬡ Surface Patches
+      </div>
+      {patches.map((p, i) => {
+        const obj = objects.find(o => o.id === p.objectId)
+        return (
+          <div key={p.id} className="bg-gray-800/60 border border-cyan-700/40 rounded p-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-cyan-300 font-medium">
+                Patch {i + 1} — <span className="text-white">{obj?.name ?? '?'}</span>
+              </span>
+              <button
+                onClick={() => onRemove(p.id)}
+                className="text-[9px] text-red-400 hover:text-red-300 px-1"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Editable W / H */}
+            <div className="grid grid-cols-2 gap-1.5 mb-1.5">
+              <PatchDimInput
+                label="W"
+                value={p.width}
+                onChange={w => onUpdatePatch(p.id, { width: w })}
+              />
+              <PatchDimInput
+                label="H"
+                value={p.height}
+                onChange={h => onUpdatePatch(p.id, { height: h })}
+              />
+            </div>
+
+            <div className="text-[9px] text-gray-500">
+              Normal ({p.localNormal.x.toFixed(2)}, {p.localNormal.y.toFixed(2)}, {p.localNormal.z.toFixed(2)})
+            </div>
+          </div>
+        )
+      })}
+
+      {canAttach && (
+        <button
+          onClick={onAttach}
+          className="w-full py-2.5 mt-1 bg-cyan-700 hover:bg-cyan-600 text-white text-xs font-semibold rounded transition-colors"
+        >
+          ⊕ Surface Attach — Align &amp; Bond
+        </button>
+      )}
+      {patches.length === 1 && (
+        <div className="text-[9px] text-gray-500 text-center mt-1">
+          Select a patch on a second object to enable Surface Attach
+        </div>
+      )}
+      {patches.length === 2 && !canAttach && (
+        <div className="text-[9px] text-yellow-600 text-center mt-1">
+          Both patches are on the same object
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function PropertiesPanel() {
-  const selectedId = useSceneStore((s) => s.selectedId)
+  const selectedId  = useSceneStore((s) => s.selectedId)
+  const secondaryId = useSceneStore((s) => s.secondaryId)
   const objects = useSceneStore((s) => s.objects)
   const updateObject = useSceneStore((s) => s.updateObject)
   const removeObject = useSceneStore((s) => s.removeObject)
@@ -48,20 +148,57 @@ export default function PropertiesPanel() {
   const detachFromMotor = useElectronicsStore((s) => s.detachFromMotor)
   const attachToMotor   = useElectronicsStore((s) => s.attachToMotor)
 
+  // Surface patch state
+  const patches          = useSurfaceStore((s) => s.patches)
+  const selectedPatchIds = useSurfaceStore((s) => s.selectedIds)
+  const removePatch      = useSurfaceStore((s) => s.removePatch)
+  const updatePatch      = useSurfaceStore((s) => s.updatePatch)
+
+  // Rigid bond state
+  const bonds      = useRigidStore((s) => s.bonds)
+  const addBond    = useRigidStore((s) => s.addBond)
+  const removeBond = useRigidStore((s) => s.removeBond)
+  const updateBond = useRigidStore((s) => s.updateBond)
+
+  const selectedPatches = selectedPatchIds.map(id => patches[id]).filter(Boolean)
+  const canRigidAttach  = selectedPatches.length === 2 &&
+    selectedPatches[0].objectId !== selectedPatches[1].objectId
+
+  const handleRigidAttach = () => {
+    const [pA, pB] = selectedPatches
+    const result = objectManager.attachBySurface(pA, pB)
+    if (result) {
+      updateObject(pB.objectId, { position: result.position, rotation: result.rotation })
+      addBond(pA.objectId, pB.objectId, result.relativeMatrix, pA.localNormal, pA.localCenter)
+      snapshot()
+    }
+  }
+
   const obj = objects.find((o) => o.id === selectedId) ?? null
 
   // Attachment info for the selected object
   const attachedMotorId = obj ? (attachments[obj.id] ?? null) : null
   const attachedMotor   = attachedMotorId ? objects.find(o => o.id === attachedMotorId) : null
 
-  const MOTOR_TYPES = ['motor', 'motor_bo', 'motor_dc']
-  const isMotor = obj && MOTOR_TYPES.includes(obj.type)
+  const MOTOR_TYPES   = ['motor', 'motor_bo', 'motor_dc']
+  const isMotor       = obj && MOTOR_TYPES.includes(obj.type)
+  const isElectronics = obj && (MOTOR_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'led')
 
-  // Motors available for direct attachment
+  // Secondary selection: shift-click on a motor to get a direct Attach button
+  const secondaryObj   = objects.find(o => o.id === secondaryId) ?? null
+  const secondaryMotor = secondaryObj && MOTOR_TYPES.includes(secondaryObj.type) ? secondaryObj : null
+
+  // Whether this object can be attached to a motor shaft
+  const isAttachable = obj && !attachedMotor && !isElectronics
+
+  // Scene-wide motors list (for the general attach dropdown)
   const motors    = objects.filter(o => MOTOR_TYPES.includes(o.type))
-  const canAttach = obj && !attachedMotor &&
-    !MOTOR_TYPES.includes(obj.type) && obj.type !== 'arduino' &&
-    motors.length > 0
+  const canAttach = isAttachable && !secondaryMotor && motors.length > 0
+
+  // Rigid bonds involving the currently selected object
+  const myBonds = obj
+    ? Object.values(bonds).filter(b => b.parentId === obj.id || b.childId === obj.id)
+    : []
 
   // Shaft picker state
   const [currentShaftName, setCurrentShaftName] = useState(null)
@@ -116,6 +253,15 @@ export default function PropertiesPanel() {
     [selectedId, updateObject]
   )
 
+  const handleRotate90OnSurface = (bond, deg = 90) => {
+    if (!obj) return
+    const result = objectManager.rotateBondedObjectOnSurface(obj.id, bond, deg)
+    if (!result) return
+    updateObject(obj.id, { position: result.position, rotation: result.rotation })
+    updateBond(bond.id, { relativeMatrix: result.relativeMatrix })
+    snapshot()
+  }
+
   const handleDelete = () => {
     removeObject(selectedId)
     snapshot()
@@ -150,13 +296,18 @@ export default function PropertiesPanel() {
     }
   }
 
-  if (!obj) {
+  // ── Surface patch panel (shown whenever patches are selected, regardless of object) ──
+  if (!obj && selectedPatches.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-4 text-center">
         <div className="text-4xl mb-3 opacity-30">⚙</div>
         <div className="text-sm text-gray-500">Select an object to edit its properties</div>
       </div>
     )
+  }
+
+  if (!obj && selectedPatches.length > 0) {
+    return <SurfacePatchPanel patches={selectedPatches} canAttach={canRigidAttach} onAttach={handleRigidAttach} onRemove={removePatch} onUpdatePatch={updatePatch} objects={objects} />
   }
 
   const rotDeg = {
@@ -167,6 +318,20 @@ export default function PropertiesPanel() {
 
   return (
     <div className="flex flex-col gap-1 p-3 overflow-y-auto">
+      {/* Surface patch panel — shown when patches are selected */}
+      {selectedPatches.length > 0 && (
+        <div className="mb-2 border border-cyan-700/40 rounded overflow-hidden">
+          <SurfacePatchPanel
+            patches={selectedPatches}
+            canAttach={canRigidAttach}
+            onAttach={handleRigidAttach}
+            onRemove={removePatch}
+            onUpdatePatch={updatePatch}
+            objects={objects}
+          />
+        </div>
+      )}
+
       {/* Name */}
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Name</div>
@@ -240,6 +405,54 @@ export default function PropertiesPanel() {
         </div>
       )}
 
+      {/* Rigid bond badges */}
+      {myBonds.map(bond => {
+        const otherId  = bond.parentId === obj.id ? bond.childId : bond.parentId
+        const otherObj = objects.find(o => o.id === otherId)
+        const role     = bond.parentId === obj.id ? 'parent' : 'child'
+        const canRotate = !!(bond.contactLocalNormal && bond.contactLocalCenter)
+        return (
+          <div key={bond.id} className="mb-3 p-2.5 rounded bg-cyan-900/30 border border-cyan-700/40">
+            <div className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold mb-1 flex items-center gap-1">
+              <span>🔗</span> Surface Bond
+              <span className="text-[8px] text-gray-500 normal-case ml-auto">{role}</span>
+            </div>
+            <div className="text-xs text-cyan-200 truncate mb-2">
+              {otherObj?.name ?? '(deleted)'}
+            </div>
+
+            {/* Rotate on surface */}
+            {canRotate && (
+              <div className="mb-2">
+                <div className="text-[9px] text-gray-400 mb-1">Rotate on attached surface</div>
+                <div className="flex gap-1">
+                  {[
+                    { label: '↻ +90°', deg:  90 },
+                    { label: '↺ −90°', deg: -90 },
+                    { label: '180°',   deg: 180 },
+                  ].map(({ label, deg }) => (
+                    <button
+                      key={deg}
+                      onClick={() => handleRotate90OnSurface(bond, deg)}
+                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-200 hover:text-white text-[10px] font-medium rounded transition-colors"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => { removeBond(bond.id); snapshot() }}
+              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-white text-xs rounded transition-colors"
+            >
+              Detach Bond
+            </button>
+          </div>
+        )
+      })}
+
       {/* Transform — hidden while attached (position is managed by Three.js parenting) */}
       {!attachedMotor && (
         <>
@@ -276,14 +489,73 @@ export default function PropertiesPanel() {
               <span>Snap to Axes</span>
             </button>
           </div>
-          <Vec3Input
-            label="Scale"
-            value={obj.scale}
-            onBlurSnapshot={snapshot}
-            onChange={(v) => update({ scale: v })}
-            step={0.1}
-          />
+          {!isElectronics && (
+            <Vec3Input
+              label="Scale"
+              value={obj.scale}
+              onBlurSnapshot={snapshot}
+              onChange={(v) => update({ scale: v })}
+              step={0.1}
+            />
+          )}
         </>
+      )}
+
+      {/* Attachment Point — pick a specific spot on the prop surface */}
+      {isAttachable && !attachedMotor && (
+        <div className="mb-3 border border-orange-700/40 rounded p-2">
+          <div className="text-[10px] text-orange-400 uppercase tracking-wider font-semibold mb-1">
+            ◎ Attachment Point
+          </div>
+          {obj.attachmentOffset ? (
+            <>
+              <div className="text-[9px] text-gray-400 mb-1.5">
+                Point set — orange dot shows where the shaft connects.
+              </div>
+              <button
+                onClick={() => {
+                  updateObject(selectedId, { attachmentOffset: null })
+                  objectManager.clearAttachmentMarker(selectedId)
+                }}
+                className="w-full py-1.5 text-[10px] text-orange-300 bg-orange-900/30 hover:bg-orange-700/40 border border-orange-700/40 rounded transition-colors"
+              >
+                ✕ Clear Attachment Point
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-[9px] text-gray-500 mb-1.5">
+                Click "Pick" then click the exact spot on the prop that should touch the motor shaft.
+              </div>
+              <button
+                onClick={() => attachPointEvents.dispatchEvent(new CustomEvent('startPick', { detail: { id: selectedId } }))}
+                className="w-full py-1.5 text-[10px] text-white bg-orange-700 hover:bg-orange-600 rounded font-medium transition-colors"
+              >
+                ◎ Pick Attachment Point
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Direct attach: prop selected + shift-click on a motor → one-click attach */}
+      {isAttachable && secondaryMotor && (
+        <div className="mb-3 p-2.5 rounded bg-blue-900/30 border border-blue-600/50">
+          <div className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold mb-1">
+            ⚙ Attach to Shaft
+          </div>
+          <div className="text-[9px] text-gray-400 mb-2">
+            Attach <span className="text-white font-medium">{obj.name}</span> to{' '}
+            <span className="text-blue-300 font-medium">{secondaryMotor.name}</span>'s rotating shaft.
+          </div>
+          <button
+            onClick={() => handleAttachToMotor(secondaryMotor.id)}
+            className="w-full py-2 bg-blue-700 hover:bg-blue-600 text-white text-xs font-medium rounded transition-colors"
+          >
+            ✓ Attach to {secondaryMotor.name}
+          </button>
+          <div className="text-[9px] text-gray-600 mt-1">Shift-click a different motor to change target</div>
+        </div>
       )}
 
       {/* Attach to Motor — shown for any non-electronics object that isn't already attached */}

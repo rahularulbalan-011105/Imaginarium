@@ -181,6 +181,48 @@ class SceneManager {
     return id ? objectManager.getMesh(id) : hits[0].object
   }
 
+  // Raycast against one specific object and return the hit point AND face normal
+  // both expressed in that object's local space. Returns null on miss.
+  pickSurfacePoint(event, canvasBounds, targetMesh) {
+    if (!targetMesh || !this.camera) return null
+    const raycaster = new THREE.Raycaster()
+    const mouse = new THREE.Vector2(
+      ((event.clientX - canvasBounds.left) / canvasBounds.width) * 2 - 1,
+      -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1
+    )
+    raycaster.setFromCamera(mouse, this.camera)
+
+    const candidates = []
+    targetMesh.traverse(c => {
+      if (c.isMesh && !c.userData.isPinSphere && !c.userData.isPinLabel && !c.userData.isAttachMarker)
+        candidates.push(c)
+    })
+    const hits = raycaster.intersectObjects(candidates, false)
+    if (!hits.length) return null
+
+    const hit = hits[0]
+
+    // Hit point in targetMesh local space
+    const localPoint = targetMesh.worldToLocal(hit.point.clone())
+
+    // Face normal: hit.face.normal is in the sub-mesh geometry's local space.
+    // Transform → world → targetMesh local so it's expressed relative to the root.
+    let localNormal = null
+    if (hit.face && hit.object.isMesh) {
+      const n = hit.face.normal.clone().normalize()
+      // to world space via the sub-mesh's normal matrix
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)
+      n.applyMatrix3(normalMatrix).normalize()
+      // to targetMesh local space
+      const tq = new THREE.Quaternion()
+      targetMesh.getWorldQuaternion(tq)
+      n.applyQuaternion(tq.invert())
+      localNormal = n
+    }
+
+    return { point: localPoint, normal: localNormal }
+  }
+
   dispose() {
     this.stopLoop()
     this.orbitControls?.dispose()

@@ -105,6 +105,11 @@ export const useSceneStore = create((set, get) => ({
     return obj
   },
 
+  // Insert a fully-formed object (used by paste)
+  insertObject: (obj) => {
+    set((state) => ({ objects: [...state.objects, obj], selectedId: obj.id }))
+  },
+
   clearScene: () => set({ objects: [], selectedId: null, secondaryId: null }),
 
   toggleGrid: () => set((s) => ({ gridVisible: !s.gridVisible })),

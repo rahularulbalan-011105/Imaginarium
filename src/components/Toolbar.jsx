@@ -1,6 +1,7 @@
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useHistory } from '../hooks/useHistory.js'
+import { useSurfaceStore } from '../stores/surfaceStore.js'
 
 const SHAPES = [
   { type: 'box',      label: 'Cube',     icon: '⬛', key: '1' },
@@ -29,8 +30,13 @@ export default function Toolbar() {
   const axesVisible = useSceneStore((s) => s.axesVisible)
   const toggleGrid = useSceneStore((s) => s.toggleGrid)
   const toggleAxes = useSceneStore((s) => s.toggleAxes)
-  const transformMode = useUiStore((s) => s.transformMode)
-  const setTransformMode = useUiStore((s) => s.setTransformMode)
+  const transformMode     = useUiStore((s) => s.transformMode)
+  const setTransformMode  = useUiStore((s) => s.setTransformMode)
+  const surfaceToolActive = useUiStore((s) => s.surfaceToolActive)
+  const setSurfaceTool    = useUiStore((s) => s.setSurfaceTool)
+  const simActive         = useUiStore((s) => s.simActive)
+  const setSimActive      = useUiStore((s) => s.setSimActive)
+  const patchCount        = Object.keys(useSurfaceStore((s) => s.patches)).length
   const { snapshot } = useHistory()
 
   const handleAddShape = (type) => {
@@ -99,6 +105,49 @@ export default function Toolbar() {
             <span className="text-[8px] text-gray-500 leading-none mt-0.5">{label}</span>
           </button>
         ))}
+      </div>
+
+      <div className="w-8 border-t border-gray-700/50 mt-1" />
+
+      {/* Surface patch tool */}
+      <div className="w-full px-1 mt-1">
+        <div className="text-[9px] text-cyan-600 text-center uppercase tracking-wider mb-1">Join</div>
+        <button
+          onClick={() => setSurfaceTool(!surfaceToolActive)}
+          title={surfaceToolActive ? 'Exit surface draw mode' : 'Draw surface patches for face-to-face attachment [hold+drag on any face]'}
+          className={`w-full flex flex-col items-center justify-center py-1.5 rounded text-base transition-colors ${
+            surfaceToolActive
+              ? 'bg-cyan-600 text-white ring-1 ring-cyan-400'
+              : 'text-gray-400 hover:bg-cyan-800/40 hover:text-cyan-300'
+          }`}
+        >
+          <span>⬡</span>
+          <span className="text-[8px] leading-none mt-0.5">Surface</span>
+          {patchCount > 0 && (
+            <span className="text-[8px] text-cyan-400 leading-none">{patchCount}</span>
+          )}
+        </button>
+      </div>
+
+      <div className="w-8 border-t border-gray-700/50 mt-1" />
+
+      {/* Simulate */}
+      <div className="w-full px-1 mt-1">
+        <div className="text-[9px] text-yellow-600 text-center uppercase tracking-wider mb-1">Run</div>
+        <button
+          onClick={() => setSimActive(!simActive)}
+          title={simActive ? 'Exit simulation mode' : 'Enter simulation mode — drive the robot'}
+          className={`w-full flex flex-col items-center justify-center py-2 rounded text-base transition-colors ${
+            simActive
+              ? 'bg-yellow-500 text-gray-900 ring-1 ring-yellow-300 animate-pulse'
+              : 'text-yellow-400 hover:bg-yellow-900/30 hover:text-yellow-300'
+          }`}
+        >
+          <span>{simActive ? '⏹' : '▶'}</span>
+          <span className="text-[8px] leading-none mt-0.5 font-medium">
+            {simActive ? 'Stop' : 'Simulate'}
+          </span>
+        </button>
       </div>
 
       <div className="w-8 border-t border-gray-700/50 mt-1" />
