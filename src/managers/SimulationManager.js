@@ -1,64 +1,44 @@
 import { buildPinToComponentMap } from '../stores/electronicsStore.js'
+import { parseAndTranspile } from '../utils/arduinoParser.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
 
-// Names injected as function parameters — #define for these is skipped to avoid
-// "Identifier already declared" SyntaxError in strict mode.
+// Names that are injected as closure variables — skip any user #define with these
+// names to avoid "Identifier already declared" errors in strict mode.
 const BUILTIN_NAMES = new Set([
   'analogWrite','digitalWrite','pinMode','digitalRead','analogRead',
   'delay','HIGH','LOW','OUTPUT','INPUT',
   'millis','micros','map','constrain',
   'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
   'sin','cos','tan','random','randomSeed','Serial','onRuntimeError',
+  'Servo',
 ])
-
-function transpile(code) {
-  return code
-    // strip #include lines
-    .replace(/^\s*#include\s.*$/gm, '')
-    // #define NAME value → const NAME = value (skip builtins to avoid redeclaration)
-    .replace(/^\s*#define\s+(\w+)\s+(.*?)\s*$/gm, (_, name, val) => {
-      if (BUILTIN_NAMES.has(name)) return ''
-      const jsVal = val.trim().replace(/\b(\d+)[LlUuFf]+\b/g, '$1')
-      return `const ${name} = ${jsVal}`
-    })
-    // strip remaining preprocessor lines
-    .replace(/^\s*#.*$/gm, '')
-    // void setup / void loop → async functions
-    .replace(/\bvoid\s+setup\s*\(\s*\)/g, 'async function setup()')
-    .replace(/\bvoid\s+loop\s*\(\s*\)/g,  'async function loop()')
-    // other void functions
-    .replace(/\bvoid\s+(?!setup\b|loop\b)(\w+\s*\()/g, 'async function $1')
-    // const type declarations → keep const
-    .replace(/\bconst\s+(?:unsigned\s+)?(?:int|float|double|long|byte|char|bool|boolean|uint8_t|uint16_t|uint32_t|int8_t|int16_t|int32_t)\s+/g, 'const ')
-    // plain type declarations → let (must run after const-type)
-    .replace(/\b(?:unsigned\s+)?(?:int|float|double|long|byte|char|bool|boolean|uint8_t|uint16_t|uint32_t|int8_t|int16_t|int32_t)\s+(?=[a-zA-Z_])/g, 'let ')
-    .replace(/\bString\b(?=\s+[a-zA-Z_])/g, 'let ')
-    // delay / delayMicroseconds → await delay
-    .replace(/\bdelay(?:Microseconds)?\s*\(/g, 'await delay(')
-}
 
 class SimulationManager {
   constructor() {
-    this._running        = false
-    this._cancelDelay    = null
-    this._onMotorSpeed   = null
+    this._running         = false
+    this._cancelDelay     = null
+    this._onMotorSpeed    = null
     this._onLedBrightness = null
-    this._onRuntimeError = null
-    this._onSerialOut    = null
-    this._connections    = {}
-    this._objects        = []
-    this.motorSpeeds     = {}
-    this.ledBrightness   = {}
+    this._onServoAngle    = null
+    this._onRuntimeError  = null
+    this._onSerialOut     = null
+    this._connections     = {}
+    this._objects         = []
+    this.motorSpeeds      = {}   // motorId → signed speed −255…+255
+    this._motorTerminals  = {}   // motorId → { A: 0, B: 0 }
+    this.ledBrightness    = {}
+    this.servoAngles      = {}   // servoId → angle 0–180°
   }
 
-  configure(connections, objects, onMotorSpeed, onRuntimeError, onSerialOut, onLedBrightness) {
+  configure(connections, objects, onMotorSpeed, onRuntimeError, onSerialOut, onLedBrightness, onServoAngle) {
     this._connections     = connections
     this._objects         = objects
     this._onMotorSpeed    = onMotorSpeed    ?? null
     this._onRuntimeError  = onRuntimeError  ?? null
     this._onSerialOut     = onSerialOut     ?? null
     this._onLedBrightness = onLedBrightness ?? null
+    this._onServoAngle    = onServoAngle    ?? null
   }
 
   start(code) {
@@ -79,15 +59,37 @@ class SimulationManager {
 
     const _write = (pin, val, isDigital) => {
       if (!self._running) return
-      const comp = pinMap[pin]
-      if (!comp) return
+      const comps = pinMap[pin]
+      if (!comps || comps.length === 0) {
+        console.warn(`[Sim] pin ${pin} written but no component connected — check wire connections`)
+        return
+      }
+      // Raw value is always 0–255 (magnitude of the signal on this pin)
       const value = isDigital ? (val ? 255 : 0) : Math.max(0, Math.min(255, Number(val) || 0))
-      if (MOTOR_TYPES.has(comp.type)) {
-        self.motorSpeeds[comp.id] = value
-        if (self._onMotorSpeed) self._onMotorSpeed(comp.id, value)
-      } else if (comp.type === 'led') {
-        self.ledBrightness[comp.id] = value
-        if (self._onLedBrightness) self._onLedBrightness(comp.id, value)
+      for (const comp of comps) {
+        if (MOTOR_TYPES.has(comp.type)) {
+          // Track each terminal separately so swapping connections reverses direction.
+          // Net speed = TERM_A_value − TERM_B_value  (range −255 … +255)
+          if (!self._motorTerminals[comp.id]) self._motorTerminals[comp.id] = { A: 0, B: 0 }
+          self._motorTerminals[comp.id][comp.terminal || 'A'] = value
+          const { A, B } = self._motorTerminals[comp.id]
+          const net = A - B
+          if (!self._dbgWrites) self._dbgWrites = 0
+          if (++self._dbgWrites <= 20)
+            console.log(`[Sim] pin${pin}=${value} → motor T${comp.terminal}: A=${A} B=${B} net=${net}`)
+          if (A !== 0 && B !== 0 && net === 0)
+            console.warn('[Sim] Motor speed is 0 because TERM_A and TERM_B are BOTH wired to the same pin. Wire TERM_B to GND instead of D' + pin + '.')
+          self.motorSpeeds[comp.id] = net
+          if (self._onMotorSpeed) self._onMotorSpeed(comp.id, net)
+        } else if (comp.type === 'led') {
+          self.ledBrightness[comp.id] = value
+          if (self._onLedBrightness) self._onLedBrightness(comp.id, value)
+        } else if (comp.type === 'servo') {
+          // analogWrite fallback: map 0–255 → 0–180°
+          const angle = Math.round((value / 255) * 180)
+          self.servoAngles[comp.id] = angle
+          if (self._onServoAngle) self._onServoAngle(comp.id, angle)
+        }
       }
     }
 
@@ -133,14 +135,37 @@ class SimulationManager {
       if (self._onRuntimeError) self._onRuntimeError(msg)
     }
 
-    // ── Transpile ─────────────────────────────────────────────────────────────
+    // ── Servo library class ───────────────────────────────────────────────────
+    // `Servo myServo;` transpiles to `let myServo = new Servo()`.
+    // attach(pin) + write(angle) are the two methods users call.
+    class Servo {
+      constructor() { this._pin = -1; this._angle = 90 }
+      attach(pin)   { this._pin = Number(pin) }
+      write(angle) {
+        this._angle = Math.max(0, Math.min(180, Number(angle) || 0))
+        for (const comp of (pinMap[this._pin] || [])) {
+          if (comp.type === 'servo') {
+            self.servoAngles[comp.id] = this._angle
+            if (self._onServoAngle) self._onServoAngle(comp.id, this._angle)
+          }
+        }
+      }
+      writeMicroseconds(us) {
+        this.write(Math.max(0, Math.min(180, ((Number(us) - 500) / 2000) * 180)))
+      }
+      read()     { return this._angle }
+      attached() { return this._pin >= 0 }
+      detach()   { this._pin = -1 }
+    }
 
-    let jsCode
-    try {
-      jsCode = transpile(code)
-    } catch (e) {
+    // ── Parse + transpile ─────────────────────────────────────────────────────
+
+    for (const [pin, comps] of Object.entries(pinMap))
+      console.log(`[Sim] pin ${pin}:`, comps.map(c => `${c.type} T${c.terminal}`).join(', '))
+    const { code: jsCode, error: parseErr } = parseAndTranspile(code, BUILTIN_NAMES)
+    if (parseErr) {
       this._running = false
-      return { error: 'Transpile error: ' + e.message }
+      return { error: 'Parse error: ' + parseErr }
     }
 
     const script = `
@@ -158,7 +183,7 @@ while (true) {
         'delay','HIGH','LOW','OUTPUT','INPUT',
         'millis','micros','map','constrain',
         'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
-        'sin','cos','tan','random','randomSeed','Serial','onRuntimeError',
+        'sin','cos','tan','random','randomSeed','Serial','onRuntimeError','Servo',
         `"use strict";
          return (async () => {
            try { ${script} }
@@ -176,14 +201,12 @@ while (true) {
         delay, HIGH, LOW, OUTPUT, INPUT,
         millis, micros, map, constrain,
         abs, min, max, sq, sqrt, pow, floor, ceil, round, log, exp,
-        sin, cos, tan, random, randomSeed, Serial, onRuntimeError
+        sin, cos, tan, random, randomSeed, Serial, onRuntimeError, Servo
       ).then(() => { self._running = false })
 
     } catch (e) {
       this._running = false
-      let msg = e.message
-      if (msg.includes("'#'")) msg = "Syntax error: unexpected '#' — check for unsupported preprocessor directives"
-      return { error: msg }
+      return { error: e.message }
     }
 
     return null
@@ -191,12 +214,13 @@ while (true) {
 
   stop() {
     this._running = false
-    // Turn off all LEDs before clearing the brightness map
     for (const [id] of Object.entries(this.ledBrightness)) {
       if (this._onLedBrightness) this._onLedBrightness(id, 0)
     }
-    this.motorSpeeds   = {}
-    this.ledBrightness = {}
+    this.motorSpeeds     = {}
+    this._motorTerminals = {}
+    this.ledBrightness   = {}
+    this.servoAngles     = {}
     if (this._cancelDelay) {
       this._cancelDelay()
       this._cancelDelay = null

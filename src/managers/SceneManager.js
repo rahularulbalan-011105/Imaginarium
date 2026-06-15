@@ -97,8 +97,8 @@ class SceneManager {
       this.animationId = requestAnimationFrame(tick)
       this.orbitControls?.update()
       this._updateGizmoScale()
-      wireManager.update()
-      if (this.onAnimationTick) this.onAnimationTick()
+      try { wireManager.update() } catch (_) { /* never block motor tick */ }
+      try { if (this.onAnimationTick) this.onAnimationTick() } catch (e) { console.error('[tick]', e) }
       this.renderer.render(this.scene, this.camera)
     }
     tick()
@@ -176,9 +176,18 @@ class SceneManager {
     const allObjects = objectManager.getAllMeshes().filter(o => !o.userData.isWire)
     const hits = raycaster.intersectObjects(allObjects, true)
     if (hits.length === 0) return null
-    // Resolve child hit → root object (for Groups like arduino/motor)
-    const id = objectManager.resolveId(hits[0].object)
-    return id ? objectManager.getMesh(id) : hits[0].object
+
+    // Prefer non-plane hits — a plane is almost always a floor/surface, and objects
+    // placed on it should be selectable even when their bases touch the plane.
+    const resolve = (hit) => {
+      const id = objectManager.resolveId(hit.object)
+      return id ? objectManager.getMesh(id) : hit.object
+    }
+    for (const hit of hits) {
+      const root = resolve(hit)
+      if (root?.userData.type !== 'plane') return root
+    }
+    return resolve(hits[0])
   }
 
   // Raycast against one specific object and return the hit point AND face normal

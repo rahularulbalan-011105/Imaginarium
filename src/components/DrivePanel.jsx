@@ -1,92 +1,146 @@
-import { useState, useCallback, useEffect } from 'react'
-import { driveManager } from '../managers/DriveManager.js'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { simulationManager } from '../managers/SimulationManager.js'
+import { objectManager } from '../managers/ObjectManager.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
+import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { usePhysicsStore } from '../stores/physicsStore.js'
+import { driveManager } from '../managers/DriveManager.js'
+import { ENVIRONMENTS } from '../managers/physics/EnvironmentConfig.js'
 
-const PRESETS = [
-  { id: 'fwd',  label: '↑', title: 'Forward',     l:  100, r:  100 },
-  { id: 'tl',   label: '↰', title: 'Turn Left',    l:   20, r:  100 },
-  { id: 'tr',   label: '↱', title: 'Turn Right',   l:  100, r:   20 },
-  { id: 'sl',   label: '⟲', title: 'Spin Left',    l: -100, r:  100 },
-  { id: 'sr',   label: '⟳', title: 'Spin Right',   l:  100, r: -100 },
-  { id: 'bwd',  label: '↓', title: 'Backward',     l: -100, r: -100 },
-  { id: 'stop', label: '■', title: 'Stop',         l:    0, r:    0 },
-]
-
-function Btn({ label, title, active, red, onClick }) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`py-1.5 rounded text-sm font-bold transition-colors select-none ${
-        red
-          ? active ? 'bg-red-600 text-white' : 'bg-red-900/60 hover:bg-red-700 text-red-300'
-          : active ? 'bg-cyan-600 text-white' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'
-      }`}
-    >
-      {label}
-    </button>
-  )
-}
+const LEGGED_SPEED = 8     // scene units/s
+const LEGGED_TURN  = 1.8   // rad/s
 
 export default function DrivePanel() {
-  const setSimActive = useUiStore(s => s.setSimActive)
-  const updateObject = useSceneStore(s => s.updateObject)
+  const setSimActive  = useUiStore(s => s.setSimActive)
+  const objects       = useSceneStore(s => s.objects)
+  const code          = useElectronicsStore(s => s.code)
+  const connections   = useElectronicsStore(s => s.connections)
+  const startSim      = useElectronicsStore(s => s.startSimulation)
+  const stopSim       = useElectronicsStore(s => s.stopSimulation)
+  const setMotorSpeed = useElectronicsStore(s => s.setMotorSpeed)
 
-  const [leftVal,      setLeftVal]      = useState(0)
-  const [rightVal,     setRightVal]     = useState(0)
-  const [activePreset, setActivePreset] = useState(null)
-  const [codeRunning,  setCodeRunning]  = useState(false)
+  const environment     = usePhysicsStore(s => s.environment)
+  const setEnvironment  = usePhysicsStore(s => s.setEnvironment)
+  const wind            = usePhysicsStore(s => s.wind)
+  const airDensity      = usePhysicsStore(s => s.airDensity)
+  const gravity         = usePhysicsStore(s => s.gravity)
+  const isLeggedRobot   = usePhysicsStore(s => s.isLeggedRobot)
+  const setLeggedControl = usePhysicsStore(s => s.setLeggedControl)
 
-  // Push slider values into driveManager whenever they change
+  const [running,   setRunning]   = useState(false)
+  const [error,     setError]     = useState(null)
+  const [serialLog, setSerialLog] = useState('')
+  const [robotMass, setRobotMass] = useState(null)
+
+  const keysHeld   = useRef(new Set())
+  const btnsHeld   = useRef(new Set())   // button IDs held via mouse
+
+  // Poll running state
   useEffect(() => {
-    driveManager.manualSpeeds.l = leftVal
-    driveManager.manualSpeeds.r = rightVal
-  }, [leftVal, rightVal])
-
-  // Poll simulation running state for the "code active" badge
-  useEffect(() => {
-    const id = setInterval(() => setCodeRunning(simulationManager.isRunning()), 150)
+    const id = setInterval(() => setRunning(simulationManager.isRunning()), 100)
     return () => clearInterval(id)
   }, [])
 
-  const applyPreset = useCallback((p) => {
-    setLeftVal(p.l)
-    setRightVal(p.r)
-    setActivePreset(p.id)
-    driveManager.manualSpeeds.l = p.l
-    driveManager.manualSpeeds.r = p.r
+  useEffect(() => {
+    const id = setInterval(() => {
+      setRobotMass(driveManager.isActive ? driveManager._totalMass : null)
+    }, 500)
+    return () => clearInterval(id)
   }, [])
 
-  const handleSlider = useCallback((side, val) => {
-    if (side === 'l') setLeftVal(val)
-    else              setRightVal(val)
-    setActivePreset(null)
-  }, [])
+  // ── Legged robot: arrow key controls ────────────────────────────────────────
+  const applyLeggedControl = useCallback(() => {
+    const k = keysHeld.current
+    const b = btnsHeld.current
+    const fwd  = k.has('ArrowUp')    || b.has('fwd')
+    const back = k.has('ArrowDown')  || b.has('back')
+    const left = k.has('ArrowLeft')  || b.has('left')
+    const right= k.has('ArrowRight') || b.has('right')
+    const speed = (fwd ? LEGGED_SPEED : 0) + (back ? -LEGGED_SPEED : 0)
+    const turn  = (left ? LEGGED_TURN : 0) + (right ? -LEGGED_TURN : 0)
+    setLeggedControl(speed, turn)
+  }, [setLeggedControl])
+
+  useEffect(() => {
+    if (!isLeggedRobot) return
+    const onKeyDown = (e) => {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+        e.preventDefault()
+        keysHeld.current.add(e.key)
+        applyLeggedControl()
+      }
+    }
+    const onKeyUp = (e) => {
+      keysHeld.current.delete(e.key)
+      applyLeggedControl()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup',   onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup',   onKeyUp)
+      keysHeld.current.clear()
+      setLeggedControl(0, 0)
+    }
+  }, [isLeggedRobot, applyLeggedControl, setLeggedControl])
+
+  const btnDown = (id) => { btnsHeld.current.add(id);    applyLeggedControl() }
+  const btnUp   = (id) => { btnsHeld.current.delete(id); applyLeggedControl() }
+
+  // ── Wheeled: code run/stop ───────────────────────────────────────────────────
+  const handleRun = useCallback(() => {
+    setError(null)
+    setSerialLog('')
+    simulationManager.configure(
+      connections,
+      objects,
+      setMotorSpeed,
+      (msg) => { setError(msg); stopSim() },
+      (out) => setSerialLog(p => {
+        const next = p + out
+        return next.length > 2000 ? next.slice(next.length - 2000) : next
+      }),
+      (ledId, brightness) => objectManager.animateLed(ledId, brightness),
+    )
+    const err = simulationManager.start(code)
+    if (err) setError(err.error)
+    else     startSim()
+  }, [code, connections, objects, startSim, stopSim, setMotorSpeed])
+
+  const handleStop = useCallback(() => {
+    simulationManager.stop()
+    objectManager.resetAllLeds?.()
+    stopSim()
+    setError(null)
+  }, [stopSim])
 
   const handleExit = useCallback(() => {
-    // Stop any running code before exiting
-    if (simulationManager.isRunning()) simulationManager.stop()
-    driveManager.manualSpeeds = { l: 0, r: 0 }
+    if (simulationManager.isRunning()) { simulationManager.stop(); stopSim() }
     setSimActive(false)
-    // App.jsx effect handles the actual driveManager.exit() call
-  }, [setSimActive])
+  }, [setSimActive, stopSim])
+
+  const hasConnections = Object.keys(connections).length > 0
+  const hasMotors = objects.some(o =>
+    o.type === 'motor' || o.type === 'motor_bo' || o.type === 'motor_dc')
+
+  // Legged robot info from driveManager
+  const legCount  = isLeggedRobot ? (driveManager._leggedSystem?.numLegs ?? 0)  : 0
+  const gaitLabel = isLeggedRobot ? (driveManager._leggedSystem?.gaitType ?? '') : ''
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/97 border-t border-cyan-700/40 shadow-2xl">
+    <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/97 border-t border-yellow-700/40 shadow-2xl">
 
       {/* Title bar */}
       <div className="flex items-center gap-3 px-4 py-1.5 bg-gray-900/80 border-b border-gray-700/40">
-        <span className="text-cyan-400 text-[11px] font-bold tracking-wider">⚙ SIMULATION</span>
-        {codeRunning && (
+        <span className="text-yellow-400 text-[11px] font-bold tracking-wider">
+          {isLeggedRobot ? '🕷 LEGGED SIMULATION' : '⚙ SIMULATION MODE'}
+        </span>
+        {running && !isLeggedRobot && (
           <span className="flex items-center gap-1.5 text-[10px] text-green-400">
             <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse inline-block" />
-            Code driving motors
+            Code running
           </span>
-        )}
-        {!codeRunning && (leftVal !== 0 || rightVal !== 0) && (
-          <span className="text-[10px] text-yellow-400">Manual drive active</span>
         )}
         <button
           onClick={handleExit}
@@ -96,78 +150,157 @@ export default function DrivePanel() {
         </button>
       </div>
 
-      {/* Body */}
-      <div className="flex items-center gap-5 px-5 py-3">
-
-        {/* Motor speed sliders */}
-        <div className="flex-1 min-w-0 space-y-2">
-          <div className="text-[9px] text-gray-500 uppercase tracking-wider mb-1">Manual Motor Speeds</div>
-          {[['L Motor', leftVal, 'l'], ['R Motor', rightVal, 'r']].map(([lbl, val, side]) => (
-            <div key={side} className="flex items-center gap-2">
-              <span className="text-[9px] text-gray-400 w-12 shrink-0">{lbl}</span>
-              <span className="text-[9px] text-gray-600 w-5 text-right">-100</span>
-              <input
-                type="range" min="-100" max="100" step="5" value={val}
-                onChange={e => handleSlider(side, parseInt(e.target.value, 10))}
-                className="flex-1 h-1.5 accent-cyan-400 cursor-pointer"
-              />
-              <span className="text-[9px] text-gray-600 w-5">+100</span>
-              <span className={`text-[10px] font-mono font-bold w-10 text-right shrink-0 ${
-                val > 0 ? 'text-green-400' : val < 0 ? 'text-red-400' : 'text-gray-600'
-              }`}>
-                {val > 0 ? '+' : ''}{val}%
-              </span>
-            </div>
-          ))}
+      {/* Physics status bar */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 bg-gray-950/70 border-b border-gray-800/60 text-[10px]">
+        <div className="flex items-center gap-1.5">
+          <span className="text-gray-500">Environment</span>
+          <select
+            value={environment}
+            onChange={e => setEnvironment(e.target.value)}
+            className="bg-gray-800 text-gray-200 border border-gray-700/60 rounded px-1.5 py-0.5 text-[10px] focus:outline-none cursor-pointer"
+          >
+            {Object.entries(ENVIRONMENTS).map(([key, env]) => (
+              <option key={key} value={key}>{env.label}</option>
+            ))}
+          </select>
         </div>
+        <div className="flex items-center gap-1">
+          <span className="text-gray-500">g =</span>
+          <span className="text-orange-400 font-mono">{Math.abs(gravity).toFixed(2)} m/s²</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-gray-500">ρ =</span>
+          <span className="text-blue-400 font-mono">{airDensity.toFixed(3)} kg/m³</span>
+        </div>
+        {robotMass !== null && (
+          <div className="flex items-center gap-1">
+            <span className="text-gray-500">mass</span>
+            <span className="text-cyan-400 font-mono">{robotMass.toFixed(3)} kg</span>
+          </div>
+        )}
+        {wind.speed > 0 && (
+          <div className="flex items-center gap-1">
+            <span className="text-gray-500">Wind</span>
+            <span className="text-teal-400 font-mono">{wind.speed.toFixed(1)} m/s</span>
+          </div>
+        )}
+      </div>
 
-        <div className="w-px bg-gray-700/50 self-stretch shrink-0" />
+      {/* ── Legged controls ─────────────────────────────────────────────────── */}
+      {isLeggedRobot ? (
+        <div className="flex items-center gap-5 px-4 py-2.5">
+          {/* D-pad */}
+          <div className="shrink-0 grid grid-cols-3 grid-rows-3 gap-1 w-[88px] h-[88px]">
+            <div />
+            <button
+              onMouseDown={() => btnDown('fwd')}  onMouseUp={() => btnUp('fwd')}
+              onMouseLeave={() => btnUp('fwd')}   onTouchStart={() => btnDown('fwd')} onTouchEnd={() => btnUp('fwd')}
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+            >▲</button>
+            <div />
+            <button
+              onMouseDown={() => btnDown('left')} onMouseUp={() => btnUp('left')}
+              onMouseLeave={() => btnUp('left')}  onTouchStart={() => btnDown('left')} onTouchEnd={() => btnUp('left')}
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+            >◄</button>
+            <div className="flex items-center justify-center bg-gray-800/60 rounded text-[9px] text-gray-600">●</div>
+            <button
+              onMouseDown={() => btnDown('right')} onMouseUp={() => btnUp('right')}
+              onMouseLeave={() => btnUp('right')}  onTouchStart={() => btnDown('right')} onTouchEnd={() => btnUp('right')}
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+            >►</button>
+            <div />
+            <button
+              onMouseDown={() => btnDown('back')} onMouseUp={() => btnUp('back')}
+              onMouseLeave={() => btnUp('back')}  onTouchStart={() => btnDown('back')} onTouchEnd={() => btnUp('back')}
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+            >▼</button>
+            <div />
+          </div>
 
-        {/* D-pad preset grid */}
-        <div className="shrink-0">
-          <div className="text-[9px] text-gray-500 uppercase tracking-wider mb-1.5 text-center">Quick Drive</div>
-          {/* Row 1: blank | Forward | blank */}
-          <div className="grid grid-cols-3 gap-1 w-[88px]">
-            <div />
-            <Btn label="↑" title="Forward" active={activePreset === 'fwd'}
-              onClick={() => applyPreset(PRESETS.find(p => p.id === 'fwd'))} />
-            <div />
+          {/* Info / hints */}
+          <div className="flex-1 min-w-0 space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-semibold text-green-400">
+                {legCount > 0 ? `${legCount}-legged robot` : 'Legged robot'}
+              </span>
+              {gaitLabel && (
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-800/50 border border-purple-700/50 text-purple-300 uppercase tracking-wider">
+                  {gaitLabel}
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] text-gray-400 space-y-0.5">
+              <div>Hold <kbd className="px-1 py-0.5 text-[9px] bg-gray-700 rounded">↑↓←→</kbd> arrow keys to walk · buttons above work too</div>
+              <div className="text-gray-500">Gait runs automatically — no code needed</div>
+              {running && (
+                <div className="text-amber-400">Code running · servos may override gait</div>
+              )}
+            </div>
+          </div>
 
-            {/* Row 2: Spin L | ← (turn left) | Spin R  -- using arrows that map: tl=left col, sr=right col */}
-            <Btn label="↰" title="Turn Left"  active={activePreset === 'tl'}
-              onClick={() => applyPreset(PRESETS.find(p => p.id === 'tl'))} />
-            <Btn label="⟲" title="Spin Left"  active={activePreset === 'sl'}
-              onClick={() => applyPreset(PRESETS.find(p => p.id === 'sl'))} />
-            <Btn label="↱" title="Turn Right" active={activePreset === 'tr'}
-              onClick={() => applyPreset(PRESETS.find(p => p.id === 'tr'))} />
-
-            {/* Row 3: ⟳ | Stop | blank */}
-            <Btn label="⟳" title="Spin Right" active={activePreset === 'sr'}
-              onClick={() => applyPreset(PRESETS.find(p => p.id === 'sr'))} />
-            <Btn label="■" title="Stop" red active={activePreset === 'stop'}
-              onClick={() => applyPreset(PRESETS.find(p => p.id === 'stop'))} />
-            <div />
-
-            {/* Row 4: blank | Backward | blank */}
-            <div />
-            <Btn label="↓" title="Backward" active={activePreset === 'bwd'}
-              onClick={() => applyPreset(PRESETS.find(p => p.id === 'bwd'))} />
-            <div />
+          {/* Optional: also allow running code for custom gait algorithms */}
+          <div className="shrink-0 flex flex-col gap-1.5">
+            <button
+              onClick={running ? handleStop : handleRun}
+              disabled={!running && !hasConnections}
+              className={`px-3 py-1.5 rounded text-[10px] font-bold transition-colors ${
+                running
+                  ? 'bg-red-700 hover:bg-red-600 text-white'
+                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed'
+              }`}
+              title={hasConnections ? 'Run custom servo code' : 'No servo connections found'}
+            >
+              {running ? '⏹ Stop Code' : '▶ Run Code'}
+            </button>
+            {error && <div className="text-red-400 text-[9px] max-w-[140px] break-all">{error}</div>}
           </div>
         </div>
 
-        <div className="w-px bg-gray-700/50 self-stretch shrink-0" />
+      ) : (
+        /* ── Wheeled controls ─────────────────────────────────────────────── */
+        <div className="flex items-center gap-5 px-4 py-2.5">
+          <button
+            onClick={running ? handleStop : handleRun}
+            disabled={!running && !hasConnections && !hasMotors}
+            className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-colors ${
+              running
+                ? 'bg-red-700 hover:bg-red-600 text-white'
+                : 'bg-green-700 hover:bg-green-600 text-white disabled:opacity-40 disabled:cursor-not-allowed'
+            }`}
+          >
+            {running ? '⏹ Stop Code' : '▶ Run Code'}
+          </button>
 
-        {/* Code hint */}
-        <div className="shrink-0 text-[9px] text-gray-600 max-w-[140px] space-y-1">
-          <div className="text-gray-400 font-medium text-[10px]">Code-driven mode</div>
-          <div>Write Arduino code in the <span className="text-cyan-400">{'{} Code'}</span> tab then press <span className="text-green-400">▶ Run</span></div>
-          <div className="font-mono text-[8px] text-green-500/80 mt-1">analogWrite(pin, 255);</div>
-          <div className="font-mono text-[8px] text-green-500/80">// 0=stop · 255=full fwd</div>
-          <div className="mt-1 text-gray-700">Sliders take over when code stops</div>
+          <div className="flex-1 min-w-0">
+            {error ? (
+              <div className="text-red-400 text-[10px] font-mono break-all">{error}</div>
+            ) : running ? (
+              <div className="text-[10px] text-gray-400 space-y-0.5">
+                <div>Motors spin · robot drives based on <code className="text-green-400">analogWrite(pin, speed)</code></div>
+                {serialLog && (
+                  <div className="font-mono text-cyan-400/80 truncate">{serialLog.slice(-120)}</div>
+                )}
+              </div>
+            ) : (
+              <div className="text-[10px] text-gray-500 space-y-0.5">
+                {!hasMotors && <div className="text-yellow-500/80">⚠ No motors — add motor_bo or motor_dc</div>}
+                {hasMotors && !hasConnections && <div className="text-yellow-500/80">⚠ Motors not wired to Arduino</div>}
+                {hasMotors && hasConnections && <div>Write Arduino code · click <span className="text-green-400">▶ Run Code</span></div>}
+                <div className="text-gray-600">Both motors forward → straight · one faster → turn</div>
+              </div>
+            )}
+          </div>
+
+          <div className="shrink-0 text-[9px] font-mono text-gray-700 text-right space-y-0.5 border-l border-gray-700/50 pl-4">
+            <div className="text-gray-500 font-sans font-medium mb-1">Quick reference</div>
+            <div><span className="text-blue-400">analogWrite</span>(pin, <span className="text-green-400">255</span>);  <span className="text-gray-600">// full fwd</span></div>
+            <div><span className="text-blue-400">analogWrite</span>(pin, <span className="text-yellow-400">128</span>);  <span className="text-gray-600">// half</span></div>
+            <div><span className="text-blue-400">analogWrite</span>(pin,   <span className="text-red-400">0</span>);  <span className="text-gray-600">// stop</span></div>
+            <div><span className="text-blue-400">delay</span>(<span className="text-orange-400">2000</span>);         <span className="text-gray-600">// 2 s</span></div>
+          </div>
         </div>
-
-      </div>
+      )}
     </div>
   )
 }

@@ -36,6 +36,7 @@ export default function Viewport() {
   const attachments   = useElectronicsStore((s) => s.attachments)
   const attachToMotor = useElectronicsStore((s) => s.attachToMotor)
   const detachFromMotor = useElectronicsStore((s) => s.detachFromMotor)
+  const bonds = useRigidStore((s) => s.bonds)
 
   const surfaceToolActive = useUiStore((s) => s.surfaceToolActive)
   const simActive         = useUiStore((s) => s.simActive)
@@ -220,15 +221,17 @@ export default function Viewport() {
       sceneManager.detachTransform()
       return
     }
-    // Don't attach transform gizmo to objects that are riding a motor rotor
-    if (selectedId && !attachments[selectedId]) {
+    // Don't attach transform gizmo to objects riding a motor rotor or bond-children
+    // (bond-children are positioned relative to their parent via the properties panel)
+    const isBondChild = selectedId && Object.values(bonds).some(b => b.childId === selectedId)
+    if (selectedId && !attachments[selectedId] && !isBondChild) {
       const mesh = objectManager.getMesh(selectedId)
       sceneManager.attachTransformTo(mesh || null)
     } else {
       sceneManager.detachTransform()
     }
     objectManager.setSelectionHighlights(selectedId, secondaryId)
-  }, [selectedId, secondaryId, attachments, simActive])
+  }, [selectedId, secondaryId, attachments, bonds, simActive])
 
   // Sync grid/axes visibility
   useEffect(() => {
@@ -335,6 +338,12 @@ export default function Viewport() {
     }
   }, [])
 
+  const handleContextMenu = useCallback((e) => {
+    if (!initialized.current) return
+    const bounds = canvasRef.current.getBoundingClientRect()
+    wireManager.onContextMenu(e, bounds)
+  }, [])
+
   const handleClick = useCallback(
     (e) => {
       if (!initialized.current || dragging.current) return
@@ -403,6 +412,7 @@ export default function Viewport() {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseLeave}
+        onContextMenu={handleContextMenu}
         onClick={handleClick}
       />
 

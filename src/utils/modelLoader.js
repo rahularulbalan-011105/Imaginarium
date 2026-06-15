@@ -9,13 +9,17 @@ export const MODEL_SCALE_TARGET = {
   motor_bo: 5.0,
   motor_dc: 5.0,
   led:      1.2,
+  servo:    4.0,
 }
 
+const BASE = import.meta.env.BASE_URL
+
 const MODEL_PATHS = {
-  arduino:  '/models/arduino_uno.glb',
-  motor_bo: '/models/motor_bo.glb',
-  motor_dc: '/models/motor_dc.glb',
-  led:      '/models/led.glb',
+  arduino:  `${BASE}models/arduino_uno.glb`,
+  motor_bo: `${BASE}models/motor_bo.glb`,
+  motor_dc: `${BASE}models/motor_dc.glb`,
+  led:      `${BASE}models/led.glb`,
+  servo:    `${BASE}models/servo.glb`,
 }
 
 // module-level cache: name → THREE.Group (scaled & centered) | null (not found)
@@ -82,6 +86,7 @@ export function findRotorNode(group) {
   const ROTOR_KEYWORDS = [
     'rotor','shaft','prop','blade','fan','axle','spinning','rotate',
     'output','spindle','impeller','driveshaft','motor_shaft','gear_shaft',
+    'horn','arm','servo_horn','output_shaft','lever',
   ]
 
   // Pass 1 — name keyword match
@@ -133,7 +138,25 @@ export function findRotorNode(group) {
     if (dist > bestDist) { bestDist = dist; bestMesh = child }
   })
 
-  return bestMesh   // null only if model is a single undivided mesh
+  // Pass 3 — unfiltered fallback: if strict filters rejected everything, pick the
+  // most-protruding non-trivial mesh regardless of size. This catches thin GLB
+  // shafts whose cross-section is smaller than 3.5 % of the model diagonal.
+  if (!bestMesh) {
+    let fallbackDist = -Infinity
+    group.traverse(child => {
+      if (!child.isMesh) return
+      child.updateMatrixWorld(true)
+      const fb  = new THREE.Box3().setFromObject(child)
+      const sz  = fb.getSize(new THREE.Vector3())
+      if (sz.x * sz.y * sz.z < 1e-6) return  // skip degenerate/zero-size mesh
+      const ctr = fb.getCenter(new THREE.Vector3())
+      const d   = ctr.distanceTo(modelCenter) / modelDiag
+      if (d < 0.05) return                    // skip meshes at the absolute centre
+      if (d > fallbackDist) { fallbackDist = d; bestMesh = child }
+    })
+  }
+
+  return bestMesh   // null only if model is a single undivided mesh or all centre
 }
 
 // Detect the primary spin axis of a rotor node (longest world-space dimension)

@@ -33,12 +33,19 @@ export const LED_PINS = {
   CATHODE: { x: 0,  y: -0.55, z: -0.12, color: 0x333333, type: 'gnd',   label: '−' },
 }
 
+export const SERVO_PINS = {
+  SIGNAL:  { x: -2.2, y: 0.4, z:  0.4, color: 0xff8800, type: 'pwm',   label: 'SIG' },
+  VCC:     { x: -2.2, y: 0.4, z:  0,   color: 0xff2222, type: 'power', label: 'VCC' },
+  GND:     { x: -2.2, y: 0.4, z: -0.4, color: 0x222222, type: 'gnd',   label: 'GND' },
+}
+
 export const PIN_DEFS = {
   arduino:  ARDUINO_PINS,
   motor:    MOTOR_PINS,
   motor_bo: MOTOR_PINS,
   motor_dc: MOTOR_PINS,
   led:      LED_PINS,
+  servo:    SERVO_PINS,
 }
 
 const PIN_SPHERE_R = 0.17
@@ -50,6 +57,7 @@ const LABEL_OFFSET = {
   motor_bo: { dx: -0.85, dy: 0, dz: 0 },
   motor_dc: { dx: -0.85, dy: 0, dz: 0 },
   led:      { dx: -0.6,  dy: 0, dz: 0 },
+  servo:    { dx: -0.85, dy: 0, dz: 0 },
 }
 
 // Create a canvas-texture sprite label for a pin
@@ -401,6 +409,7 @@ function buildMotorProcedural() {
 
   root.add(rotorGroup)
   root.userData.rotorGroup = rotorGroup
+  root.userData.rotorAxis  = 'x'   // shaft lies along X (rotation.z = π/2 above)
 
   root.traverse(c => { c.castShadow = true; c.receiveShadow = true })
   return root
@@ -475,34 +484,217 @@ function buildLEDProcedural(color) {
   return root
 }
 
+// ─── Servo ───────────────────────────────────────────────────────────────────
+
+export function createServoGroup() {
+  const glbScene = cloneModel('servo')
+  if (glbScene) return buildServoFromGLB(glbScene)
+  return buildServoProcedural()
+}
+
+function buildServoFromGLB(scene) {
+  const root = new THREE.Group()
+  root.add(scene)
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  root.updateMatrixWorld(true)
+
+  // Pass 1 — keyword match on mesh name
+  let rotorNode = null
+  root.traverse(c => {
+    if (!rotorNode && c.isMesh) {
+      const n = c.name.toLowerCase()
+      if (['horn','arm','servo_horn','output_shaft','output','lever','rotor','shaft','gear'].some(k => n.includes(k)))
+        rotorNode = c
+    }
+  })
+
+  // Pass 2 — geometric: topmost non-body mesh (output shaft / horn sits on top)
+  if (!rotorNode) {
+    root.updateMatrixWorld(true)
+    const meshes = []
+    root.traverse(c => { if (c.isMesh) { c.updateMatrixWorld(true); meshes.push(c) } })
+
+    if (meshes.length > 1) {
+      // Body = largest-volume mesh
+      let maxVol = 0, bodyMesh = null
+      for (const c of meshes) {
+        const s = new THREE.Box3().setFromObject(c).getSize(new THREE.Vector3())
+        const vol = s.x * s.y * s.z
+        if (vol > maxVol) { maxVol = vol; bodyMesh = c }
+      }
+      // Among the rest, take the one with the highest Y bounding-box center
+      let topY = -Infinity
+      for (const c of meshes) {
+        if (c === bodyMesh) continue
+        const cy = new THREE.Box3().setFromObject(c).getCenter(new THREE.Vector3()).y
+        if (cy > topY) { topY = cy; rotorNode = c }
+      }
+    } else if (meshes.length === 1) {
+      rotorNode = meshes[0]
+    }
+  }
+
+  if (rotorNode) {
+    // Servo output shaft always spins around Y.
+    // Use a pivot wrapper so the horn rotates around its own bounding-box center
+    // (not around some arbitrary mesh local origin from the GLB export).
+    _setupServoPivot(root, rotorNode)
+  } else {
+    root.userData.rotorMesh  = null
+    root.userData.rotorGroup = null
+    root.userData.rotorAxis  = 'y'
+  }
+  root.userData.isServo = true
+  return root
+}
+
+// Creates a pivot Group centred on the horn mesh and reparents the horn into it.
+// Rotating pivotGroup.rotation.y spins the horn around the output shaft axis.
+function _setupServoPivot(root, rotorNode) {
+  root.updateMatrixWorld(true)
+  rotorNode.updateMatrixWorld(true)
+
+  // World-space bounding box centre of the horn → convert to root-local
+  const worldCenter = new THREE.Box3().setFromObject(rotorNode).getCenter(new THREE.Vector3())
+  const localCenter = worldCenter.clone().applyMatrix4(
+    new THREE.Matrix4().copy(root.matrixWorld).invert()
+  )
+
+  // Snapshot the horn's world transform before reparenting
+  const worldMat = rotorNode.matrixWorld.clone()
+  rotorNode.removeFromParent()
+
+  // Pivot group at horn centre (child of root)
+  const pivot = new THREE.Group()
+  pivot.position.copy(localCenter)
+  root.add(pivot)
+  pivot.add(rotorNode)
+  pivot.updateMatrixWorld(true)
+
+  // Restore horn's local transform relative to the new pivot
+  const localMat = new THREE.Matrix4().copy(pivot.matrixWorld).invert().multiply(worldMat)
+  const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3()
+  localMat.decompose(p, q, s)
+  rotorNode.position.copy(p)
+  rotorNode.quaternion.copy(q)
+  rotorNode.scale.copy(s)
+
+  // rotorMesh = null so animateServo only rotates the pivot group, not the mesh twice
+  root.userData.rotorMesh        = null
+  root.userData.rotorGroup       = pivot
+  root.userData.rotorAxis        = 'y'
+  root.userData.currentRotorName = rotorNode.name
+}
+
+function buildServoProcedural() {
+  const root = new THREE.Group()
+
+  // Body
+  const body = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 1.6, 3.0),
+    mat(0x2a3540, { metalness: 0.3, roughness: 0.6 })
+  )
+  root.add(body)
+
+  // Top mounting flange
+  const flange = new THREE.Mesh(
+    new THREE.BoxGeometry(2.9, 0.22, 1.1),
+    mat(0x1e2830, { metalness: 0.4 })
+  )
+  flange.position.set(0, 0.9, 0.5)
+  root.add(flange)
+
+  // Output shaft housing
+  const housing = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.45, 0.45, 0.35, 16),
+    mat(0x111111, { metalness: 0.6 })
+  )
+  housing.position.set(0, 1.0, 0.4)
+  root.add(housing)
+
+  // Horn group (rotates to servo angle)
+  const hornGroup = new THREE.Group()
+  hornGroup.position.set(0, 1.25, 0.4)
+
+  const hub = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.2, 0.2, 0.1, 16),
+    mat(0xeeeeee, { metalness: 0.2 })
+  )
+  hornGroup.add(hub)
+
+  // Cross arms
+  const armH = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.1, 0.2), mat(0xfafafa))
+  hornGroup.add(armH)
+  const armV = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.1, 1.6), mat(0xfafafa))
+  hornGroup.add(armV)
+
+  // Small circles at arm tips
+  for (const [px, pz] of [[0.8,0],[-0.8,0],[0,0.8],[0,-0.8]]) {
+    const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.12, 8), mat(0xdddddd))
+    dot.position.set(px, 0, pz)
+    hornGroup.add(dot)
+  }
+
+  root.add(hornGroup)
+  root.userData.rotorGroup = hornGroup
+  root.userData.rotorMesh  = hornGroup
+  root.userData.rotorAxis  = 'y'
+  root.userData.isServo    = true
+
+  // Wire connector block
+  const conn = new THREE.Mesh(
+    new THREE.BoxGeometry(0.7, 0.6, 1.4),
+    mat(0x111111, { metalness: 0.4 })
+  )
+  conn.position.set(-1.6, 0.1, 0)
+  root.add(conn)
+
+  // Three wires: orange (signal), red (VCC), brown (GND)
+  for (const [i, color] of [[0, 0xff6600], [1, 0xff2222], [2, 0x332200]]) {
+    const wire = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.06, 0.06, 0.7, 8),
+      mat(color)
+    )
+    wire.rotation.z = Math.PI / 2
+    wire.position.set(-2.05, 0.1, (i - 1) * 0.4)
+    root.add(wire)
+  }
+
+  root.traverse(c => { c.castShadow = true; c.receiveShadow = true })
+  return root
+}
+
 // ─── Wire helpers (unchanged) ─────────────────────────────────────────────────
 
-export function buildWireControlPoints(from, to, sagFactor = 0.28, midOverride = null) {
-  const mid = midOverride
-    ? midOverride.clone()
-    : from.clone().lerp(to, 0.5).setY(
-        Math.min(from.y, to.y) - Math.max(from.distanceTo(to) * sagFactor, 0.4)
-      )
+export function buildWireControlPoints(from, to, _unused = 0, midOverride = null) {
+  if (midOverride) return [from.clone(), midOverride.clone(), to.clone()]
+  const mid = from.clone().lerp(to, 0.5)
+  const d   = from.distanceTo(to)
+  // Arch above the highest pin so wires never clip through geometry
+  mid.y = Math.max(from.y, to.y) + Math.min(d * 0.14, 1.2) + 0.35
   return [from.clone(), mid, to.clone()]
 }
 
+const WIRE_RADIUS   = 0.045  // tube radius in scene units
+const WIRE_RADSEGS  = 5      // polygon sides (pentagonal cross-section — cheap but round-looking)
+
 export function buildWireLine(controlPoints, color, segments = 60) {
-  const { CatmullRomCurve3, BufferGeometry, LineBasicMaterial, Line } = THREE
-  const curve = new CatmullRomCurve3(controlPoints)
-  const pts   = curve.getPoints(segments)
-  const geo   = new BufferGeometry().setFromPoints(pts)
-  const mtr   = new LineBasicMaterial({ color })
-  const line  = new Line(geo, mtr)
-  line.userData.isWire = true
+  const curve = new THREE.CatmullRomCurve3(controlPoints)
+  const geo   = new THREE.TubeGeometry(curve, segments, WIRE_RADIUS, WIRE_RADSEGS, false)
+  const mtr   = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.1 })
+  const line  = new THREE.Mesh(geo, mtr)
+  line.userData.isWire     = true
   line.userData.isWireLine = true
   return { line, curve }
 }
 
 export function rebuildWireLine(line, controlPoints, segments = 60) {
-  const curve = new THREE.CatmullRomCurve3(controlPoints)
-  const pts   = curve.getPoints(segments)
-  line.geometry.setFromPoints(pts)
-  line.geometry.attributes.position.needsUpdate = true
+  // Skip degenerate curves (start === end or all points collapsed) — TubeGeometry
+  // would compute zero-length tangents, producing NaN normals and potentially throwing.
+  if (controlPoints[0].distanceTo(controlPoints[controlPoints.length - 1]) < 0.001) return
+  const curve  = new THREE.CatmullRomCurve3(controlPoints)
+  line.geometry.dispose()
+  line.geometry = new THREE.TubeGeometry(curve, segments, WIRE_RADIUS, WIRE_RADSEGS, false)
   return curve
 }
 

@@ -1,11 +1,13 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
-import { createGeometry, createMaterial } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup } from '../utils/electronicsFactory.js'
+import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup } from '../utils/geometryFactory.js'
+import { createArduinoGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup } from '../utils/electronicsFactory.js'
 import { wireManager } from './WireManager.js'
 
-const ELECTRONICS = new Set(['arduino', 'motor', 'motor_bo', 'motor_dc', 'led'])
-const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
+const ELECTRONICS  = new Set(['arduino', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
+const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc'])
+// Types that expose a rotorGroup for prop attachment (motors + servos)
+const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo'])
 
 class ObjectManager {
   constructor() {
@@ -16,6 +18,9 @@ class ObjectManager {
     this.wires = new Map()
     // objectId → motorId  (mesh is a child of that motor's rotorGroup)
     this.attachedObjects = new Map()
+    // Gear animation state (survives propagateAllBonds overwriting rotations)
+    this._gearTotalAngles = new Map()  // id → cumulative rotation since sim start
+    this._gearFrameDeltas = new Map()  // id → delta just for this frame
   }
 
   init(scene) {
@@ -37,6 +42,18 @@ class ObjectManager {
       object3d = createMotorGroup()
     } else if (obj.type === 'led') {
       object3d = createLEDGroup(obj.color)
+    } else if (obj.type === 'servo') {
+      object3d = createServoGroup()
+    } else if (obj.type === 'gear') {
+      const geo = createSpurGearGeometry({
+        teeth: obj.teeth ?? 12, module: obj.module ?? 0.25, faceWidth: obj.faceWidth ?? 0.5,
+      })
+      const mat = createMaterial(obj.color, obj.material)
+      object3d = new THREE.Mesh(geo, mat)
+    } else if (obj.type === 'bolt') {
+      object3d = createBoltGroup(obj.color)
+    } else if (obj.type === 'screw') {
+      object3d = createScrewGroup(obj.color)
     } else if (obj.type === 'csg' && obj.geometryJSON) {
       const geo = new BufferGeometryLoader().parse(obj.geometryJSON)
       const mat = createMaterial(obj.color, obj.material)
@@ -45,6 +62,7 @@ class ObjectManager {
       const geo = createGeometry(obj.type)
       const mat = createMaterial(obj.color, obj.material)
       object3d = new THREE.Mesh(geo, mat)
+      if (obj.deform?.bend) applyBendDeform(geo, obj.deform.bend, obj.deform.bendAxis ?? 'y')
     }
 
     object3d.userData.id = obj.id
@@ -90,18 +108,40 @@ class ObjectManager {
       o.userData.attachmentOffset = obj.attachmentOffset
     }
 
-    // Non-electronics: update material color
+    // Non-electronics: update material color + bend deform
     if (!ELECTRONICS.has(obj.type) && obj.type !== 'csg') {
-      if (o.material) {
-        o.material.color.set(obj.color)
-        if (obj.material && o.material.userData.matType !== obj.material) {
+      // Update color on all mesh children (handles Mesh and Group for bolt/screw)
+      o.traverse(child => {
+        if (!child.isMesh || !child.material) return
+        child.material.color.set(obj.color)
+        if (obj.material && child.material.userData.matType !== obj.material) {
           const newMat = createMaterial(obj.color, obj.material)
           newMat.userData.matType = obj.material
-          o.material.dispose()
-          o.material = newMat
+          child.material.dispose()
+          child.material = newMat
+        }
+      })
+      // Gear: rebuild geometry when parameters change
+      if (obj.type === 'gear' && o.geometry) {
+        const t = obj.teeth ?? 12, m = obj.module ?? 0.25, fw = obj.faceWidth ?? 0.5, b = obj.bore ?? 0
+        const ud = o.geometry.userData
+        if (ud._gt !== t || ud._gm !== m || ud._gfw !== fw || ud._gb !== b) {
+          o.geometry.dispose()
+          o.geometry = createSpurGearGeometry({ teeth: t, module: m, faceWidth: fw, bore: b })
+          Object.assign(o.geometry.userData, { _gt: t, _gm: m, _gfw: fw, _gb: b })
         }
       }
+      if (o.geometry && obj.deform?.bend !== undefined) {
+        applyBendDeform(o.geometry, obj.deform.bend ?? 0, obj.deform.bendAxis ?? 'y')
+      }
     }
+  }
+
+  // Apply bend deformation directly to the mesh geometry (used by PropertiesPanel for live preview)
+  setBend(id, angleDeg, axis = 'y') {
+    const o = this.objects.get(id)
+    if (!o || !o.geometry) return
+    applyBendDeform(o.geometry, angleDeg, axis)
   }
 
   _applyTransform(o, obj) {
@@ -272,7 +312,7 @@ class ObjectManager {
     mesh.getWorldPosition(objPos)
 
     for (const [id, motorMesh] of this.objects) {
-      if (!MOTOR_TYPES.has(motorMesh.userData.type)) continue
+      if (!SHAFT_TYPES.has(motorMesh.userData.type)) continue
       if (!motorMesh.userData.rotorGroup) continue
       if (id === objectId) continue
 
@@ -283,7 +323,7 @@ class ObjectManager {
     return null
   }
 
-  // Returns the motorId of the motor whose centre is closest to objectId.
+  // Returns the motorId / servoId whose centre is closest to objectId.
   findNearestMotor(objectId) {
     const mesh = this.objects.get(objectId)
     if (!mesh) return null
@@ -295,7 +335,7 @@ class ObjectManager {
     let nearestDist = Infinity
 
     for (const [id, motorMesh] of this.objects) {
-      if (!MOTOR_TYPES.has(motorMesh.userData.type)) continue
+      if (!SHAFT_TYPES.has(motorMesh.userData.type)) continue
       if (!motorMesh.userData.rotorGroup) continue
       if (id === objectId) continue
 
@@ -307,18 +347,154 @@ class ObjectManager {
     return nearestId
   }
 
+  // Compute child's relative transform (flat Matrix4 array) given its new world
+  // position/rotation and the parent's current world matrix. Used to keep bond
+  // relativeMatrix in sync when a bonded child is repositioned via the UI.
+  computeChildRelativeMatrix(parentId, childWorldPos, childWorldRot) {
+    const parentMesh = this.objects.get(parentId)
+    if (!parentMesh) return null
+    parentMesh.updateMatrixWorld(true)
+    const pos  = new THREE.Vector3(childWorldPos.x, childWorldPos.y, childWorldPos.z)
+    const quat = new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(childWorldRot.x, childWorldRot.y, childWorldRot.z)
+    )
+    const childMat = new THREE.Matrix4().compose(pos, quat, new THREE.Vector3(1, 1, 1))
+    return parentMesh.matrixWorld.clone().invert().multiply(childMat).toArray()
+  }
+
   // ── Motor animation ───────────────────────────────────────────────────────
 
-  // Called every frame from SceneManager. speed = 0-255
+  // Called every frame. speed is signed: −255…+255.
+  // Positive = forward spin, negative = reverse spin.
   animateMotor(id, speed) {
     const o = this.objects.get(id)
     if (!o) return
-    const radsPerFrame = (speed / 255) * (Math.PI * 2 * 4) / 60
+    const clamped = Math.max(-255, Math.min(255, speed))
+    const radsPerFrame = (clamped / 255) * (Math.PI * 2 * 4) / 60
     const axis = o.userData.rotorAxis ?? 'y'
-    // Spin the physical shaft mesh (visual)
-    if (o.userData.rotorMesh) o.userData.rotorMesh.rotation[axis] += radsPerFrame
-    // Spin the virtual attachment group (carries props)
+    if (o.userData.rotorMesh)  o.userData.rotorMesh.rotation[axis]  += radsPerFrame
     if (o.userData.rotorGroup) o.userData.rotorGroup.rotation[axis] += radsPerFrame
+  }
+
+  // Called when a Servo.write(angle) executes. angle = 0–180°.
+  // Maps write(90) → 0 rad so the horn stays at the model's neutral (export) position.
+  // write(0) → -π/2, write(180) → +π/2  (full ±90° sweep around neutral).
+  animateServo(id, angle) {
+    const o = this.objects.get(id)
+    if (!o) return
+    const clamped = Math.max(0, Math.min(180, angle))
+    const rad = ((clamped - 90) / 90) * (Math.PI / 2)
+    const axis = o.userData.rotorAxis ?? 'y'
+    if (o.userData.rotorMesh)  o.userData.rotorMesh.rotation[axis]  = rad
+    if (o.userData.rotorGroup) o.userData.rotorGroup.rotation[axis] = rad
+  }
+
+  // Rotate a free (un-attached) gear by a delta in radians around its local Y axis.
+  // Clear per-gear angle tracking — call when entering or exiting simulation.
+  resetGearAngles() {
+    this._gearTotalAngles.clear()
+    this._gearFrameDeltas.clear()
+  }
+
+  // Drive the gear chain for all gears attached to running motors.
+  // Accumulates deltas into _gearTotalAngles / _gearFrameDeltas;
+  // call applyGearRotations(bonds) AFTER propagateAllBonds each frame.
+  stepGearChains(motorSpeeds, meshPairs, objects, attachments) {
+    if (!meshPairs || meshPairs.length === 0) return
+    this._gearFrameDeltas.clear()
+    for (const [gearId, motorId] of Object.entries(attachments)) {
+      const gearObj = objects.find(o => o.id === gearId)
+      if (!gearObj || gearObj.type !== 'gear') continue
+      const speed = Math.max(-255, Math.min(255, motorSpeeds[motorId] ?? 0))
+      if (speed === 0) continue
+      const radsPerFrame = (speed / 255) * (Math.PI * 2 * 4) / 60
+      this._driveGearChain(gearId, radsPerFrame, gearObj.teeth ?? 12, meshPairs, objects, new Set([gearId]))
+    }
+  }
+
+  _driveGearChain(driverId, delta, driverTeeth, meshPairs, objects, visited) {
+    for (const pair of meshPairs) {
+      let drivenId = null
+      if      (pair.gearAId === driverId && !visited.has(pair.gearBId)) drivenId = pair.gearBId
+      else if (pair.gearBId === driverId && !visited.has(pair.gearAId)) drivenId = pair.gearAId
+      if (!drivenId) continue
+      const drivenObj = objects.find(o => o.id === drivenId)
+      if (!drivenObj || drivenObj.type !== 'gear') continue
+      const drivenTeeth = drivenObj.teeth ?? 12
+      const drivenDelta = -(driverTeeth / drivenTeeth) * delta
+      // Accumulate — applyGearRotations handles the actual mesh update after propagateAllBonds
+      this._gearTotalAngles.set(drivenId, (this._gearTotalAngles.get(drivenId) ?? 0) + drivenDelta)
+      this._gearFrameDeltas.set(drivenId, (this._gearFrameDeltas.get(drivenId) ?? 0) + drivenDelta)
+      visited.add(drivenId)
+      this._driveGearChain(drivenId, drivenDelta, drivenTeeth, meshPairs, objects, visited)
+    }
+  }
+
+  // Apply accumulated gear rotations after propagateAllBonds has run.
+  // Bond-child gears get the full cumulative angle (propBonds resets them each frame).
+  // Free gears get only this frame's delta (their prior rotation is already in the mesh).
+  applyGearRotations(bonds) {
+    if (this._gearFrameDeltas.size === 0) return
+    const bondChildSet = new Set((bonds ?? []).map(b => b.childId))
+    for (const [id, frameDelta] of this._gearFrameDeltas) {
+      const o = this.objects.get(id)
+      if (!o) continue
+      if (bondChildSet.has(id)) {
+        // propBonds reset this gear's rotation to bond-base this frame;
+        // re-apply the full cumulative spin so it keeps rotating.
+        o.rotation.y += this._gearTotalAngles.get(id) ?? frameDelta
+      } else {
+        // Free gear — propBonds didn't touch it; just add this frame's delta.
+        o.rotation.y += frameDelta
+      }
+    }
+  }
+
+  rebuildGear(id, { teeth = 12, module: mod = 0.25, faceWidth = 0.5, bore = 0 } = {}) {
+    const mesh = this.objects.get(id)
+    if (!mesh || !mesh.geometry) return
+    mesh.geometry.dispose()
+    mesh.geometry = createSpurGearGeometry({ teeth, module: mod, faceWidth, bore })
+    Object.assign(mesh.geometry.userData, { _gt: teeth, _gm: mod, _gfw: faceWidth, _gb: bore })
+  }
+
+  // Propagate all rigid bonds every animation frame so bond-children always follow
+  // their parents — during editing, simulation, and drive mode.
+  // Must be called AFTER motor/servo animation so parent matrices are current.
+  // Bonds are sorted topologically so A→B→C chains update in the right order.
+  propagateAllBonds(bonds) {
+    if (!bonds || bonds.length === 0) return
+    const childSet = new Set(bonds.map(b => b.childId))
+    // Bonds whose parent is itself a bond-child must be processed after their parent bond
+    const sorted = [...bonds].sort((a, b) =>
+      (childSet.has(a.parentId) ? 1 : 0) - (childSet.has(b.parentId) ? 1 : 0)
+    )
+    const _pos  = new THREE.Vector3()
+    const _quat = new THREE.Quaternion()
+    const _scl  = new THREE.Vector3()
+    const _rel  = new THREE.Matrix4()
+    const _inv  = new THREE.Matrix4()
+    for (const bond of sorted) {
+      const parentMesh = this.objects.get(bond.parentId)
+      const childMesh  = this.objects.get(bond.childId)
+      if (!parentMesh || !childMesh) continue
+      parentMesh.updateMatrixWorld(true)
+      _rel.fromArray(bond.relativeMatrix)
+      // World-space target for the child
+      const worldMat = parentMesh.matrixWorld.clone().multiply(_rel)
+      // If the child lives inside a group (e.g. drive rootGroup), convert the
+      // world-space matrix into that group's local space before applying.
+      const cp = childMesh.parent
+      if (cp && cp !== this.scene) {
+        cp.updateMatrixWorld(true)
+        _inv.copy(cp.matrixWorld).invert()
+        worldMat.premultiply(_inv)
+      }
+      worldMat.decompose(_pos, _quat, _scl)
+      childMesh.position.copy(_pos)
+      childMesh.quaternion.copy(_quat)
+      childMesh.updateMatrixWorld(true)
+    }
   }
 
   // Called from simulation tick or on stop. brightness = 0-255
@@ -393,8 +569,8 @@ class ObjectManager {
     const o = this.objects.get(id)
     if (!o) return
 
-    // Motor deleted → detach any objects riding its rotor back to the scene
-    if (MOTOR_TYPES.has(o.userData.type)) {
+    // Motor/servo deleted → detach any objects riding its rotor back to the scene
+    if (SHAFT_TYPES.has(o.userData.type)) {
       for (const [attachedId, motorId] of this.attachedObjects) {
         if (motorId === id) this.detachMeshFromRotor(attachedId)
       }

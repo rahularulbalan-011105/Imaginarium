@@ -16,7 +16,7 @@ export function snapRotationToAxes(rotation) {
   return { x: snap(rotation.x), y: snap(rotation.y), z: snap(rotation.z) }
 }
 
-export function buildProjectSnapshot(sceneState) {
+export function buildProjectSnapshot(sceneState, electronicsState) {
   return {
     projectId: sceneState.projectId,
     name: sceneState.projectName,
@@ -28,5 +28,10 @@ export function buildProjectSnapshot(sceneState) {
       gridVisible: sceneState.gridVisible,
       axesVisible: sceneState.axesVisible,
     },
+    electronics: electronicsState ? {
+      connections: electronicsState.connections,
+      code: electronicsState.code,
+      attachments: electronicsState.attachments,
+    } : undefined,
   }
 }

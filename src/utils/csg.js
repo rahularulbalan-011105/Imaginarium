@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { Evaluator, Brush, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg'
 import { objectManager } from '../managers/ObjectManager.js'
 
@@ -58,6 +59,15 @@ export function runBoolean(idA, idB, operation) {
 
     const result = evaluator.evaluate(source, cutter, op)
     result.geometry.computeBoundingBox()
+
+    // Center the geometry at its bounding-box midpoint and record that center as the
+    // mesh's world position.  Without this the CSG mesh sits at (0,0,0) with
+    // world-space vertex coordinates, so the transform gizmo appears at the scene
+    // origin instead of at the combined shape.
+    const center = new THREE.Vector3()
+    result.geometry.boundingBox.getCenter(center)
+    result.geometry.translate(-center.x, -center.y, -center.z)
+
     const geometryJSON = result.geometry.toJSON()
 
     // Dispose only what we created — never touch the original mesh materials.
@@ -69,7 +79,11 @@ export function runBoolean(idA, idB, operation) {
     matA.dispose()
     matB.dispose()
 
-    return { geometryJSON, color: resultColor }
+    return {
+      geometryJSON,
+      color:    resultColor,
+      position: { x: center.x, y: center.y, z: center.z },
+    }
   } catch (err) {
     console.error('[CSG] Boolean operation failed:', err?.message ?? err)
     return null

@@ -1,9 +1,26 @@
 import { useSceneStore } from '../stores/sceneStore.js'
+import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { wireManager } from '../managers/WireManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 
 const TYPE_ICONS = {
-  box: '⬛', sphere: '🔵', cylinder: '🔷',
-  cone: '🔺', torus: '⭕', plane: '▬', csg: '🔷',
+  cylinder: '⬤', cone: '🔺', box: '⬛', sphere: '🔵',
+  tetrahedron: '△', pyramid: '▲', pentpyramid: '⛛',
+  octahedron: '◈', dodecahedron: '⬡', rectprism: '▭',
+  csg: '🔷',
+}
+
+function pinLabel(pinId) {
+  if (!pinId) return '?'
+  const parts = pinId.split(':')
+  return parts.length >= 2 ? parts[1] : pinId
+}
+
+function componentName(pinId, objects) {
+  if (!pinId) return '?'
+  const compId = pinId.split(':')[0]
+  const obj = objects.find(o => o.id === compId)
+  return obj ? obj.name : compId.slice(0, 8)
 }
 
 export default function ObjectList() {
@@ -15,6 +32,7 @@ export default function ObjectList() {
   const clearSelection = useSceneStore((s) => s.clearSelection)
   const removeObject = useSceneStore((s) => s.removeObject)
   const updateObject = useSceneStore((s) => s.updateObject)
+  const connections = useElectronicsStore((s) => s.connections)
   const { snapshot } = useHistory()
 
   const handleRowClick = (e, id) => {
@@ -36,6 +54,12 @@ export default function ObjectList() {
   const handleToggleVisible = (e, obj) => {
     e.stopPropagation()
     updateObject(obj.id, { visible: !obj.visible })
+  }
+
+  const connEntries = Object.entries(connections)
+
+  const handleDeleteWire = (connId) => {
+    wireManager.removeWire(connId)
   }
 
   if (objects.length === 0) {
@@ -98,6 +122,42 @@ export default function ObjectList() {
           </div>
         )
       })}
+
+      {/* ── Wire connections list ── */}
+      {connEntries.length > 0 && (
+        <div className="border-t border-gray-700/60 mt-1">
+          <div className="text-[10px] text-yellow-500/80 uppercase tracking-wider px-3 py-2 border-b border-gray-700/50 flex items-center gap-1">
+            <span>⚡</span> Connections ({connEntries.length})
+          </div>
+          {connEntries.map(([connId, { fromPinId, toPinId }]) => (
+            <div
+              key={connId}
+              className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800/40 group hover:bg-gray-800/40 transition-colors"
+            >
+              <span className="text-[10px] text-yellow-400/70 font-mono shrink-0">
+                {componentName(fromPinId, objects)}
+              </span>
+              <span className="text-[9px] text-gray-500 font-mono bg-gray-800 px-1 rounded shrink-0">
+                {pinLabel(fromPinId)}
+              </span>
+              <span className="text-gray-600 text-[9px] shrink-0">→</span>
+              <span className="text-[10px] text-yellow-400/70 font-mono shrink-0">
+                {componentName(toPinId, objects)}
+              </span>
+              <span className="text-[9px] text-gray-500 font-mono bg-gray-800 px-1 rounded shrink-0">
+                {pinLabel(toPinId)}
+              </span>
+              <button
+                onClick={() => handleDeleteWire(connId)}
+                title="Remove wire"
+                className="ml-auto opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 text-xs px-1 py-0.5 rounded hover:bg-gray-700 transition-all shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

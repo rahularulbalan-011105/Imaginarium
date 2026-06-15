@@ -73,7 +73,7 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
       }
 
       const name = `${OP_NAMES[opId]}_${objA.name}_${objB.name}`
-      addCSGObject(name, result.geometryJSON, result.color)
+      addCSGObject(name, result.geometryJSON, result.color, result.position)
 
       // Remove the two source objects then snapshot the post-operation state
       removeObject(selectedId)

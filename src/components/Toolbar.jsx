@@ -4,18 +4,16 @@ import { useHistory } from '../hooks/useHistory.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 
 const SHAPES = [
-  { type: 'box',      label: 'Cube',     icon: '⬛', key: '1' },
-  { type: 'sphere',   label: 'Sphere',   icon: '🔵', key: '2' },
-  { type: 'cylinder', label: 'Cylinder', icon: '🔷', key: '3' },
-  { type: 'cone',     label: 'Cone',     icon: '🔺', key: '4' },
-  { type: 'torus',    label: 'Torus',    icon: '⭕', key: '5' },
-  { type: 'plane',    label: 'Plane',    icon: '▬',  key: '6' },
-  { type: 'capsule',  label: 'Capsule',  icon: '💊', key: '7' },
-  { type: 'pyramid',  label: 'Pyramid',  icon: '△',  key: '8' },
-  { type: 'prism',    label: 'Prism',    icon: '▷',  key: '9' },
-  { type: 'diamond',  label: 'Diamond',  icon: '◇',  key: '0' },
-  { type: 'hexagon',  label: 'Hexagon',  icon: '⬡',  key: '' },
-  { type: 'star',     label: 'Star',     icon: '✦',  key: '' },
+  { type: 'cylinder',    label: 'Cylinder',   icon: '⬤', key: '1' },
+  { type: 'cone',        label: 'Cone',        icon: '🔺', key: '2' },
+  { type: 'box',         label: 'Cube',        icon: '⬛', key: '3' },
+  { type: 'sphere',      label: 'Sphere',      icon: '🔵', key: '4' },
+  { type: 'tetrahedron', label: 'Tetrahedron', icon: '△',  key: '5' },
+  { type: 'pyramid',     label: 'Sq Pyramid',  icon: '▲',  key: '6' },
+  { type: 'pentpyramid', label: 'Pent Pyramid',icon: '⛛', key: '7' },
+  { type: 'octahedron',  label: 'Octahedron',  icon: '◈',  key: '8' },
+  { type: 'dodecahedron',label: 'Dodecahedron',icon: '⬡',  key: '9' },
+  { type: 'rectprism',   label: 'Rect Prism',  icon: '▭',  key: '0' },
 ]
 
 const TRANSFORM_MODES = [
@@ -94,12 +92,35 @@ export default function Toolbar() {
           { type: 'motor_bo', label: 'Motor BO', icon: '⚙'  },
           { type: 'motor_dc', label: 'Motor DC', icon: '🔧' },
           { type: 'led',      label: 'LED',      icon: '💡' },
+          { type: 'servo',    label: 'Servo',    icon: '🔩' },
         ].map(({ type, label, icon }) => (
           <button
             key={type}
             onClick={() => handleAddShape(type)}
             title={`Add ${label}`}
             className="w-full flex flex-col items-center justify-center py-1.5 rounded text-lg text-gray-300 hover:bg-green-700/30 hover:text-white transition-colors"
+          >
+            <span>{icon}</span>
+            <span className="text-[8px] text-gray-500 leading-none mt-0.5">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="w-8 border-t border-gray-700/50 mt-1" />
+
+      {/* Mechanical parts */}
+      <div className="w-full px-1 mt-1">
+        <div className="text-[9px] text-orange-600 text-center uppercase tracking-wider mb-1">Mech</div>
+        {[
+          { type: 'gear',  label: 'Gear',  icon: '⚙' },
+          { type: 'bolt',  label: 'Bolt',  icon: '⬡' },
+          { type: 'screw', label: 'Screw', icon: '⊛' },
+        ].map(({ type, label, icon }) => (
+          <button
+            key={type}
+            onClick={() => handleAddShape(type)}
+            title={`Add ${label}`}
+            className="w-full flex flex-col items-center justify-center py-1.5 rounded text-lg text-gray-300 hover:bg-orange-700/30 hover:text-white transition-colors"
           >
             <span>{icon}</span>
             <span className="text-[8px] text-gray-500 leading-none mt-0.5">{label}</span>

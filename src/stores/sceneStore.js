@@ -11,28 +11,39 @@ export const useSceneStore = create((set, get) => ({
   axesVisible: true,
   projectId: uuidv4(),
   projectName: 'Untitled Project',
+  // IDs of objects explicitly detached from a motor/servo — excluded from the robot drive group.
+  standaloneIds: [],
+  markStandalone:   (id) => set(s => ({ standaloneIds: [...s.standaloneIds.filter(i => i !== id), id] })),
+  unmarkStandalone: (id) => set(s => ({ standaloneIds: s.standaloneIds.filter(i => i !== id) })),
 
   addObject: (type, position) => {
-    const isElectronics = ['arduino', 'motor', 'motor_bo', 'motor_dc', 'led'].includes(type)
+    const isElectronics = ['arduino', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'].includes(type)
+    const mechTypes = ['gear', 'bolt', 'screw']
+    const isMech = mechTypes.includes(type)
     const count = get().objects.filter(o => o.type === type).length
     const defaultPos = type === 'arduino'  ? { x: count * 8 - 4, y: 0.15, z: -5 }
       : type === 'motor_bo'               ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'motor_dc'               ? { x: count * 8 - 4, y: 0.15, z: 8  }
       : type === 'motor'                  ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'led'                    ? { x: count * 3 - 3, y: 0.15, z: 0  }
+      : type === 'servo'                  ? { x: count * 5 - 4, y: 0.15, z: 3  }
       : { x: 0, y: 1, z: 0 }
     const pos = position ?? defaultPos
-    const color = isElectronics ? '#556677' : PALETTE[paletteIdx++ % PALETTE.length]
+    const color = isElectronics ? '#556677'
+      : isMech                  ? '#9ca3af'
+      : PALETTE[paletteIdx++ % PALETTE.length]
     const displayCount = count + 1
+    const gearDefaults = type === 'gear' ? { teeth: 12, module: 0.25, faceWidth: 0.5, bore: 0 } : {}
     const obj = {
       id: uuidv4(),
       name: `${type.charAt(0).toUpperCase() + type.slice(1)}_${displayCount}`,
       type,
+      ...gearDefaults,
       position: { ...pos },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
       color,
-      material: 'standard',
+      material: isMech ? 'metallic' : 'standard',
       visible: true,
       metadata: {
         createdAt: new Date().toISOString(),
@@ -110,7 +121,7 @@ export const useSceneStore = create((set, get) => ({
     set((state) => ({ objects: [...state.objects, obj], selectedId: obj.id }))
   },
 
-  clearScene: () => set({ objects: [], selectedId: null, secondaryId: null }),
+  clearScene: () => set({ objects: [], selectedId: null, secondaryId: null, standaloneIds: [] }),
 
   toggleGrid: () => set((s) => ({ gridVisible: !s.gridVisible })),
   toggleAxes: () => set((s) => ({ axesVisible: !s.axesVisible })),

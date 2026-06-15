@@ -3,6 +3,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
+import { useGearStore } from '../stores/gearStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { r3, radToDeg, degToRad, snapRotationToAxes } from '../utils/helpers.js'
@@ -136,12 +137,13 @@ function SurfacePatchPanel({ patches, canAttach, onAttach, onRemove, onUpdatePat
 }
 
 export default function PropertiesPanel() {
-  const selectedId  = useSceneStore((s) => s.selectedId)
-  const secondaryId = useSceneStore((s) => s.secondaryId)
-  const objects = useSceneStore((s) => s.objects)
-  const updateObject = useSceneStore((s) => s.updateObject)
-  const removeObject = useSceneStore((s) => s.removeObject)
+  const selectedId      = useSceneStore((s) => s.selectedId)
+  const secondaryId     = useSceneStore((s) => s.secondaryId)
+  const objects         = useSceneStore((s) => s.objects)
+  const updateObject    = useSceneStore((s) => s.updateObject)
+  const removeObject    = useSceneStore((s) => s.removeObject)
   const duplicateObject = useSceneStore((s) => s.duplicateObject)
+  const markStandalone  = useSceneStore((s) => s.markStandalone)
   const { snapshot } = useHistory()
 
   const attachments     = useElectronicsStore((s) => s.attachments)
@@ -149,10 +151,11 @@ export default function PropertiesPanel() {
   const attachToMotor   = useElectronicsStore((s) => s.attachToMotor)
 
   // Surface patch state
-  const patches          = useSurfaceStore((s) => s.patches)
-  const selectedPatchIds = useSurfaceStore((s) => s.selectedIds)
-  const removePatch      = useSurfaceStore((s) => s.removePatch)
-  const updatePatch      = useSurfaceStore((s) => s.updatePatch)
+  const patches             = useSurfaceStore((s) => s.patches)
+  const selectedPatchIds    = useSurfaceStore((s) => s.selectedIds)
+  const removePatch         = useSurfaceStore((s) => s.removePatch)
+  const updatePatch         = useSurfaceStore((s) => s.updatePatch)
+  const clearPatchSelection = useSurfaceStore((s) => s.clearPatchSelection)
 
   // Rigid bond state
   const bonds      = useRigidStore((s) => s.bonds)
@@ -160,16 +163,44 @@ export default function PropertiesPanel() {
   const removeBond = useRigidStore((s) => s.removeBond)
   const updateBond = useRigidStore((s) => s.updateBond)
 
+  // Gear mesh pair state
+  const meshPairs    = useGearStore(s => s.meshPairs)
+  const addMeshPair  = useGearStore(s => s.addMeshPair)
+  const removeMeshPair = useGearStore(s => s.removeMeshPair)
+
   const selectedPatches = selectedPatchIds.map(id => patches[id]).filter(Boolean)
   const canRigidAttach  = selectedPatches.length === 2 &&
     selectedPatches[0].objectId !== selectedPatches[1].objectId
 
+  // Recursively propagate a parent-move to all bonded children (and their children).
+  const cascadeBonds = (parentId, currentBonds) => {
+    Object.values(currentBonds).forEach(bond => {
+      if (bond.parentId !== parentId) return
+      const r = objectManager.propagateBond(parentId, bond.relativeMatrix, true, bond.childId)
+      if (r) { updateObject(bond.childId, r); cascadeBonds(bond.childId, currentBonds) }
+    })
+  }
+
   const handleRigidAttach = () => {
-    const [pA, pB] = selectedPatches
+    let [pA, pB] = selectedPatches
+
+    // Auto-swap: the object that is already a parent (has bonded children) should
+    // stay fixed as pA. If pB is the host and pA is the new piece being placed,
+    // moving pB would drag all its existing children along with it — making them
+    // appear to detach. Swap so the host is always pA (fixed) and the new piece pB.
+    const pBIsParent = Object.values(bonds).some(b => b.parentId === pB.objectId)
+    const pAIsParent = Object.values(bonds).some(b => b.parentId === pA.objectId)
+    if (pBIsParent && !pAIsParent) [pA, pB] = [pB, pA]
+
     const result = objectManager.attachBySurface(pA, pB)
     if (result) {
       updateObject(pB.objectId, { position: result.position, rotation: result.rotation })
+      // Move children already bonded to pB so they stay in place relative to it
+      cascadeBonds(pB.objectId, bonds)
       addBond(pA.objectId, pB.objectId, result.relativeMatrix, pA.localNormal, pA.localCenter)
+      // Clear patch selection so stale patches from this operation don't bleed
+      // into the next attach via the 2-slot rolling window in toggleSelectPatch.
+      clearPatchSelection()
       snapshot()
     }
   }
@@ -180,20 +211,26 @@ export default function PropertiesPanel() {
   const attachedMotorId = obj ? (attachments[obj.id] ?? null) : null
   const attachedMotor   = attachedMotorId ? objects.find(o => o.id === attachedMotorId) : null
 
-  const MOTOR_TYPES   = ['motor', 'motor_bo', 'motor_dc']
-  const isMotor       = obj && MOTOR_TYPES.includes(obj.type)
-  const isElectronics = obj && (MOTOR_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'led')
+  const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc']
+  const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'servo']
+  const isMotor      = obj && MOTOR_TYPES.includes(obj.type)
+  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'led')
 
-  // Secondary selection: shift-click on a motor to get a direct Attach button
-  const secondaryObj   = objects.find(o => o.id === secondaryId) ?? null
-  const secondaryMotor = secondaryObj && MOTOR_TYPES.includes(secondaryObj.type) ? secondaryObj : null
+  // Secondary selection: shift-click on a motor or servo → direct Attach button
+  const secondaryObj    = objects.find(o => o.id === secondaryId) ?? null
+  const secondaryShaft  = secondaryObj && SHAFT_TYPES.includes(secondaryObj.type) ? secondaryObj : null
 
-  // Whether this object can be attached to a motor shaft
+  // Whether this object can be attached to a motor/servo shaft
   const isAttachable = obj && !attachedMotor && !isElectronics
 
-  // Scene-wide motors list (for the general attach dropdown)
-  const motors    = objects.filter(o => MOTOR_TYPES.includes(o.type))
-  const canAttach = isAttachable && !secondaryMotor && motors.length > 0
+  // Scene-wide shaft targets (motors + servos that have a valid rotorGroup)
+  const shaftTargets = objects.filter(o =>
+    SHAFT_TYPES.includes(o.type) && objectManager.getMesh(o.id)?.userData.rotorGroup
+  )
+  const canAttach = isAttachable && !secondaryShaft && shaftTargets.length > 0
+
+  // Helper: human-readable label for a shaft target
+  const shaftLabel = (target) => target?.type === 'servo' ? 'Servo Horn' : 'Motor Shaft'
 
   // Rigid bonds involving the currently selected object
   const myBonds = obj
@@ -249,8 +286,21 @@ export default function PropertiesPanel() {
     (updates) => {
       if (!selectedId) return
       updateObject(selectedId, updates)
+      // Keep bond relativeMatrix in sync when the bonded child is repositioned
+      if (updates.position || updates.rotation) {
+        const childBond = Object.values(bonds).find(b => b.childId === selectedId)
+        if (childBond) {
+          const cur  = objects.find(o => o.id === selectedId)
+          const pos  = updates.position ?? cur?.position
+          const rot  = updates.rotation ?? cur?.rotation
+          if (pos && rot) {
+            const relMat = objectManager.computeChildRelativeMatrix(childBond.parentId, pos, rot)
+            if (relMat) updateBond(childBond.id, { relativeMatrix: relMat })
+          }
+        }
+      }
     },
-    [selectedId, updateObject]
+    [selectedId, updateObject, bonds, objects, updateBond]
   )
 
   const handleRotate90OnSurface = (bond, deg = 90) => {
@@ -259,6 +309,8 @@ export default function PropertiesPanel() {
     if (!result) return
     updateObject(obj.id, { position: result.position, rotation: result.rotation })
     updateBond(bond.id, { relativeMatrix: result.relativeMatrix })
+    // Move any children bonded to obj so they follow it after rotation
+    cascadeBonds(obj.id, bonds)
     snapshot()
   }
 
@@ -276,6 +328,7 @@ export default function PropertiesPanel() {
     if (!selectedId) return
     const worldPos = objectManager.detachMeshFromRotor(selectedId)
     detachFromMotor(selectedId)
+    markStandalone(selectedId)   // prevent this object from re-joining the drive group
     if (worldPos) {
       updateObject(selectedId, {
         position: { x: worldPos.x, y: worldPos.y, z: worldPos.z },
@@ -347,7 +400,7 @@ export default function PropertiesPanel() {
       {attachedMotor && (
         <div className="mb-3 p-2.5 rounded bg-green-900/30 border border-green-700/40">
           <div className="text-[10px] text-green-400 uppercase tracking-wider font-semibold mb-1">
-            Attached to Rotor
+            Attached to {shaftLabel(attachedMotor)}
           </div>
           <div className="text-xs text-green-300 truncate mb-2">{attachedMotor.name}</div>
 
@@ -400,7 +453,7 @@ export default function PropertiesPanel() {
             onClick={handleDetach}
             className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-white text-xs rounded transition-colors"
           >
-            Detach from Motor
+            Detach from {shaftLabel(attachedMotor)}
           </button>
         </div>
       )}
@@ -420,6 +473,34 @@ export default function PropertiesPanel() {
             <div className="text-xs text-cyan-200 truncate mb-2">
               {otherObj?.name ?? '(deleted)'}
             </div>
+
+            {/* Fine position — X/Y/Z world-space inputs for the bond child */}
+            {role === 'child' && (
+              <div className="mb-2">
+                <div className="text-[9px] text-gray-400 mb-1">Position (world)</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {['x','y','z'].map(axis => {
+                    const childObj = objects.find(o => o.id === bond.childId)
+                    return (
+                      <div key={axis} className="relative">
+                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">{axis}</span>
+                        <input
+                          type="number"
+                          step={0.1}
+                          value={r3(childObj?.position?.[axis] ?? 0)}
+                          onBlur={snapshot}
+                          onChange={e => {
+                            const v = parseFloat(e.target.value)
+                            if (!isNaN(v)) update({ position: { ...childObj?.position, [axis]: v } })
+                          }}
+                          className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Rotate on surface */}
             {canRotate && (
@@ -538,33 +619,33 @@ export default function PropertiesPanel() {
         </div>
       )}
 
-      {/* Direct attach: prop selected + shift-click on a motor → one-click attach */}
-      {isAttachable && secondaryMotor && (
+      {/* Direct attach: prop selected + shift-click on a motor/servo → one-click attach */}
+      {isAttachable && secondaryShaft && (
         <div className="mb-3 p-2.5 rounded bg-blue-900/30 border border-blue-600/50">
           <div className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold mb-1">
-            ⚙ Attach to Shaft
+            ⚙ Attach to {shaftLabel(secondaryShaft)}
           </div>
           <div className="text-[9px] text-gray-400 mb-2">
             Attach <span className="text-white font-medium">{obj.name}</span> to{' '}
-            <span className="text-blue-300 font-medium">{secondaryMotor.name}</span>'s rotating shaft.
+            <span className="text-blue-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
           </div>
           <button
-            onClick={() => handleAttachToMotor(secondaryMotor.id)}
+            onClick={() => handleAttachToMotor(secondaryShaft.id)}
             className="w-full py-2 bg-blue-700 hover:bg-blue-600 text-white text-xs font-medium rounded transition-colors"
           >
-            ✓ Attach to {secondaryMotor.name}
+            ✓ Attach to {secondaryShaft.name}
           </button>
-          <div className="text-[9px] text-gray-600 mt-1">Shift-click a different motor to change target</div>
+          <div className="text-[9px] text-gray-600 mt-1">Shift-click a different motor or servo to change target</div>
         </div>
       )}
 
-      {/* Attach to Motor — shown for any non-electronics object that isn't already attached */}
+      {/* Attach to Motor/Servo — shown for any non-electronics object that isn't already attached */}
       {canAttach && (
         <div className="mb-3">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Motor Attachment</div>
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Shaft Attachment</div>
           {/* Snap position picker */}
           <div className="mb-2">
-            <div className="text-[9px] text-gray-500 mb-1">Snap to shaft position:</div>
+            <div className="text-[9px] text-gray-500 mb-1">Snap to shaft/horn position:</div>
             <div className="flex gap-1">
               {[['Tip', 'tip'], ['Mid', 'mid'], ['Base', 'base']].map(([label, key]) => (
                 <button
@@ -611,22 +692,22 @@ export default function PropertiesPanel() {
                : 'Object center placed at snap position'}
             </div>
           </div>
-          {motors.length === 1 ? (
+          {shaftTargets.length === 1 ? (
             <button
-              onClick={() => handleAttachToMotor(motors[0].id)}
+              onClick={() => handleAttachToMotor(shaftTargets[0].id)}
               className="w-full py-1.5 bg-blue-900/40 hover:bg-blue-700/60 border border-blue-700/50 text-blue-300 hover:text-white text-xs rounded transition-colors"
             >
-              ⚙ Attach to {motors[0].name}
+              ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
           ) : (
             <div className="flex flex-col gap-1">
-              {motors.map(m => (
+              {shaftTargets.map(m => (
                 <button
                   key={m.id}
                   onClick={() => handleAttachToMotor(m.id)}
                   className="w-full py-1.5 bg-blue-900/40 hover:bg-blue-700/60 border border-blue-700/50 text-blue-300 hover:text-white text-xs rounded transition-colors"
                 >
-                  ⚙ Attach to {m.name}
+                  ⚙ Attach to {m.name} ({shaftLabel(m)})
                 </button>
               ))}
             </div>
@@ -706,6 +787,193 @@ export default function PropertiesPanel() {
           ))}
         </div>
       </div>
+
+      {/* Gear parameters — only for gear objects */}
+      {obj.type === 'gear' && (() => {
+        const teeth     = obj.teeth     ?? 12
+        const gearMod   = obj.module    ?? 0.25
+        const faceWidth = obj.faceWidth ?? 0.5
+        const bore      = obj.bore      ?? 0
+        const pitchR    = (teeth * gearMod) / 2
+        const myPairs   = meshPairs.filter(p => p.gearAId === selectedId || p.gearBId === selectedId)
+        const meshedIds = new Set(myPairs.map(p => p.gearAId === selectedId ? p.gearBId : p.gearAId))
+        const otherGears = objects.filter(o => o.type === 'gear' && o.id !== selectedId && !meshedIds.has(o.id))
+
+        const rebuild = (t, m, fw, b) => {
+          objectManager.rebuildGear(selectedId, { teeth: t, module: m, faceWidth: fw, bore: b })
+        }
+
+        return (
+          <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
+            <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Gear</div>
+
+            {/* Teeth */}
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[9px] text-gray-400 w-14 shrink-0">Teeth</span>
+              <input type="range" min={6} max={48} step={1}
+                value={teeth}
+                onChange={e => { const v = +e.target.value; updateObject(selectedId, { teeth: v }); rebuild(v, gearMod, faceWidth, bore) }}
+                className="flex-1 accent-orange-500"
+              />
+              <span className="text-[10px] text-white w-6 text-right">{teeth}</span>
+            </div>
+
+            {/* Module */}
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[9px] text-gray-400 w-14 shrink-0">Module</span>
+              <input type="range" min={0.1} max={0.6} step={0.05}
+                value={gearMod}
+                onChange={e => { const v = +e.target.value; updateObject(selectedId, { module: v }); rebuild(teeth, v, faceWidth, bore) }}
+                className="flex-1 accent-orange-500"
+              />
+              <span className="text-[10px] text-white w-8 text-right">{gearMod.toFixed(2)}</span>
+            </div>
+
+            {/* Face width */}
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[9px] text-gray-400 w-14 shrink-0">Width</span>
+              <input type="range" min={0.1} max={2.0} step={0.1}
+                value={faceWidth}
+                onChange={e => { const v = +e.target.value; updateObject(selectedId, { faceWidth: v }); rebuild(teeth, gearMod, v, bore) }}
+                className="flex-1 accent-orange-500"
+              />
+              <span className="text-[10px] text-white w-8 text-right">{faceWidth.toFixed(1)}</span>
+            </div>
+
+            {/* Bore hole — 0 = solid (no hole), >0 = shaft hole as fraction of root radius */}
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[9px] text-gray-400 w-14 shrink-0">Bore</span>
+              <input type="range" min={0} max={0.8} step={0.05}
+                value={bore}
+                onChange={e => { const v = +e.target.value; updateObject(selectedId, { bore: v }); rebuild(teeth, gearMod, faceWidth, v) }}
+                className="flex-1 accent-orange-500"
+              />
+              <span className="text-[10px] text-white w-8 text-right">{bore === 0 ? 'none' : bore.toFixed(2)}</span>
+            </div>
+
+            <div className="text-[9px] text-gray-600 mb-2">
+              Pitch ⌀ {(pitchR * 2).toFixed(2)} u · {teeth} teeth
+            </div>
+
+            {/* Gear mesh pairs */}
+            <div className="text-[9px] text-gray-400 mb-1">Meshed with</div>
+            {myPairs.length === 0 && (
+              <div className="text-[9px] text-gray-600 mb-1 italic">No connections</div>
+            )}
+            {myPairs.map(pair => {
+              const otherId  = pair.gearAId === selectedId ? pair.gearBId : pair.gearAId
+              const otherObj = objects.find(o => o.id === otherId)
+              const ratio    = ((otherObj?.teeth ?? 12) / teeth).toFixed(2)
+              return (
+                <div key={pair.id}
+                  className="flex items-center gap-1 mb-1 bg-gray-900/60 rounded px-2 py-1 text-[9px]"
+                >
+                  <span className="text-orange-300 flex-1 truncate">{otherObj?.name ?? 'Deleted'}</span>
+                  <span className="text-gray-500">×{ratio}</span>
+                  <button onClick={() => removeMeshPair(pair.id)}
+                    className="text-red-500 hover:text-red-400 ml-1 text-[11px] leading-none"
+                  >×</button>
+                </div>
+              )
+            })}
+
+            {otherGears.length > 0 && (
+              <select
+                onChange={e => { if (e.target.value) { addMeshPair(selectedId, e.target.value); e.target.value = '' } }}
+                defaultValue=""
+                className="w-full mt-1 bg-gray-900 border border-orange-700/40 rounded text-[9px] text-gray-300 px-2 py-1 focus:outline-none cursor-pointer"
+              >
+                <option value="">+ Mesh with…</option>
+                {otherGears.map(g => (
+                  <option key={g.id} value={g.id}>{g.name} ({g.teeth ?? 12}t)</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )
+      })()}
+
+      {/* Bend / Deform — only for primitive geometry */}
+      {!isElectronics && obj.type !== 'csg' && (
+        <div className="mb-3">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1.5">Bend</div>
+          {/* Axis selector */}
+          <div className="flex gap-1 mb-2">
+            {['x', 'y', 'z'].map(axis => (
+              <button
+                key={axis}
+                onClick={() => {
+                  const angle = obj.deform?.bend ?? 0
+                  update({ deform: { bend: angle, bendAxis: axis } })
+                  objectManager.setBend(obj.id, angle, axis)
+                }}
+                className={`flex-1 py-1 rounded text-[10px] uppercase font-semibold border transition-colors ${
+                  (obj.deform?.bendAxis ?? 'y') === axis
+                    ? 'bg-purple-700/60 border-purple-500 text-white'
+                    : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+                }`}
+              >
+                {axis}
+              </button>
+            ))}
+          </div>
+          {/* Angle slider */}
+          <input
+            type="range"
+            min={-180}
+            max={180}
+            step={1}
+            value={obj.deform?.bend ?? 0}
+            onChange={e => {
+              const angle = parseFloat(e.target.value)
+              const axis  = obj.deform?.bendAxis ?? 'y'
+              update({ deform: { bend: angle, bendAxis: axis } })
+              objectManager.setBend(obj.id, angle, axis)
+            }}
+            onMouseUp={snapshot}
+            className="w-full mb-1.5 cursor-pointer accent-purple-500"
+            style={{ height: '4px' }}
+          />
+          {/* Numeric input + reset */}
+          <div className="flex items-center gap-1.5">
+            <input
+              type="number"
+              min={-180}
+              max={180}
+              step={1}
+              value={obj.deform?.bend ?? 0}
+              onChange={e => {
+                const angle = parseFloat(e.target.value)
+                if (!isNaN(angle)) {
+                  const axis = obj.deform?.bendAxis ?? 'y'
+                  update({ deform: { bend: angle, bendAxis: axis } })
+                  objectManager.setBend(obj.id, angle, axis)
+                }
+              }}
+              onBlur={snapshot}
+              className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-purple-500"
+            />
+            <span className="text-[9px] text-gray-500 shrink-0">°</span>
+            {(obj.deform?.bend ?? 0) !== 0 && (
+              <button
+                onClick={() => {
+                  const axis = obj.deform?.bendAxis ?? 'y'
+                  update({ deform: { bend: 0, bendAxis: axis } })
+                  objectManager.setBend(obj.id, 0, axis)
+                  snapshot()
+                }}
+                title="Reset bend to straight"
+                className="shrink-0 text-[9px] text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-red-900/30 transition-colors"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="text-[9px] text-gray-600 mt-1">
+            Axis = which direction the object extends · angle = total arc
+          </div>
+        </div>
+      )}
 
       {/* Visibility */}
       <div className="mb-3 flex items-center justify-between">

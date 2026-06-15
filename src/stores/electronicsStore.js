@@ -34,7 +34,8 @@ export const useElectronicsStore = create((set, get) => ({
 
   simulation: {
     running: false,
-    motorSpeeds: {},  // motorComponentId → 0-255
+    motorSpeeds: {},   // motorComponentId → 0-255
+    servoAngles: {},   // servoComponentId → 0-180
   },
 
   // objectId → motorId  (geometry objects physically attached to a motor's rotor shaft)
@@ -91,6 +92,10 @@ export const useElectronicsStore = create((set, get) => ({
 
   clearAttachments: () => set({ attachments: {} }),
 
+  // ── bulk restore (used when loading a saved project) ─────────────────────
+  setConnections: (connections) => set({ connections }),
+  setAttachments: (attachments) => set({ attachments }),
+
   // ── code ─────────────────────────────────────────────────────────────────
   setCode: (code) => set({ code }),
 
@@ -103,11 +108,19 @@ export const useElectronicsStore = create((set, get) => ({
       },
     })),
 
+  setServoAngle: (servoId, angle) =>
+    set(s => ({
+      simulation: {
+        ...s.simulation,
+        servoAngles: { ...s.simulation.servoAngles, [servoId]: angle },
+      },
+    })),
+
   startSimulation: () =>
     set(s => ({ simulation: { ...s.simulation, running: true } })),
 
   stopSimulation: () =>
-    set(() => ({ simulation: { running: false, motorSpeeds: {} } })),
+    set(() => ({ simulation: { running: false, motorSpeeds: {}, servoAngles: {} } })),
 }))
 
 // ── Helpers for SimulationManager ────────────────────────────────────────────
@@ -119,15 +132,17 @@ export function pinNameToNumber(pinName) {
 }
 
 // Terminals that indicate the component receives a signal (not GND/power returns)
-const SIGNAL_TERMINALS = ['TERM', 'ANODE']
+const SIGNAL_TERMINALS = ['TERM', 'ANODE', 'SIGNAL']
 
-// Given connections + scene objects, build pin-number → { id, type } lookup.
-// Handles motors (TERM_A/B) and LEDs (ANODE/CATHODE).
+// Given connections + scene objects, build pin-number → component lookup.
+// For motors, `terminal` is 'A' (TERM_A) or 'B' (TERM_B).
+// Net motor speed = TERM_A_value − TERM_B_value, so swapping connections reverses direction.
+// Returns pin → [{ id, type, terminal }, ...] so multiple components on the same pin all fire.
 export function buildPinToComponentMap(connections, objects) {
   const byId = {}
   for (const o of objects) byId[o.id] = o
 
-  const map = {}
+  const map = {}   // pin → [{ id, type, terminal }]
   for (const { fromPinId, toPinId } of Object.values(connections)) {
     const pairs = [[fromPinId, toPinId], [toPinId, fromPinId]]
     for (const [a, b] of pairs) {
@@ -137,7 +152,13 @@ export function buildPinToComponentMap(connections, objects) {
       if (pinNum === null) continue
       if (!SIGNAL_TERMINALS.some(t => bPin?.startsWith(t))) continue
       const bObj = byId[bComp]
-      if (bObj) map[pinNum] = { id: bComp, type: bObj.type }
+      if (!bObj) continue
+      // For motors, track which terminal so direction is determined by polarity.
+      // TERM_A → positive contribution; TERM_B → negative contribution.
+      const terminal = bPin === 'TERM_B' ? 'B' : 'A'
+      if (!map[pinNum]) map[pinNum] = []
+      if (!map[pinNum].some(c => c.id === bComp && c.terminal === terminal))
+        map[pinNum].push({ id: bComp, type: bObj.type, terminal })
     }
   }
   return map

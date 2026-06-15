@@ -10,6 +10,8 @@ import CodeEditor from './components/CodeEditor.jsx'
 import { useSceneStore } from './stores/sceneStore.js'
 import { useUiStore } from './stores/uiStore.js'
 import { useElectronicsStore } from './stores/electronicsStore.js'
+import { useRigidStore } from './stores/rigidStore.js'
+import { useGearStore } from './stores/gearStore.js'
 import { useHistory } from './hooks/useHistory.js'
 import { historyManager } from './managers/HistoryManager.js'
 import { sceneManager } from './managers/SceneManager.js'
@@ -21,8 +23,8 @@ import { wireManager } from './managers/WireManager.js'
 import { buildProjectSnapshot, snapRotationToAxes } from './utils/helpers.js'
 import { preloadModels } from './utils/modelLoader.js'
 
-const SHAPE_KEYS = { '1': 'box', '2': 'sphere', '3': 'cylinder', '4': 'cone', '5': 'torus', '6': 'plane', '7': 'capsule', '8': 'pyramid', '9': 'prism', '0': 'diamond' }
-const ELEC_TYPES = ['arduino', 'motor', 'motor_bo', 'motor_dc', 'led']
+const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
+const ELEC_TYPES = ['arduino', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo']
 
 function LoadingScreen() {
   return (
@@ -68,15 +70,39 @@ function AppEditor() {
   useEffect(() => {
     sceneManager.onAnimationTick = () => {
       if (simulationManager.isRunning()) {
-        for (const [id, speed] of Object.entries(simulationManager.motorSpeeds)) {
+        const speeds = simulationManager.motorSpeeds
+        if (Object.keys(speeds).length > 0) {
+          // Log once per second (every ~60 frames at 60fps)
+          if (!sceneManager._simLogCount) sceneManager._simLogCount = 0
+          if (++sceneManager._simLogCount % 60 === 1)
+            console.log('[Tick] motorSpeeds:', JSON.stringify(speeds))
+        }
+        for (const [id, speed] of Object.entries(speeds)) {
           objectManager.animateMotor(id, speed)
         }
         for (const [id, brightness] of Object.entries(simulationManager.ledBrightness)) {
           objectManager.animateLed(id, brightness)
         }
+        for (const [id, angle] of Object.entries(simulationManager.servoAngles)) {
+          objectManager.animateServo(id, angle)
+        }
       }
       // Drive physics runs every frame when simulation mode is active
       if (simActiveRef.current) driveManager.step()
+      // Propagate rigid bonds every frame — bonds are live constraints.
+      // Runs AFTER motor/servo animation and drive movement so parent matrices are current.
+      const bonds = Object.values(useRigidStore.getState().bonds)
+      if (bonds.length > 0) objectManager.propagateAllBonds(bonds)
+      // Gear chains run AFTER propagateAllBonds so bond-child gears (position-locked to
+      // chassis) accumulate their cumulative spin on top of what propBonds set each frame.
+      if (simulationManager.isRunning()) {
+        const gearMeshPairs = useGearStore.getState().meshPairs
+        if (gearMeshPairs.length > 0) {
+          const gearAttachments = useElectronicsStore.getState().attachments
+          objectManager.stepGearChains(simulationManager.motorSpeeds, gearMeshPairs, useSceneStore.getState().objects, gearAttachments)
+          objectManager.applyGearRotations(bonds)
+        }
+      }
     }
     return () => { sceneManager.onAnimationTick = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -84,8 +110,10 @@ function AppEditor() {
   // ── Enter / exit drive mode when simActive toggles ───────────────────────
   useEffect(() => {
     if (simActive) {
+      objectManager.resetGearAngles()
       driveManager.enter(useSceneStore.getState().objects)
     } else {
+      objectManager.resetGearAngles()
       driveManager.exit((id, updates) => useSceneStore.getState().updateObject(id, updates))
     }
   }, [simActive])
@@ -107,7 +135,10 @@ function AppEditor() {
   useEffect(() => () => simulationManager.stop(), [])
 
   useEffect(() => {
-    storageManager.enableAutoSave(() => buildProjectSnapshot(useSceneStore.getState()), 30000)
+    storageManager.enableAutoSave(
+      () => buildProjectSnapshot(useSceneStore.getState(), useElectronicsStore.getState()),
+      30000
+    )
     return () => storageManager.disableAutoSave()
   }, [])
 
