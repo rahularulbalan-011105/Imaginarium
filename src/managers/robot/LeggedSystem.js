@@ -4,8 +4,8 @@ import { PhysicsIntegrator } from '../physics/PhysicsIntegrator.js'
 import { totalMass, totalMomentOfInertia, maxFrontalArea } from '../physics/MassCalculator.js'
 
 const DEFAULT_ARM_LEN = 2.5
-const SWING_RANGE_DEG = 30   // servo sweeps ±30° from neutral (90°)
-const LIFT_ADD_DEG    = 25   // extra degrees during swing lift
+const SWING_RANGE_DEG = 30   // hip sweeps ±30° from neutral (90°)
+const LIFT_ADD_DEG    = 40   // knee lifts up to 40° during swing phase
 
 export class LeggedSystem {
   constructor() {
@@ -21,27 +21,32 @@ export class LeggedSystem {
 
   /**
    * Detect legs from scene objects + attachments map, then build the gait engine.
-   * @param {object[]} topLevel   filtered scene objects (no planes, no standalones)
-   * @param {object}   objectMgr  ObjectManager instance
-   * @param {object}   attachments  { childId: servoId } from electronicsStore
-   * @returns {boolean} true if a valid legged robot was detected
+   * Automatically handles 1 or 2 servos per leg (hip+knee).
+   *
+   * Detection strategy:
+   *  1. Collect all servo+arm pairs with world positions.
+   *  2. Compute the coefficient of variation (CV) of centroid distances.
+   *     - High CV (> 0.3) + even count → two groups exist (inner=hips, outer=knees).
+   *     - Low CV → all servos are roughly equidistant → each is its own leg.
+   *  3. In hip+knee mode, split by centroid distance and pair each inner servo
+   *     with its nearest outer servo → 2-DOF leg.
    */
   build(topLevel, objectMgr, attachments) {
-    const legDescs = []
+    // ── Step 1: collect servo+arm pairs ─────────────────────────────────────
+    const pairs = []
 
     for (const [childId, motorId] of Object.entries(attachments)) {
       const servoObj = topLevel.find(o => o.id === motorId && o.type === 'servo')
       if (!servoObj) continue
-      const armObj = topLevel.find(o => o.id === childId)
-      if (!armObj) continue
-
+      // Arms live inside servo rotorGroups (not scene-direct), so topLevel won't
+      // contain them — use getMesh which works regardless of parent.
       const servoMesh = objectMgr.getMesh(motorId)
       const armMesh   = objectMgr.getMesh(childId)
       if (!servoMesh || !armMesh) continue
 
       servoMesh.updateMatrixWorld(true)
-      const servoWPos = new THREE.Vector3()
-      servoMesh.getWorldPosition(servoWPos)
+      const wp = new THREE.Vector3()
+      servoMesh.getWorldPosition(wp)
 
       armMesh.updateMatrixWorld(true)
       const box = new THREE.Box3().setFromObject(armMesh)
@@ -49,32 +54,87 @@ export class LeggedSystem {
       box.getSize(sz)
       const armLength = Math.max(sz.x, sz.y, sz.z, DEFAULT_ARM_LEN * 0.5)
 
-      legDescs.push({
-        id:      motorId,
-        servoId: motorId,
-        armId:   childId,
-        armLength,
-        mountX:  servoWPos.x,
-        mountZ:  servoWPos.z,
-      })
+      pairs.push({ servoId: motorId, armId: childId, armLength, x: wp.x, z: wp.z })
+    }
+
+    if (pairs.length < 2) return false
+
+    // ── Step 2: body centroid ────────────────────────────────────────────────
+    const cx = pairs.reduce((s, p) => s + p.x, 0) / pairs.length
+    const cz = pairs.reduce((s, p) => s + p.z, 0) / pairs.length
+
+    // ── Step 3: decide whether to use hip+knee pairing ──────────────────────
+    // CV of centroid distances: high variance → bimodal (inner hips + outer knees)
+    const centDists = pairs.map(p => Math.hypot(p.x - cx, p.z - cz))
+    const meanCD    = centDists.reduce((a, b) => a + b, 0) / centDists.length
+    const varCD     = centDists.reduce((s, d) => s + (d - meanCD) ** 2, 0) / centDists.length
+    const cv        = meanCD > 0.1 ? Math.sqrt(varCD) / meanCD : 0
+
+    const useHipKnee = cv > 0.3 && pairs.length % 2 === 0
+
+    // ── Step 4: build leg descriptors ────────────────────────────────────────
+    const legDescs = []
+
+    if (useHipKnee) {
+      // Split by centroid distance: inner half = hips, outer half = knees
+      const sorted = pairs
+        .map((p, i) => ({ ...p, centDist: centDists[i] }))
+        .sort((a, b) => a.centDist - b.centDist)
+
+      const half        = sorted.length / 2
+      const innerServos = sorted.slice(0, half)   // hips (closer to body)
+      const outerServos = sorted.slice(half)       // knees (at arm tips)
+      const outerUsed   = new Set()
+
+      for (const hip of innerServos) {
+        // Pair with nearest unused outer servo
+        let bestKnee = null, bestDist = Infinity
+        for (const knee of outerServos) {
+          if (outerUsed.has(knee.servoId)) continue
+          const d = Math.hypot(knee.x - hip.x, knee.z - hip.z)
+          if (d < bestDist) { bestDist = d; bestKnee = knee }
+        }
+        if (bestKnee) outerUsed.add(bestKnee.servoId)
+
+        legDescs.push({
+          id:          hip.servoId,
+          servoId:     hip.servoId,
+          kneeServoId: bestKnee ? bestKnee.servoId : null,
+          armId:       hip.armId,
+          armLength:   hip.armLength,
+          mountX:      hip.x,
+          mountZ:      hip.z,
+        })
+      }
+    } else {
+      // Each pair is its own leg (single servo per leg)
+      for (const p of pairs) {
+        legDescs.push({
+          id:          p.servoId,
+          servoId:     p.servoId,
+          kneeServoId: null,
+          armId:       p.armId,
+          armLength:   p.armLength,
+          mountX:      p.x,
+          mountZ:      p.z,
+        })
+      }
     }
 
     if (legDescs.length < 2) return false
 
-    // Compute body centroid and sort legs by angle around it for phase ordering
-    const cx = legDescs.reduce((s, l) => s + l.mountX, 0) / legDescs.length
-    const cz = legDescs.reduce((s, l) => s + l.mountZ, 0) / legDescs.length
+    // ── Step 5: sort legs by angle around centroid for phase ordering ────────
     legDescs.sort((a, b) =>
       Math.atan2(a.mountZ - cz, a.mountX - cx) -
       Math.atan2(b.mountZ - cz, b.mountX - cx)
     )
 
-    // Rest position in body-local frame (relative to centroid)
     for (const l of legDescs) {
       l.restPosition = { x: l.mountX - cx, y: 0, z: l.mountZ - cz }
     }
     this.legs = legDescs
 
+    // ── Step 6: choose gait based on leg count ───────────────────────────────
     const n = legDescs.length
     let phases, stanceRatio
     if (n >= 6) {
@@ -103,19 +163,20 @@ export class LeggedSystem {
       momentOfInertia: Math.max(0.001, totalMomentOfInertia(topLevel, cx, cz)),
       frontalArea:     maxFrontalArea(topLevel),
     })
-    console.log(`[LeggedSystem] ${n} legs, gait=${this._gaitType}, mass=${robotMass.toFixed(2)} kg`)
+
+    const kneeCount = legDescs.filter(l => l.kneeServoId).length
+    console.log(
+      `[LeggedSystem] ${n} legs` +
+      (kneeCount ? ` (${kneeCount} with knee servo, CV=${cv.toFixed(2)})` : '') +
+      `, gait=${this._gaitType}, mass=${robotMass.toFixed(2)} kg`
+    )
     return true
   }
 
   /**
    * Advance one tick.
-   * @param {number}  dt        delta time (s)
-   * @param {number}  speed     commanded forward speed (scene u/s)
-   * @param {number}  turn      commanded yaw rate (rad/s)
-   * @param {boolean} skipGait  if true, skip servo animation (user code controls them)
-   * @param {object}  physEnv   { gravity, airDensity, rollingFriction, wind }
-   * @param {object}  objectMgr ObjectManager instance
-   * @returns {{ v: number, omega: number }} smoothed body velocity for Rapier
+   * For 2-DOF legs: hip servo = swing only, knee servo = lift only.
+   * For 1-DOF legs: single servo combines swing + lift (original behaviour).
    */
   step(dt, speed, turn, skipGait, physEnv, objectMgr) {
     if (!this._gaitEngine || !this._physics) return { v: 0, omega: 0 }
@@ -129,18 +190,24 @@ export class LeggedSystem {
         const t = targets[leg.id]
         if (!t) continue
 
-        // dz in body frame: negative = forward, positive = backward (w.r.t. body +Z forward)
         const dz   = t.z - leg.restPosition.z
         const lift = Math.max(0, t.y)
+        const norm = Math.max(-1, Math.min(1, dz / Math.max(0.1, stride)))
 
-        // Map body-local z-offset → servo angle (90° = neutral/down)
-        const norm  = Math.max(-1, Math.min(1, dz / Math.max(0.1, stride)))
-        let   angle = 90 + norm * SWING_RANGE_DEG
-        angle      += (lift / Math.max(0.1, height)) * LIFT_ADD_DEG
-        objectMgr.animateServo(leg.servoId, Math.max(0, Math.min(180, angle)))
+        if (leg.kneeServoId) {
+          // 2-DOF: separate hip (swing) and knee (lift) servos
+          const hipAngle  = 90 + norm * SWING_RANGE_DEG
+          const kneeAngle = 90 - (lift / Math.max(0.1, height)) * LIFT_ADD_DEG
+          objectMgr.animateServo(leg.servoId,     Math.max(0, Math.min(180, hipAngle)))
+          objectMgr.animateServo(leg.kneeServoId, Math.max(0, Math.min(180, kneeAngle)))
+        } else {
+          // 1-DOF: combine swing + lift into one servo
+          let angle = 90 + norm * SWING_RANGE_DEG
+          angle    += (lift / Math.max(0.1, height)) * LIFT_ADD_DEG
+          objectMgr.animateServo(leg.servoId, Math.max(0, Math.min(180, angle)))
+        }
       }
     } else {
-      // Advance clock at idle so phases stay consistent, but don't animate servos
       this._gaitEngine.step(dt, 0, 0)
     }
 

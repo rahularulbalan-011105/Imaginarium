@@ -1,3 +1,9 @@
+import { useSurfaceStore } from '../stores/surfaceStore.js'
+import { useRigidStore } from '../stores/rigidStore.js'
+import { useJointStore } from '../stores/jointStore.js'
+import { useRobotStore } from '../stores/robotStore.js'
+import { objectManager } from '../managers/ObjectManager.js'
+
 export const r3 = (v) => Math.round(v * 1000) / 1000
 
 export function vec3FromObject(obj) {
@@ -7,7 +13,6 @@ export function vec3FromObject(obj) {
 export function radToDeg(r) { return (r * 180) / Math.PI }
 export function degToRad(d) { return (d * Math.PI) / 180 }
 
-// Round each rotation axis to the nearest 90° increment (keeps 0, 90, 180, 270)
 export function snapRotationToAxes(rotation) {
   const snap = (rad) => {
     const deg = radToDeg(rad)
@@ -17,13 +22,33 @@ export function snapRotationToAxes(rotation) {
 }
 
 export function buildProjectSnapshot(sceneState, electronicsState) {
+  const surfaceState = useSurfaceStore.getState()
+  const rigidState   = useRigidStore.getState()
+  const jointState   = useJointStore.getState()
+  const robotState   = useRobotStore.getState()
+  const attachments  = electronicsState?.attachments ?? {}
+
+  // For attached objects (wheels on a motor shaft) we store TWO things:
+  //  • the live world position (so attachment-unaware loaders still place it),
+  //  • the EXACT local transform inside the motor's rotor (`attach`), which is
+  //    the ground truth used to restore the attachment perfectly on import.
+  const objects = sceneState.objects.map(obj => {
+    if (!attachments[obj.id]) return obj
+    const wp = objectManager.getWorldPos(obj.id)
+    const lt = objectManager.getAttachedLocalTransform(obj.id)
+    const out = { ...obj }
+    if (wp) out.position = { x: r3(wp.x), y: r3(wp.y), z: r3(wp.z) }
+    if (lt) out.attach = { motorId: attachments[obj.id], ...lt }
+    return out
+  })
+
   return {
     projectId: sceneState.projectId,
     name: sceneState.projectName,
-    version: '1.0',
+    version: '1.1',   // 1.1 adds robots.blueprints; 1.0 files load fine (no robots key)
     created: new Date().toISOString(),
     modified: new Date().toISOString(),
-    objects: sceneState.objects,
+    objects,
     settings: {
       gridVisible: sceneState.gridVisible,
       axesVisible: sceneState.axesVisible,
@@ -33,5 +58,9 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
       code: electronicsState.code,
       attachments: electronicsState.attachments,
     } : undefined,
+    surface: { patches: surfaceState.patches },
+    rigid:   { bonds:   rigidState.bonds   },
+    joints:  { joints:  jointState.joints  },
+    robots:  { blueprints: robotState.blueprints },
   }
 }

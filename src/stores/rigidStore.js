@@ -28,6 +28,8 @@ export const useRigidStore = create((set, get) => ({
     set(s => { const b = { ...s.bonds }; delete b[id]; return { bonds: b } })
   },
 
+  setBonds: (bonds) => set({ bonds }),
+
   removeBondsForObject(objectId) {
     set(s => ({
       bonds: Object.fromEntries(

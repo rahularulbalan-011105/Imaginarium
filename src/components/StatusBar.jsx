@@ -14,7 +14,7 @@ export default function StatusBar() {
         <>
           <span>│</span>
           <span>
-            Selected: <span className="text-blue-400">{selectedObj.name}</span>
+            Selected: <span className="text-amber-400">{selectedObj.name}</span>
           </span>
           <span>│</span>
           <span>

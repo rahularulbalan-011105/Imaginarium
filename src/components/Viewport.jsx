@@ -1,9 +1,10 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
+import * as THREE from 'three'
 import { sceneManager } from '../managers/SceneManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { wireManager } from '../managers/WireManager.js'
 import { patchManager } from '../managers/PatchManager.js'
-import { historyManager } from '../managers/HistoryManager.js'
+import { recordSnapshot } from '../managers/history/editorDispatch.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
@@ -11,9 +12,18 @@ import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { vec3FromObject } from '../utils/helpers.js'
 import { attachPointEvents } from './PropertiesPanel.jsx'
+import { jointPickEvents } from './JointPanel.jsx'
+import { jointManager } from '../managers/JointManager.js'
 import DimensionOverlay from './DimensionOverlay.jsx'
+import SurfaceAttachPrompt from './SurfaceAttachPrompt.jsx'
+import ExtrudePanel from './ExtrudePanel.jsx'
+import ViewGizmo from './ViewGizmo.jsx'
 import DrivePanel from './DrivePanel.jsx'
+import { useHistory } from '../hooks/useHistory.js'
 import { driveManager } from '../managers/DriveManager.js'
+import { loadGLTFFromFile, loadSTLFromFile } from '../utils/modelLoader.js'
+import { storeImportedGeometry } from '../managers/ObjectManager.js'
+import { v4 as uuidv4 } from 'uuid'
 
 export default function Viewport() {
   const canvasRef = useRef(null)
@@ -36,9 +46,10 @@ export default function Viewport() {
   const attachments   = useElectronicsStore((s) => s.attachments)
   const attachToMotor = useElectronicsStore((s) => s.attachToMotor)
   const detachFromMotor = useElectronicsStore((s) => s.detachFromMotor)
-  const bonds = useRigidStore((s) => s.bonds)
 
   const surfaceToolActive = useUiStore((s) => s.surfaceToolActive)
+  const extrudeToolActive = useUiStore((s) => s.extrudeToolActive)
+  const extrudeState      = useUiStore((s) => s.extrudeState)
   const simActive         = useUiStore((s) => s.simActive)
   const patches           = useSurfaceStore((s) => s.patches)
   const selectedPatchIds  = useSurfaceStore((s) => s.selectedIds)
@@ -48,13 +59,39 @@ export default function Viewport() {
 
   // Refs so callbacks always see latest values without re-creating handlers
   const surfaceToolRef    = useRef(false)
+  const extrudeToolRef    = useRef(false)
+  const extrudeStateRef   = useRef(null)
   const patchesRef        = useRef({})
   surfaceToolRef.current  = surfaceToolActive
+  extrudeToolRef.current  = extrudeToolActive
+  extrudeStateRef.current = extrudeState
   patchesRef.current      = patches
+
+  const { snapshot } = useHistory()
 
   const [attachPrompt, setAttachPrompt] = useState(null) // { objectId, motorId, motorName }
   const [pickMode, setPickMode] = useState(null)         // objectId being picked, or null
   const patchDrawingRef = useRef(false)                   // true while drawing a new patch
+
+  // Feature-pick joint mode: { picks: [feat, ...] }  (null = inactive)
+  const [jointPick, setJointPick] = useState(null)
+  const jointPickRef = useRef(null)
+  jointPickRef.current = jointPick
+
+  // Enter joint-pick mode when the panel requests it
+  useEffect(() => {
+    const handler = () => setJointPick({ picks: [] })
+    jointPickEvents.addEventListener('start', handler)
+    return () => jointPickEvents.removeEventListener('start', handler)
+  }, [])
+
+  // Esc cancels joint-pick mode
+  useEffect(() => {
+    if (!jointPick) return
+    const onKey = (e) => { if (e.key === 'Escape') setJointPick(null) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [jointPick])
 
   // Listen for "start attachment-point pick" events from PropertiesPanel
   useEffect(() => {
@@ -63,11 +100,18 @@ export default function Viewport() {
     return () => attachPointEvents.removeEventListener('startPick', handler)
   }, [])
 
-  // Sync patch store → Three.js objects every time patches or selection changes
+  // Sync patch store → Three.js objects; hide patches when surface tool is inactive
   useEffect(() => {
     if (!initialized.current) return
     patchManager.sync(patches, selectedPatchIds)
-  }, [patches, selectedPatchIds])
+    patchManager.setVisible(surfaceToolActive)
+  }, [patches, selectedPatchIds, surfaceToolActive])
+
+  // Clear extrude hover preview when extrude mode is turned off
+  useEffect(() => {
+    if (!initialized.current) return
+    if (!extrudeToolActive) patchManager.clearExtrudeHover()
+  }, [extrudeToolActive])
 
   // When an object is deleted, remove its patches and any rigid bonds it was part of
   useEffect(() => {
@@ -105,38 +149,55 @@ export default function Viewport() {
         scale: vec3FromObject(mesh.scale),
       })
 
-      // Propagate rigid bonds — move the bonded partner whenever this object moves
+      // Propagate rigid bonds — when moving the parent, drag the child with it.
+      // Do NOT reverse-propagate when a bond-child is dragged directly; its
+      // relativeMatrix is updated in onDraggingChanged after the drag ends.
       const allBonds = useRigidStore.getState().getBonds()
       for (const bond of allBonds) {
-        if (bond.parentId !== id && bond.childId !== id) continue
-        const isPar = bond.parentId === id
-        const depId = isPar ? bond.childId : bond.parentId
-        const result = objectManager.propagateBond(id, bond.relativeMatrix, isPar, depId)
-        if (result) updateObject(depId, result)
+        if (bond.parentId !== id) continue
+        const result = objectManager.propagateBond(id, bond.relativeMatrix, true, bond.childId)
+        if (result) updateObject(bond.childId, result)
       }
     }
 
     sceneManager.onDraggingChanged = (isDragging) => {
       dragging.current = isDragging
-      if (!isDragging) {
-        // Snapshot after drag ends so Ctrl+Z restores the pre-drag position
-        historyManager.push(JSON.parse(JSON.stringify(useSceneStore.getState().objects)))
-        // After a drag ends, check if the moved object is near a motor shaft
-        const tc = sceneManager.transformControls
-        const mesh = tc?.object
-        if (!mesh) return
-        const objectId = objectManager.resolveId(mesh)
-        if (!objectId) return
-        const movedObj = useSceneStore.getState().objects.find(o => o.id === objectId)
-        if (!movedObj) return
-        const isElectronics = movedObj.type === 'motor' || movedObj.type === 'motor_bo' || movedObj.type === 'motor_dc' || movedObj.type === 'arduino' || movedObj.type === 'led'
-        const alreadyAttached = objectManager.attachedObjects.has(objectId)
-        if (isElectronics || alreadyAttached) return
+      if (isDragging) return    // drag just started — preview only, no history yet
 
-        const nearMotorId = objectManager.findNearbyMotorShaft(objectId)
-        if (nearMotorId) {
-          const motor = useSceneStore.getState().objects.find(o => o.id === nearMotorId)
-          setAttachPrompt({ objectId, motorId: nearMotorId, motorName: motor?.name ?? 'Motor' })
+      // ── Drag just ended → commit ONE undo step for the whole move/rotate/scale ──
+      const tc = sceneManager.transformControls
+      const mesh = tc?.object
+      const objectId = mesh ? objectManager.resolveId(mesh) : null
+      const movedObj = objectId ? useSceneStore.getState().objects.find(o => o.id === objectId) : null
+
+      // If the dragged object is a bond-child, refresh its relativeMatrix BEFORE
+      // recording so the snapshot captures the bond update too.
+      if (objectId && movedObj) {
+        const allBonds = useRigidStore.getState().getBonds()
+        for (const bond of allBonds) {
+          if (bond.childId === objectId) {
+            const newRel = objectManager.computeChildRelativeMatrix(bond.parentId, movedObj.position, movedObj.rotation)
+            if (newRel) useRigidStore.getState().updateBond(bond.id, { relativeMatrix: newRel })
+            break
+          }
+        }
+      }
+
+      // One canonical history entry for the entire drag. Captures the full document
+      // (objects + attachments + bonds + patches + joints) — fixes the old bug where
+      // a bare objects-array was pushed and undoing a drag wiped the whole scene.
+      recordSnapshot('transform')
+
+      // Offer to attach to a nearby motor shaft (no state mutation here).
+      if (objectId && movedObj) {
+        const isElectronics = movedObj.type === 'motor' || movedObj.type === 'motor_bo' || movedObj.type === 'motor_dc' || movedObj.type === 'arduino' || movedObj.type === 'subo' || movedObj.type === 'led'
+        const alreadyAttached = objectManager.attachedObjects.has(objectId)
+        if (!isElectronics && !alreadyAttached) {
+          const nearMotorId = objectManager.findNearbyMotorShaft(objectId)
+          if (nearMotorId) {
+            const motor = useSceneStore.getState().objects.find(o => o.id === nearMotorId)
+            setAttachPrompt({ objectId, motorId: nearMotorId, motorName: motor?.name ?? 'Motor' })
+          }
         }
       }
     }
@@ -213,6 +274,41 @@ export default function Viewport() {
     prevObjects.current = objects
   }, [objects, selectedId])
 
+  // Keep objectManager mesh hierarchy in sync with the attachments store.
+  // Runs AFTER the objects effect (declaration order) so all meshes exist first.
+  //   • attach: store has entry, objectManager doesn't → re-parent into rotorGroup
+  //   • detach: objectManager has entry, store doesn't → restore to scene (undo of attach)
+  useEffect(() => {
+    if (!initialized.current) return
+    let cancelled = false
+
+    // Restore attachments. Prefer the exact saved local transform (obj.attach);
+    // fall back to preserving the current world transform. A motor whose mesh
+    // isn't ready yet (GLB still loading) makes reattach fail → retry shortly so
+    // the wheels never end up detached ("flying").
+    const applyAttachments = (tries = 0) => {
+      if (cancelled || !initialized.current) return
+      let pending = false
+      for (const [objectId, motorId] of Object.entries(attachments)) {
+        if (objectManager.attachedObjects.has(objectId)) continue
+        const def = objects.find(o => o.id === objectId)
+        const ok = def?.attach
+          ? objectManager.reattachLocal(objectId, motorId, def.attach)
+          : objectManager.reattachAtWorld(objectId, motorId)
+        if (!ok) pending = true
+      }
+      if (pending && tries < 20) setTimeout(() => applyAttachments(tries + 1), 150)
+    }
+    applyAttachments()
+
+    for (const [objectId] of objectManager.attachedObjects) {
+      if (!attachments[objectId]) {
+        objectManager.detachMeshFromRotor(objectId)
+      }
+    }
+    return () => { cancelled = true }
+  }, [objects, attachments])
+
   // Sync selection → TransformControls + highlights
   useEffect(() => {
     if (!initialized.current) return
@@ -221,17 +317,15 @@ export default function Viewport() {
       sceneManager.detachTransform()
       return
     }
-    // Don't attach transform gizmo to objects riding a motor rotor or bond-children
-    // (bond-children are positioned relative to their parent via the properties panel)
-    const isBondChild = selectedId && Object.values(bonds).some(b => b.childId === selectedId)
-    if (selectedId && !attachments[selectedId] && !isBondChild) {
+    // Don't attach transform gizmo to objects riding a motor rotor
+    if (selectedId && !attachments[selectedId]) {
       const mesh = objectManager.getMesh(selectedId)
       sceneManager.attachTransformTo(mesh || null)
     } else {
       sceneManager.detachTransform()
     }
     objectManager.setSelectionHighlights(selectedId, secondaryId)
-  }, [selectedId, secondaryId, attachments, bonds, simActive])
+  }, [selectedId, secondaryId, attachments, simActive])
 
   // Sync grid/axes visibility
   useEffect(() => {
@@ -246,7 +340,7 @@ export default function Viewport() {
   useEffect(() => {
     if (!initialized.current) return
     const selObj = objects.find(o => o.id === selectedId)
-    const ELEC = ['arduino', 'motor', 'motor_bo', 'motor_dc', 'led']
+    const ELEC = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led']
     const mode = (selObj && ELEC.includes(selObj.type) && transformMode === 'scale')
       ? 'translate'
       : transformMode
@@ -307,6 +401,12 @@ export default function Viewport() {
       return
     }
 
+    // Extrude mode: show teal face highlight under cursor (only before an extrusion is placed)
+    if (extrudeToolRef.current) {
+      if (!extrudeStateRef.current) patchManager.showExtrudeHover(e, bounds)
+      return
+    }
+
     wireManager.onMouseMove(e, bounds)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -317,8 +417,16 @@ export default function Viewport() {
     if (surfaceToolRef.current) {
       if (patchManager.isDrawing) {
         const patch = patchManager.endDraw(e, bounds)
-        if (patch) useSurfaceStore.getState().addPatch(patch)
-        patchDrawingRef.current = false
+        if (patch) {
+          useSurfaceStore.getState().addPatch(patch)
+          snapshot()
+          // Keep patchDrawingRef = true so the click event (which fires after mouseup)
+          // sees it and skips creating an extra face patch. Click handler clears it.
+          patchDrawingRef.current = true
+        } else {
+          // Very small movement — treat as a click, allow face patch creation
+          patchDrawingRef.current = false
+        }
       }
       if (patchManager.isDragging) patchManager.endInteract()
       if (sceneManager.orbitControls) sceneManager.orbitControls.enabled = true
@@ -344,17 +452,123 @@ export default function Viewport() {
     wireManager.onContextMenu(e, bounds)
   }, [])
 
+  const insertObject = useSceneStore((s) => s.insertObject)
+  const [dropHighlight, setDropHighlight] = useState(false)
+
+  const handleViewportDrop = useCallback(async (e) => {
+    e.preventDefault()
+    setDropHighlight(false)
+    const files = Array.from(e.dataTransfer.files)
+    for (const file of files) {
+      const ext  = file.name.split('.').pop().toLowerCase()
+      const name = file.name.replace(/\.[^.]+$/, '')
+      let geometry = null
+      try {
+        if (['glb', 'gltf'].includes(ext)) geometry = await loadGLTFFromFile(file)
+        else if (ext === 'stl')            geometry = await loadSTLFromFile(file)
+        else continue
+      } catch (err) { console.error('Import failed:', err); continue }
+      if (!geometry) continue
+      const objId = uuidv4()
+      storeImportedGeometry(objId, geometry)
+      const geometryJSON = geometry.isBufferGeometry ? geometry.toJSON() : null
+      insertObject({
+        id: objId, name, type: 'model',
+        geometryJSON,
+        position: { x: 0, y: 1, z: 0 },
+        rotation: { x: 0, y: 0, z: 0 },
+        scale:    { x: 1, y: 1, z: 1 },
+        color: '#a8c8e8', material: 'standard', visible: true,
+        metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      })
+      snapshot()
+    }
+  }, [insertObject, snapshot])
+
   const handleClick = useCallback(
     (e) => {
       if (!initialized.current || dragging.current) return
       if (wireManager.isDragging) return
       const bounds = canvasRef.current.getBoundingClientRect()
 
-      // ── Surface tool: select patches ───────────────────────────────────────
+      // ── Joint feature-pick mode: pick a corner/edge/face on each object ───
+      if (jointPickRef.current) {
+        const feat = sceneManager.pickFeature(e, bounds)
+        if (!feat) return
+        const picks = jointPickRef.current.picks
+        if (picks.length === 0) {
+          setJointPick({ picks: [feat] })
+        } else {
+          // Second pick must be a different object
+          if (feat.objectId === picks[0].objectId) return
+          const id = jointManager.createFeatureJoint(picks[0], feat)
+          if (id) { useUiStore.getState().setActivePanel('joints'); snapshot() }
+          setJointPick(null)
+        }
+        return
+      }
+
+      // ── Extrude tool: click a face to spawn the extrusion box ────────────
+      if (extrudeToolRef.current && !extrudeStateRef.current) {
+        patchManager.clearExtrudeHover()
+        const faceInfo = patchManager.getFaceInfo(e, bounds)
+        if (faceInfo) {
+          const { objectId, faceNormal, faceTangent, faceBitangent, faceCenterWorld, faceWidth, faceHeight } = faceInfo
+          const depth = 1.0
+          const center = faceCenterWorld.clone().addScaledVector(faceNormal, depth / 2)
+
+          // Align box: local X → face tangent, local Y → face bitangent, local Z → face normal
+          const rotM  = new THREE.Matrix4().makeBasis(faceTangent, faceBitangent, faceNormal)
+          const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromRotationMatrix(rotM), 'XYZ')
+
+          const sourceObj = useSceneStore.getState().objects.find(o => o.id === objectId)
+          const extId     = uuidv4()
+          const extCount  = useSceneStore.getState().objects.filter(o => o.name?.startsWith('Extrude_')).length
+
+          useSceneStore.getState().insertObject({
+            id:       extId,
+            name:     `Extrude_${extCount + 1}`,
+            type:     'box',
+            position: { x: center.x, y: center.y, z: center.z },
+            rotation: { x: euler.x,  y: euler.y,  z: euler.z  },
+            // BoxGeometry is 2×2×2 at scale=1, so scale = size/2
+            scale:    { x: faceWidth / 2, y: faceHeight / 2, z: depth / 2 },
+            color:    sourceObj?.color ?? '#ff9800',
+            material: 'standard',
+            visible:  true,
+            metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          })
+          useUiStore.getState().setExtrudeState({
+            sourceObjectId:  objectId,
+            extrudeObjectId: extId,
+            faceCenterWorld: { x: faceCenterWorld.x, y: faceCenterWorld.y, z: faceCenterWorld.z },
+            faceNormalWorld:  { x: faceNormal.x,      y: faceNormal.y,      z: faceNormal.z      },
+          })
+          useSceneStore.getState().selectObject(extId)
+          snapshot()
+        }
+        return
+      }
+
+      // ── Surface tool: click a face to create+select a patch instantly ────
       if (surfaceToolRef.current) {
-        if (patchDrawingRef.current) return   // was a draw stroke, not a click
-        const hit = patchManager.pick(e, bounds)
-        if (hit) useSurfaceStore.getState().toggleSelectPatch(hit.patchId)
+        if (patchDrawingRef.current) { patchDrawingRef.current = false; return }
+
+        // Did they click an existing patch? Toggle its selection.
+        const existingHit = patchManager.pick(e, bounds)
+        if (existingHit) {
+          useSurfaceStore.getState().toggleSelectPatch(existingHit.patchId)
+          return
+        }
+
+        // Otherwise auto-detect the entire face and create a full-size patch
+        const patch = patchManager.buildFacePatch(e, bounds)
+        if (patch) {
+          const store = useSurfaceStore.getState()
+          store.addPatch(patch)
+          store.toggleSelectPatch(patch.id)
+          snapshot()
+        }
         return
       }
 
@@ -402,11 +616,26 @@ export default function Viewport() {
   const hasBothSelected = selectedId && secondaryId
 
   return (
-    <div ref={containerRef} className="relative flex-1 overflow-hidden bg-white">
+    <div
+      ref={containerRef}
+      className="relative flex-1 overflow-hidden bg-white"
+      onDragOver={(e) => { e.preventDefault(); setDropHighlight(true) }}
+      onDragLeave={() => setDropHighlight(false)}
+      onDrop={handleViewportDrop}
+    >
+      {dropHighlight && (
+        <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-400/80 rounded-sm">
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="bg-gray-900/90 text-amber-300 text-sm font-medium px-5 py-3 rounded-xl shadow-2xl">
+              📥 Drop GLB / GLTF / STL to import
+            </div>
+          </div>
+        </div>
+      )}
       <canvas
         ref={canvasRef}
         className={`block w-full h-full ${
-          surfaceToolActive ? 'cursor-crosshair' : pickMode ? 'cursor-cell' : 'cursor-crosshair'
+          surfaceToolActive || extrudeToolActive || jointPick ? 'cursor-crosshair' : pickMode ? 'cursor-cell' : 'cursor-default'
         }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -416,17 +645,35 @@ export default function Viewport() {
         onClick={handleClick}
       />
 
-      {/* Surface draw mode overlay */}
+      {/* Face attach mode overlay */}
       {surfaceToolActive && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
           <div className="flex items-center gap-2 bg-cyan-900/90 border border-cyan-500/70 text-cyan-200 text-xs font-medium px-4 py-2 rounded-full shadow-lg">
-            <span className="text-base">⬡</span>
-            Hold + drag on any face to draw a surface patch · Click a patch to select it
+            <span className="text-base">⊞</span>
+            Click a face on Object 1, then click a face on Object 2 — or hold &amp; drag to draw a custom patch
             <button
               className="pointer-events-auto ml-2 text-cyan-400 hover:text-white transition-colors"
               onClick={() => useUiStore.getState().setSurfaceTool(false)}
             >
               ✕ Exit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Joint feature-pick mode overlay */}
+      {jointPick && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="flex items-center gap-2 bg-teal-900/90 border border-teal-500/70 text-teal-100 text-xs font-medium px-4 py-2 rounded-full shadow-lg">
+            <span className="text-base">🎯</span>
+            {jointPick.picks.length === 0
+              ? 'Click a corner, edge, or face on the FIRST object'
+              : 'Now click a corner, edge, or face on the SECOND object'}
+            <button
+              className="pointer-events-auto ml-2 text-teal-400 hover:text-white transition-colors"
+              onClick={() => setJointPick(null)}
+            >
+              ✕ Cancel
             </button>
           </div>
         </div>
@@ -487,7 +734,7 @@ export default function Viewport() {
 
       {/* Shift+click hint when one object is selected */}
       {selectedId && !secondaryId && !wireDragging && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-blue-600/90 border border-blue-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-amber-600/90 border border-amber-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
           Shift+click another object to enable Boolean operations
         </div>
       )}
@@ -499,7 +746,28 @@ export default function Viewport() {
         </div>
       )}
 
+      {/* Extrude mode hint */}
+      {extrudeToolActive && !extrudeState && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
+          <div className="flex items-center gap-2 bg-purple-900/90 border border-purple-500/70 text-purple-200 text-xs font-medium px-4 py-2 rounded-full shadow-lg">
+            <span className="text-base">⬆</span>
+            Click any face to extrude it outward
+            <button
+              className="pointer-events-auto ml-2 text-purple-400 hover:text-white transition-colors"
+              onClick={() => useUiStore.getState().setExtrudeTool(false)}
+            >
+              ✕ Exit
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* View indicator + quick-view switcher (top-right corner) */}
+      {!simActive && <ViewGizmo />}
+
       <DimensionOverlay />
+      <SurfaceAttachPrompt />
+      <ExtrudePanel />
 
       {simActive && <DrivePanel />}
 

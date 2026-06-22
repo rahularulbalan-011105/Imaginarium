@@ -17,11 +17,12 @@ export const useSceneStore = create((set, get) => ({
   unmarkStandalone: (id) => set(s => ({ standaloneIds: s.standaloneIds.filter(i => i !== id) })),
 
   addObject: (type, position) => {
-    const isElectronics = ['arduino', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'].includes(type)
+    const isElectronics = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw']
     const isMech = mechTypes.includes(type)
     const count = get().objects.filter(o => o.type === type).length
     const defaultPos = type === 'arduino'  ? { x: count * 8 - 4, y: 0.15, z: -5 }
+      : type === 'subo'                   ? { x: count * 8 - 4, y: 0.15, z: -5 }
       : type === 'motor_bo'               ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'motor_dc'               ? { x: count * 8 - 4, y: 0.15, z: 8  }
       : type === 'motor'                  ? { x: count * 8 - 4, y: 0.15, z: 5  }

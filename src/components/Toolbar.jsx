@@ -2,6 +2,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
+import { patchManager } from '../managers/PatchManager.js'
 
 const SHAPES = [
   { type: 'cylinder',    label: 'Cylinder',   icon: '⬤', key: '1' },
@@ -17,9 +18,9 @@ const SHAPES = [
 ]
 
 const TRANSFORM_MODES = [
-  { mode: 'translate', label: 'Move',   icon: '✛' },
-  { mode: 'rotate',    label: 'Rotate', icon: '↻' },
-  { mode: 'scale',     label: 'Scale',  icon: '⤡' },
+  { mode: 'translate', label: 'Move',   icon: '✛', key: 'W' },
+  { mode: 'rotate',    label: 'Rotate', icon: '↻', key: 'E' },
+  { mode: 'scale',     label: 'Scale',  icon: '⤡', key: 'R' },
 ]
 
 export default function Toolbar() {
@@ -32,8 +33,20 @@ export default function Toolbar() {
   const setTransformMode  = useUiStore((s) => s.setTransformMode)
   const surfaceToolActive = useUiStore((s) => s.surfaceToolActive)
   const setSurfaceTool    = useUiStore((s) => s.setSurfaceTool)
+  const extrudeToolActive = useUiStore((s) => s.extrudeToolActive)
+  const setExtrudeTool    = useUiStore((s) => s.setExtrudeTool)
   const simActive         = useUiStore((s) => s.simActive)
   const setSimActive      = useUiStore((s) => s.setSimActive)
+
+  const handleSurfaceTool = () => {
+    if (!surfaceToolActive) { setExtrudeTool(false); patchManager.clearExtrudeHover() }
+    setSurfaceTool(!surfaceToolActive)
+  }
+  const handleExtrudeTool = () => {
+    if (!extrudeToolActive) setSurfaceTool(false)
+    else patchManager.clearExtrudeHover()
+    setExtrudeTool(!extrudeToolActive)
+  }
   const patchCount        = Object.keys(useSurfaceStore((s) => s.patches)).length
   const { snapshot } = useHistory()
 
@@ -43,7 +56,7 @@ export default function Toolbar() {
   }
 
   return (
-    <div className="flex flex-col items-center gap-1 w-14 bg-gray-900 border-r border-gray-700/50 py-3 overflow-y-auto shrink-0">
+    <div className="flex flex-col items-center gap-1 w-full h-full bg-gray-900 py-3 overflow-y-auto overflow-x-hidden">
       {/* Shapes */}
       <div className="w-full px-1 mb-1">
         <div className="text-[9px] text-gray-500 text-center uppercase tracking-wider mb-1">Add</div>
@@ -52,7 +65,7 @@ export default function Toolbar() {
             key={type}
             onClick={() => handleAddShape(type)}
             title={`${label} [${key}]`}
-            className="w-full flex flex-col items-center justify-center py-1.5 rounded text-lg text-gray-300 hover:bg-blue-600/30 hover:text-white transition-colors"
+            className="w-full flex flex-col items-center justify-center py-1.5 rounded text-lg text-gray-300 hover:bg-amber-600/20 hover:text-amber-100 transition-colors"
           >
             <span>{icon}</span>
             <span className="text-[8px] text-gray-500 leading-none mt-0.5">{label}</span>
@@ -65,19 +78,20 @@ export default function Toolbar() {
       {/* Transform modes */}
       <div className="w-full px-1 mt-1">
         <div className="text-[9px] text-gray-500 text-center uppercase tracking-wider mb-1">Mode</div>
-        {TRANSFORM_MODES.map(({ mode, label, icon }) => (
+        {TRANSFORM_MODES.map(({ mode, label, icon, key }) => (
           <button
             key={mode}
             onClick={() => setTransformMode(mode)}
-            title={label}
-            className={`w-full flex flex-col items-center justify-center py-1.5 rounded text-base transition-colors ${
+            title={`${label}  (${key})`}
+            className={`relative w-full flex flex-col items-center justify-center py-1.5 rounded text-base transition-colors ${
               transformMode === mode
-                ? 'bg-blue-600 text-white'
+                ? 'bg-amber-600 text-white'
                 : 'text-gray-400 hover:bg-gray-700 hover:text-white'
             }`}
           >
             <span>{icon}</span>
             <span className="text-[8px] leading-none mt-0.5">{label}</span>
+            <span className="absolute top-0.5 right-0.5 text-[7px] font-mono opacity-50 leading-none">{key}</span>
           </button>
         ))}
       </div>
@@ -89,6 +103,7 @@ export default function Toolbar() {
         <div className="text-[9px] text-green-600 text-center uppercase tracking-wider mb-1">Elec</div>
         {[
           { type: 'arduino',  label: 'Arduino',  icon: '🟢' },
+          { type: 'subo',     label: 'SUBO',     icon: '🟣' },
           { type: 'motor_bo', label: 'Motor BO', icon: '⚙'  },
           { type: 'motor_dc', label: 'Motor DC', icon: '🔧' },
           { type: 'led',      label: 'LED',      icon: '💡' },
@@ -130,23 +145,46 @@ export default function Toolbar() {
 
       <div className="w-8 border-t border-gray-700/50 mt-1" />
 
-      {/* Surface patch tool */}
+      {/* Surface patch tool + Extrude */}
       <div className="w-full px-1 mt-1">
         <div className="text-[9px] text-cyan-600 text-center uppercase tracking-wider mb-1">Join</div>
         <button
-          onClick={() => setSurfaceTool(!surfaceToolActive)}
-          title={surfaceToolActive ? 'Exit surface draw mode' : 'Draw surface patches for face-to-face attachment [hold+drag on any face]'}
-          className={`w-full flex flex-col items-center justify-center py-1.5 rounded text-base transition-colors ${
+          onClick={handleSurfaceTool}
+          title={surfaceToolActive ? 'Exit surface attach mode' : 'Surface Attach — click faces to snap objects together, or drag to draw a custom patch'}
+          className={`w-full flex flex-col items-center justify-center py-2 rounded text-base transition-colors ${
             surfaceToolActive
-              ? 'bg-cyan-600 text-white ring-1 ring-cyan-400'
-              : 'text-gray-400 hover:bg-cyan-800/40 hover:text-cyan-300'
+              ? 'bg-cyan-500 text-white ring-2 ring-cyan-300 shadow-lg shadow-cyan-500/30'
+              : 'text-cyan-500 hover:bg-cyan-800/40 hover:text-cyan-300 border border-cyan-800/40'
           }`}
         >
-          <span>⬡</span>
-          <span className="text-[8px] leading-none mt-0.5">Surface</span>
+          <span>⊞</span>
+          <span className="text-[8px] leading-none mt-0.5 font-medium">
+            {surfaceToolActive ? 'Attaching' : 'Surface'}
+          </span>
           {patchCount > 0 && (
-            <span className="text-[8px] text-cyan-400 leading-none">{patchCount}</span>
+            <span className="text-[8px] text-cyan-400 leading-none">{patchCount}pts</span>
           )}
+        </button>
+      </div>
+
+      <div className="w-8 border-t border-gray-700/50 mt-1" />
+
+      {/* Extrude tool */}
+      <div className="w-full px-1 mt-1">
+        <div className="text-[9px] text-purple-600 text-center uppercase tracking-wider mb-1">Edit</div>
+        <button
+          onClick={handleExtrudeTool}
+          title={extrudeToolActive ? 'Exit extrude mode' : 'Extrude — click a face to pull it outward into a new solid'}
+          className={`w-full flex flex-col items-center justify-center py-2 rounded text-base transition-colors ${
+            extrudeToolActive
+              ? 'bg-purple-500 text-white ring-2 ring-purple-300 shadow-lg shadow-purple-500/30'
+              : 'text-purple-400 hover:bg-purple-800/40 hover:text-purple-300 border border-purple-800/40'
+          }`}
+        >
+          <span>⬆</span>
+          <span className="text-[8px] leading-none mt-0.5 font-medium">
+            {extrudeToolActive ? 'Extruding' : 'Extrude'}
+          </span>
         </button>
       </div>
 
@@ -180,7 +218,7 @@ export default function Toolbar() {
           onClick={toggleGrid}
           title="Toggle Grid [G]"
           className={`w-full flex flex-col items-center justify-center py-1.5 rounded text-sm transition-colors ${
-            gridVisible ? 'text-blue-400 bg-blue-900/30' : 'text-gray-500 hover:text-gray-300'
+            gridVisible ? 'text-amber-400 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
           }`}
         >
           <span className="text-base">#</span>
@@ -190,7 +228,7 @@ export default function Toolbar() {
           onClick={toggleAxes}
           title="Toggle Axes [A]"
           className={`w-full flex flex-col items-center justify-center py-1.5 rounded text-sm transition-colors ${
-            axesVisible ? 'text-blue-400 bg-blue-900/30' : 'text-gray-500 hover:text-gray-300'
+            axesVisible ? 'text-amber-400 bg-amber-900/20' : 'text-gray-500 hover:text-gray-300'
           }`}
         >
           <span className="text-base">⊕</span>

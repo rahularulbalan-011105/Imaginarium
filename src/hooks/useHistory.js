@@ -1,24 +1,13 @@
 import { useCallback } from 'react'
-import { historyManager } from '../managers/HistoryManager.js'
-import { useSceneStore } from '../stores/sceneStore.js'
+import * as dispatch from '../managers/history/editorDispatch.js'
 
+// Thin facade over the command-based history system (editorDispatch). Existing
+// call sites keep calling snapshot()/undo()/redo() unchanged; under the hood each
+// snapshot() now records a before→after SnapshotCommand on the command stack.
+// (Domain operations will migrate to fine-grained commands incrementally.)
 export function useHistory() {
-  const setObjects = useSceneStore((s) => s.setObjects)
-
-  const snapshot = useCallback(() => {
-    const objects = useSceneStore.getState().objects
-    historyManager.push(JSON.parse(JSON.stringify(objects)))
-  }, [])
-
-  const undo = useCallback(() => {
-    const state = historyManager.undo()
-    if (state !== null) setObjects(state)
-  }, [setObjects])
-
-  const redo = useCallback(() => {
-    const state = historyManager.redo()
-    if (state !== null) setObjects(state)
-  }, [setObjects])
-
+  const snapshot = useCallback((label) => dispatch.recordSnapshot(label), [])
+  const undo     = useCallback(() => dispatch.undo(), [])
+  const redo     = useCallback(() => dispatch.redo(), [])
   return { snapshot, undo, redo }
 }

@@ -32,6 +32,9 @@ export const useElectronicsStore = create((set, get) => ({
 
   code: DEFAULT_CODE,
 
+  // Serialized Blockly workspace (JSON) for the visual code editor
+  blocksJson: null,
+
   simulation: {
     running: false,
     motorSpeeds: {},   // motorComponentId → 0-255
@@ -40,6 +43,18 @@ export const useElectronicsStore = create((set, get) => ({
 
   // objectId → motorId  (geometry objects physically attached to a motor's rotor shaft)
   attachments: {},
+
+  // Live sensor input values, set by the Sensor panel during simulation and read
+  // by digitalRead / analogRead / pulseIn. Meaning depends on component type:
+  //   ir_sensor → 0|1 (object detected) · gas_sensor → 0-1023 (analog) · ultrasonic → distance (cm)
+  sensorValues: {},
+  setSensorValue: (id, value) =>
+    set(s => ({ sensorValues: { ...s.sensorValues, [id]: value } })),
+
+  // Auto = IR/ultrasonic read the live distance to the nearest scene shape.
+  // Manual = values come from the Sensor panel sliders/toggles.
+  autoSense: true,
+  setAutoSense: (v) => set({ autoSense: v }),
 
   // ── connections ──────────────────────────────────────────────────────────
   addWireConnection: (fromPinId, toPinId, connId) => {
@@ -98,6 +113,7 @@ export const useElectronicsStore = create((set, get) => ({
 
   // ── code ─────────────────────────────────────────────────────────────────
   setCode: (code) => set({ code }),
+  setBlocksJson: (blocksJson) => set({ blocksJson }),
 
   // ── simulation ───────────────────────────────────────────────────────────
   setMotorSpeed: (motorId, speed) =>
@@ -126,9 +142,21 @@ export const useElectronicsStore = create((set, get) => ({
 // ── Helpers for SimulationManager ────────────────────────────────────────────
 
 // Extract pin number from a pinId like "compId:D3" → 3, "compId:GND1" → null
+// SUBO board: silk label IOn → actual ESP32-S3 GPIO (from the Subo Arduino library)
+export const SUBO_IO_TO_GPIO = {
+  IO1: 4,  IO2: 39, IO3: 13, IO4: 38, IO5: 14, IO6: 48, IO7: 42,
+  IO8: 5,  IO9: 41, IO10: 40, IO11: 6, IO12: 7, IO13: 15, IO14: 16,
+  IO15: 17, IO16: 18, IO17: 8, IO18: 11, IO19: 10, IO20: 9, IO21: 3,
+}
+export const SUBO_ADC_IOS = new Set(['IO1', 'IO5', 'IO8', 'IO11', 'IO12', 'IO17', 'IO19', 'IO20', 'IO21'])
+
 export function pinNameToNumber(pinName) {
-  const m = pinName.match(/^D(\d+)$/)
-  return m ? parseInt(m[1], 10) : null
+  if (!pinName) return null
+  const d = pinName.match(/^D(\d+)$/)
+  if (d) return parseInt(d[1], 10)
+  // SUBO IOn label → its GPIO number, so wiring to IOn maps the same as the code's pins
+  if (pinName in SUBO_IO_TO_GPIO) return SUBO_IO_TO_GPIO[pinName]
+  return null
 }
 
 // Terminals that indicate the component receives a signal (not GND/power returns)
@@ -159,6 +187,31 @@ export function buildPinToComponentMap(connections, objects) {
       if (!map[pinNum]) map[pinNum] = []
       if (!map[pinNum].some(c => c.id === bComp && c.terminal === terminal))
         map[pinNum].push({ id: bComp, type: bObj.type, terminal })
+    }
+  }
+  return map
+}
+
+// Sensor components whose output pins feed a value back to the controller.
+export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor'])
+const SENSOR_OUTPUT_PINS = ['OUT', 'DO', 'AO', 'ECHO', 'SIGNAL']
+
+// pinNum → { id, type, pin } for any MCU pin wired to a SENSOR's output pin, so
+// digitalRead/analogRead/pulseIn(pin) can return that sensor's live value.
+export function buildSensorInputMap(connections, objects) {
+  const byId = {}
+  for (const o of objects) byId[o.id] = o
+  const map = {}
+  for (const { fromPinId, toPinId } of Object.values(connections)) {
+    for (const [a, b] of [[fromPinId, toPinId], [toPinId, fromPinId]]) {
+      const [, aPin] = a.split(':')
+      const [bComp, bPin] = b.split(':')
+      const pinNum = pinNameToNumber(aPin)
+      if (pinNum === null) continue
+      const bObj = byId[bComp]
+      if (!bObj || !SENSOR_TYPES.has(bObj.type)) continue
+      if (!SENSOR_OUTPUT_PINS.includes(bPin)) continue
+      map[pinNum] = { id: bComp, type: bObj.type, pin: bPin }
     }
   }
   return map

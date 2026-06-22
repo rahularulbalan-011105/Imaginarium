@@ -5,15 +5,27 @@ import Viewport from './components/Viewport.jsx'
 import PropertiesPanel from './components/PropertiesPanel.jsx'
 import ObjectList from './components/ObjectList.jsx'
 import StatusBar from './components/StatusBar.jsx'
-import BooleanPanel from './components/BooleanPanel.jsx'
+import BooleanPanel, { isBooleanCandidate } from './components/BooleanPanel.jsx'
 import CodeEditor from './components/CodeEditor.jsx'
+import BlocksPanel from './components/BlocksPanel.jsx'
+import BattlePanel from './components/BattlePanel.jsx'
+import PanelErrorBoundary from './components/PanelErrorBoundary.jsx'
+import AssetLibrary from './components/AssetLibrary.jsx'
+import JointPanel from './components/JointPanel.jsx'
+import RobotPanel from './components/RobotPanel.jsx'
+import WiringPanel from './components/WiringPanel.jsx'
 import { useSceneStore } from './stores/sceneStore.js'
 import { useUiStore } from './stores/uiStore.js'
 import { useElectronicsStore } from './stores/electronicsStore.js'
 import { useRigidStore } from './stores/rigidStore.js'
+import { useSurfaceStore } from './stores/surfaceStore.js'
 import { useGearStore } from './stores/gearStore.js'
+import { useJointStore } from './stores/jointStore.js'
 import { useHistory } from './hooks/useHistory.js'
-import { historyManager } from './managers/HistoryManager.js'
+import { resetBaseline } from './managers/history/editorDispatch.js'
+import { jointManager } from './managers/JointManager.js'
+import { battleManager } from './managers/BattleManager.js'
+import { useGameStore } from './stores/gameStore.js'
 import { sceneManager } from './managers/SceneManager.js'
 import { objectManager } from './managers/ObjectManager.js'
 import { storageManager } from './managers/StorageManager.js'
@@ -24,7 +36,7 @@ import { buildProjectSnapshot, snapRotationToAxes } from './utils/helpers.js'
 import { preloadModels } from './utils/modelLoader.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
-const ELEC_TYPES = ['arduino', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo']
+const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo']
 
 function LoadingScreen() {
   return (
@@ -32,6 +44,17 @@ function LoadingScreen() {
       <div className="text-2xl animate-spin">⚙</div>
       <div className="text-sm text-gray-400">Loading 3D models…</div>
     </div>
+  )
+}
+
+// ── Resize handle component ───────────────────────────────────────────────────
+function ResizeHandle({ onMouseDown }) {
+  return (
+    <div
+      className="shrink-0 w-1 cursor-col-resize hover:bg-amber-500/40 active:bg-amber-500/60 transition-colors"
+      style={{ background: 'rgba(50,48,43,0.8)' }}
+      onMouseDown={onMouseDown}
+    />
   )
 }
 
@@ -53,19 +76,63 @@ function AppEditor() {
   const { snapshot, undo, redo } = useHistory()
   const clipboard = useRef(null)
 
+  // ── Resizable sidebars ────────────────────────────────────────────────────
+  const [leftWidth,  setLeftWidth]  = useState(56)   // default 56px (old w-14)
+  const [rightWidth, setRightWidth] = useState(256)  // default 256px (old w-64)
+  const leftResizing  = useRef(false)
+  const rightResizing = useRef(false)
+
+  useEffect(() => {
+    const onMove = (e) => {
+      if (leftResizing.current)  setLeftWidth(Math.max(48, Math.min(220, e.clientX)))
+      if (rightResizing.current) setRightWidth(Math.max(180, Math.min(520, window.innerWidth - e.clientX)))
+    }
+    const onUp = () => {
+      leftResizing.current  = false
+      rightResizing.current = false
+      document.body.style.cursor    = ''
+      document.body.style.userSelect = ''
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup',   onUp)
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup',   onUp)
+    }
+  }, [])
+
   const addWireConnection    = useElectronicsStore((s) => s.addWireConnection)
   const removeWireConnection = useElectronicsStore((s) => s.removeWireConnection)
 
   const objA = objects.find(o => o.id === selectedId)
   const objB = objects.find(o => o.id === secondaryId)
-  const bothGeometry = secondaryId &&
-    objA && objB &&
-    !ELEC_TYPES.includes(objA.type) &&
-    !ELEC_TYPES.includes(objB.type)
+  // Boolean panel now supports both geometry + electronics pairs
+  const bothBoolean = secondaryId && isBooleanCandidate(objA) && isBooleanCandidate(objB)
+  const bothGeometry = bothBoolean  // kept for any other checks
+
+  // When a second object is selected, jump to the Boolean tab automatically —
+  // but keep all other tabs (Joints, Props, …) reachable so two-object actions
+  // aren't limited to booleans. When the pair is broken, leave the Boolean tab.
+  const prevBothBoolean = useRef(false)
+  useEffect(() => {
+    if (bothBoolean && !prevBothBoolean.current) {
+      setActivePanel('boolean')
+    } else if (!bothBoolean && prevBothBoolean.current && activePanel === 'boolean') {
+      setActivePanel('properties')
+    }
+    prevBothBoolean.current = bothBoolean
+  }, [bothBoolean, activePanel, setActivePanel])
 
   // ── Motor + LED animation, and differential drive physics ────────────────
   const simActiveRef = useRef(false)
   simActiveRef.current = simActive
+
+  // Initialize JointManager once scene + objectManager are ready
+  useEffect(() => {
+    if (sceneManager.scene) {
+      jointManager.init(sceneManager.scene, objectManager)
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     sceneManager.onAnimationTick = () => {
@@ -89,10 +156,22 @@ function AppEditor() {
       }
       // Drive physics runs every frame when simulation mode is active
       if (simActiveRef.current) driveManager.step()
+      // Robo-sumo battle — moves whole robot assemblies rigidly.
+      const battleOn = useGameStore.getState().battleActive
+      if (battleOn) battleManager.step()
       // Propagate rigid bonds every frame — bonds are live constraints.
-      // Runs AFTER motor/servo animation and drive movement so parent matrices are current.
-      const bonds = Object.values(useRigidStore.getState().bonds)
-      if (bonds.length > 0) objectManager.propagateAllBonds(bonds)
+      // Skipped during battle (BattleManager owns robot part positions).
+      const bonds = battleOn ? [] : Object.values(useRigidStore.getState().bonds)
+      if (bonds.length > 0) {
+        // Skip propagating a bond whose child is currently being dragged by the
+        // transform gizmo — otherwise the frame loop fights the user's drag.
+        const tc = sceneManager.transformControls
+        const draggingId = (tc?.dragging && tc.object?.userData?.id) ? tc.object.userData.id : null
+        const activeBonds = draggingId ? bonds.filter(b => b.childId !== draggingId) : bonds
+        objectManager.propagateAllBonds(activeBonds)
+      }
+      // Drive joint constraints every frame (hinge/revolute/slider animation)
+      jointManager.step()
       // Gear chains run AFTER propagateAllBonds so bond-child gears (position-locked to
       // chassis) accumulate their cumulative spin on top of what propBonds set each frame.
       if (simulationManager.isRunning()) {
@@ -142,13 +221,16 @@ function AppEditor() {
     return () => storageManager.disableAutoSave()
   }, [])
 
-  useEffect(() => { historyManager.push([]) }, [])
+  useEffect(() => { resetBaseline() }, [])
 
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e) => {
       const tag = e.target.tagName.toLowerCase()
       const isTyping = tag === 'input' || tag === 'textarea'
+
+      // During a battle, BattleManager owns WASD / arrows — block editor shortcuts.
+      if (useGameStore.getState().battleActive) return
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
@@ -182,7 +264,18 @@ function AppEditor() {
       if (SHAPE_KEYS[e.key]) { addObject(SHAPE_KEYS[e.key]); snapshot(); return }
 
       switch (e.key) {
-        case 'Delete': case 'Backspace': deleteSelected(); snapshot(); break
+        case 'Delete': case 'Backspace': {
+          const surfState = useSurfaceStore.getState()
+          const uiState   = useUiStore.getState()
+          if (uiState.surfaceToolActive && surfState.selectedIds.length > 0) {
+            // Delete selected surface patches when surface tool is active
+            surfState.selectedIds.forEach(id => surfState.removePatch(id))
+            snapshot()
+          } else {
+            deleteSelected(); snapshot()
+          }
+          break
+        }
         case 'd': case 'D':
           if (e.ctrlKey || e.metaKey) { e.preventDefault(); if (selectedId) { duplicateObject(selectedId); snapshot() } }
           break
@@ -224,57 +317,93 @@ function AppEditor() {
   const TABS = [
     { id: 'properties', label: 'Props' },
     { id: 'objects',    label: 'Objects' },
+    { id: 'wiring',     label: '⚡ Wiring' },
+    { id: 'joints',     label: '⚙ Joints' },
+    { id: 'robot',      label: '🤖 Robot' },
+    { id: 'blocks',     label: '🧩 Blocks' },
     { id: 'code',       label: '{ } Code' },
+    { id: 'battle',     label: '⚔ Battle' },
+    { id: 'library',    label: '📦 Library' },
   ]
 
   const renderRightPanel = () => {
-    if (secondaryId && bothGeometry) {
-      return (
-        <>
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-purple-700/50 bg-purple-900/20 shrink-0">
-            <span className="text-purple-400 text-sm">⊕</span>
-            <span className="text-xs font-semibold text-purple-300">Boolean</span>
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <BooleanPanel selectedId={selectedId} secondaryId={secondaryId} />
-          </div>
-        </>
-      )
-    }
+    // Boolean is a tab that only appears while two boolean-capable objects are
+    // selected. It's auto-focused on selection but the rest stay clickable.
+    const tabs = bothBoolean
+      ? [{ id: 'boolean', label: '⊕ Boolean' }, ...TABS]
+      : TABS
+    // Guard against showing the Boolean panel after the pair is broken
+    const panel = (activePanel === 'boolean' && !bothBoolean) ? 'properties' : activePanel
 
     return (
       <>
-        <div className="flex border-b border-gray-700/50 shrink-0">
-          {TABS.map(({ id, label }) => (
-            <button
-              key={id}
-              onClick={() => setActivePanel(id)}
-              className={`flex-1 py-2 text-[11px] font-medium transition-colors ${
-                activePanel === id
-                  ? 'text-white border-b-2 border-blue-500 bg-gray-800/50'
-                  : 'text-gray-500 hover:text-gray-300'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        <div className="flex border-b border-gray-700/50 shrink-0 overflow-x-auto">
+          {tabs.map(({ id, label }) => {
+            const isBool = id === 'boolean'
+            const active = panel === id
+            return (
+              <button
+                key={id}
+                onClick={() => setActivePanel(id)}
+                className={`shrink-0 px-2 py-2 text-[10px] font-medium transition-colors whitespace-nowrap ${
+                  active
+                    ? isBool
+                      ? 'text-purple-200 border-b-2 border-purple-500 bg-purple-900/30'
+                      : 'text-white border-b-2 border-amber-500 bg-gray-800/50'
+                    : isBool
+                      ? 'text-purple-400 hover:text-purple-200'
+                      : 'text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {label}
+              </button>
+            )
+          })}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
-          {activePanel === 'properties' ? <PropertiesPanel />
-            : activePanel === 'objects' ? <ObjectList />
+          {panel === 'boolean'    ? <BooleanPanel selectedId={selectedId} secondaryId={secondaryId} />
+            : panel === 'properties' ? <PropertiesPanel />
+            : panel === 'objects'  ? <ObjectList />
+            : panel === 'wiring'   ? <WiringPanel />
+            : panel === 'joints'   ? <JointPanel />
+            : panel === 'robot'    ? <RobotPanel />
+            : panel === 'blocks'   ? <PanelErrorBoundary label="Blocks"><BlocksPanel /></PanelErrorBoundary>
+            : panel === 'battle'   ? <PanelErrorBoundary label="Battle"><BattlePanel /></PanelErrorBoundary>
+            : panel === 'library'  ? <AssetLibrary />
             : <CodeEditor />}
         </div>
       </>
     )
   }
 
+  const startLeftResize = (e) => {
+    e.preventDefault()
+    leftResizing.current = true
+    document.body.style.cursor    = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+  const startRightResize = (e) => {
+    e.preventDefault()
+    rightResizing.current = true
+    document.body.style.cursor    = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-white overflow-hidden">
       <Header />
       <div className="flex flex-1 min-h-0">
-        <Toolbar />
+        {/* Left toolbar — resizable */}
+        <div style={{ width: leftWidth, flexShrink: 0 }} className="overflow-hidden">
+          <Toolbar />
+        </div>
+        <ResizeHandle onMouseDown={startLeftResize} />
+
         <Viewport />
-        <div className="flex flex-col w-64 shrink-0 bg-gray-900 border-l border-gray-700/50">
+
+        <ResizeHandle onMouseDown={startRightResize} />
+        {/* Right panel — resizable */}
+        <div className="flex flex-col shrink-0 bg-gray-900" style={{ width: rightWidth }}>
           {renderRightPanel()}
         </div>
       </div>

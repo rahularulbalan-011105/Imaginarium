@@ -2,24 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 body {
   margin: 0;
   padding: 0;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
+  background: #0f0e0c;
+  background-image: radial-gradient(ellipse 120% 80% at 50% 0%, #1a170f 0%, #0f0e0c 60%);
 }
 
 input[type='number']::-webkit-inner-spin-button,
-input[type='number']::-webkit-outer-spin-button {
-  opacity: 1;
-}
+input[type='number']::-webkit-outer-spin-button { opacity: 1; }
 
-/* Custom scrollbar */
-::-webkit-scrollbar { width: 6px; }
-::-webkit-scrollbar-track { background: #1e1e2e; }
-::-webkit-scrollbar-thumb { background: #444466; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #6666aa; }
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #131210; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b45309 0%, #78350f 100%);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: #f59e0b; }
+
+/* ── Focus rings ─────────────────────────────────────────────────────────── */
+:focus-visible { outline: 2px solid #f59e0b; outline-offset: 1px; }
+
+/* ── Glow utilities ──────────────────────────────────────────────────────── */
+.glow-amber  { box-shadow: 0 0 10px rgba(245,158,11,0.4);  }
+.glow-orange { box-shadow: 0 0 10px rgba(249,115,22,0.4);  }
+.glow-green  { box-shadow: 0 0 10px rgba(63,185,80,0.35);  }
+
+/* ── Resize handle cursor state ──────────────────────────────────────────── */
+.resizing-h { cursor: col-resize !important; user-select: none !important; }

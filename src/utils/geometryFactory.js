@@ -1,4 +1,84 @@
 import * as THREE from 'three'
+import { RoundedBoxGeometry } from 'three-stdlib'
+
+// Base dimensions of each fillable box type (matches createGeometry below)
+const BOX_DIMS = {
+  box:      [2, 2, 2],
+  rectprism:[3, 1.5, 2],
+}
+
+/**
+ * Create a RoundedBoxGeometry matching the base dimensions of a box/rectprism.
+ * radius  — edge rounding radius in geometry-local units (same space as the default geometry).
+ * segments — arc quality: 1 = chamfer (flat cut), 3+ = smooth fillet.
+ */
+export function createFilletedBoxGeometry(type, radius, segments = 3) {
+  const [w, h, d] = BOX_DIMS[type] ?? [2, 2, 2]
+  const maxR = Math.min(w, h, d) / 2 - 0.001
+  const r    = Math.max(0.001, Math.min(radius, maxR))
+  const segs = Math.max(1, Math.round(segments))
+  return new RoundedBoxGeometry(w, h, d, segs, r)
+}
+
+/**
+ * Build a centred rounded-rectangle Shape of size w×h.
+ * `mask` = [bottomLeft, bottomRight, topRight, topLeft] — true rounds that corner.
+ */
+function roundedRectShape(w, h, r, mask) {
+  const hw = w / 2, hh = h / 2
+  const rbl = mask[0] ? r : 0
+  const rbr = mask[1] ? r : 0
+  const rtr = mask[2] ? r : 0
+  const rtl = mask[3] ? r : 0
+  const s = new THREE.Shape()
+  s.moveTo(-hw + rbl, -hh)
+  s.lineTo(hw - rbr, -hh)
+  if (rbr > 0) s.absarc(hw - rbr, -hh + rbr, rbr, -Math.PI / 2, 0, false)
+  s.lineTo(hw, hh - rtr)
+  if (rtr > 0) s.absarc(hw - rtr, hh - rtr, rtr, 0, Math.PI / 2, false)
+  s.lineTo(-hw + rtl, hh)
+  if (rtl > 0) s.absarc(-hw + rtl, hh - rtl, rtl, Math.PI / 2, Math.PI, false)
+  s.lineTo(-hw, -hh + rbl)
+  if (rbl > 0) s.absarc(-hw + rbl, -hh + rbl, rbl, Math.PI, 1.5 * Math.PI, false)
+  s.closePath()
+  return s
+}
+
+/**
+ * Create a box that rounds ONLY selected edges (not all 12).
+ * The four edges that run parallel to `axis` are exposed as the four corners of
+ * the extruded cross-section; `corners` (4 booleans) picks which to round.
+ *  - axis 'z': cross-section is the X/Y face, depth runs along Z
+ *  - axis 'x': cross-section is the Z/Y face, depth runs along X
+ *  - axis 'y': cross-section is the X/Z face, depth runs along Y
+ * radius   — rounding radius in geometry-local units
+ * segments — 1 = chamfer (flat cut), >1 = smooth fillet arc
+ */
+export function createPartialFilletedBoxGeometry(type, radius, segments, axis, corners) {
+  const [bw, bh, bd] = BOX_DIMS[type] ?? [2, 2, 2]
+  const mask = Array.isArray(corners) && corners.length === 4 ? corners : [true, true, true, true]
+
+  // Cross-section width/height (u,v) and depth (length along the extrude axis)
+  let u, v, depth
+  if      (axis === 'x') { u = bd; v = bh; depth = bw }
+  else if (axis === 'y') { u = bw; v = bd; depth = bh }
+  else                   { u = bw; v = bh; depth = bd }   // 'z' (default)
+
+  const maxR = Math.min(u, v) / 2 - 0.001
+  const r    = Math.max(0.001, Math.min(radius, maxR))
+  const curveSegments = segments <= 1 ? 1 : Math.max(3, Math.round(segments) * 2)
+
+  const shape = roundedRectShape(u, v, r, mask)
+  const geo = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments, steps: 1 })
+  geo.translate(0, 0, -depth / 2)
+
+  // Orient so the extrude axis (local +Z) aligns with the requested world axis
+  if      (axis === 'x') geo.rotateY(Math.PI / 2)
+  else if (axis === 'y') geo.rotateX(-Math.PI / 2)
+
+  geo.computeVertexNormals()
+  return geo
+}
 
 export function createGeometry(type) {
   switch (type) {
