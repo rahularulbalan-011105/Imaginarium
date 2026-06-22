@@ -14,7 +14,7 @@ export default function StatusBar() {
         <>
           <span>│</span>
           <span>
-            Selected: <span className="text-blue-400">{selectedObj.name}</span>
+            Selected: <span className="text-indigo-400">{selectedObj.name}</span>
           </span>
           <span>│</span>
           <span>
@@ -31,7 +31,7 @@ export default function StatusBar() {
         <span>No selection</span>
       )}
       <span className="ml-auto">
-        Shortcuts: <span className="text-gray-400">1-6 add shape · G grid · A axes · Del delete · Ctrl+Z/Y undo/redo · F fit · Shift+S snap axes</span>
+        Shortcuts: <span className="text-gray-400">1-0 add shape · W/E/R move·rotate·scale · G grid · A axes · Del delete · Ctrl+Z/Y undo/redo · F fit · Shift+S snap axes</span>
       </span>
     </div>
   )

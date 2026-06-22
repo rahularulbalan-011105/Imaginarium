@@ -16,7 +16,7 @@ export default function ElectronicsPanel({ selectedId, secondaryId }) {
   if (!objA || !objB) return null
 
   // Determine which is Arduino and which is Motor
-  const arduino = [objA, objB].find(o => o.type === 'arduino')
+  const arduino = [objA, objB].find(o => o.type === 'arduino' || o.type === 'subo')
   const motor   = [objA, objB].find(o => o.type === 'motor')
 
   if (!arduino || !motor) return null  // Need one of each

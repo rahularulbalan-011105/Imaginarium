@@ -2,10 +2,14 @@ import { useRef, useState, useCallback } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { useSurfaceStore } from '../stores/surfaceStore.js'
+import { useRigidStore } from '../stores/rigidStore.js'
+import { useJointStore } from '../stores/jointStore.js'
 import { storageManager } from '../managers/StorageManager.js'
-import { historyManager } from '../managers/HistoryManager.js'
-import { downloadJSON, readJSONFile } from '../utils/export.js'
+import { clear as clearHistory } from '../managers/history/editorDispatch.js'
+import { saveJSONToFile, readJSONFile } from '../utils/export.js'
 import { buildProjectSnapshot } from '../utils/helpers.js'
+import HelpMenu from './onboarding/HelpMenu.jsx'
 import { v4 as uuidv4 } from 'uuid'
 
 export default function Header() {
@@ -23,6 +27,9 @@ export default function Header() {
   const setConnections   = useElectronicsStore((s) => s.setConnections)
   const setAttachments   = useElectronicsStore((s) => s.setAttachments)
   const setCode          = useElectronicsStore((s) => s.setCode)
+  const setPatches       = useSurfaceStore((s) => s.setPatches)
+  const setBonds         = useRigidStore((s) => s.setBonds)
+  const setJoints        = useJointStore((s) => s.setJoints)
 
   const [saving, setSaving]           = useState(false)
   const [saveFlash, setSaveFlash]     = useState(false)
@@ -47,8 +54,11 @@ export default function Header() {
       if (data.electronics.code       !== undefined) setCode(data.electronics.code)
       if (data.electronics.attachments !== undefined) setAttachments(data.electronics.attachments)
     }
-    historyManager.clear()
-  }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments])
+    if (data.surface?.patches !== undefined) setPatches(data.surface.patches)
+    if (data.rigid?.bonds     !== undefined) setBonds(data.rigid.bonds)
+    if (data.joints?.joints   !== undefined) setJoints(data.joints.joints)
+    clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
+  }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments, setPatches, setBonds, setJoints])
 
   // ── save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -69,7 +79,7 @@ export default function Header() {
     clearAttachments()
     setProjectId(uuidv4())
     setProjectName('Untitled Project')
-    historyManager.clear()
+    clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
     setShowMenu(false)
   }
 
@@ -96,9 +106,9 @@ export default function Header() {
   }
 
   // ── export / import ───────────────────────────────────────────────────────
-  const handleExportJSON = () => {
-    downloadJSON(getSnapshot(), `${projectName}.json`)
+  const handleExportJSON = async () => {
     setShowMenu(false)
+    await saveJSONToFile(getSnapshot(), `${projectName || 'project'}.json`)
   }
 
   const handleImportClick = () => {
@@ -120,11 +130,15 @@ export default function Header() {
 
   return (
     <>
-      <header className="flex items-center gap-3 px-4 h-12 bg-gray-900 border-b border-gray-700/50 shrink-0 z-10">
+      <header data-tour="header" className="flex items-center gap-3 px-4 h-12 shrink-0 z-10"
+        style={{ background: 'linear-gradient(90deg,#F7F9FC 0%,#FFFFFF 50%,#F7F9FC 100%)', borderBottom: '1px solid rgba(99,102,241,0.18)' }}>
         {/* Logo */}
         <div className="flex items-center gap-2 mr-2">
           <span className="text-lg">🧊</span>
-          <span className="text-sm font-semibold text-white hidden sm:block">3D Editor</span>
+          <span className="text-sm font-bold hidden sm:block"
+            style={{ background: 'linear-gradient(90deg,#6366f1,#4F46E5)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            3D Editor
+          </span>
         </div>
 
         {/* Project name */}
@@ -132,20 +146,27 @@ export default function Header() {
           type="text"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
-          className="bg-transparent border-b border-gray-600/50 text-sm text-white px-1 py-0.5 focus:outline-none focus:border-blue-500 w-40 min-w-0"
+          className="bg-transparent text-sm text-gray-200 px-1 py-0.5 focus:outline-none w-40 min-w-0"
+          style={{ borderBottom: '1px solid rgba(99,102,241,0.35)' }}
         />
 
         <div className="flex-1" />
+
+        {/* Help menu — tutorials, product tour, shortcuts, beginner guide */}
+        <HelpMenu />
 
         {/* Save */}
         <button
           onClick={handleSave}
           disabled={saving}
-          className={`px-3 py-1 text-xs font-medium rounded transition-colors disabled:opacity-50 ${
+          className={`px-3 py-1 text-xs font-semibold rounded transition-all disabled:opacity-50 ${
             saveFlash
-              ? 'bg-green-600 text-white'
-              : 'bg-blue-600 hover:bg-blue-500 text-white'
+              ? 'text-white'
+              : 'text-white hover:brightness-110'
           }`}
+          style={saveFlash
+            ? { background: 'linear-gradient(90deg,#16a34a,#15803d)', boxShadow: '0 0 8px rgba(63,185,80,0.4)' }
+            : { background: 'linear-gradient(90deg,#6366f1,#4f46e5)', boxShadow: '0 0 8px rgba(99,102,241,0.3)' }}
         >
           {saving ? 'Saving…' : saveFlash ? '✓ Saved' : '💾 Save'}
         </button>
@@ -154,17 +175,19 @@ export default function Header() {
         <div className="relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            className="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 rounded transition-colors"
+            className="px-3 py-1 text-xs text-gray-300 hover:text-slate-900 rounded transition-colors"
+            style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}
           >
             ☰ File
           </button>
           {showMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 w-48 bg-gray-800 border border-gray-700 rounded shadow-xl z-20 py-1">
+              <div className="absolute right-0 top-full mt-1 w-48 rounded shadow-2xl z-20 py-1"
+                style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.25)' }}>
                 <MenuItem onClick={handleNewProject}  icon="📄" label="New Project" />
                 <MenuItem onClick={handleOpenDialog}  icon="📂" label="Open Saved…" />
-                <div className="border-t border-gray-700 my-1" />
+                <div className="my-1" style={{ borderTop: '1px solid rgba(99,102,241,0.15)' }} />
                 <MenuItem onClick={handleExportJSON}  icon="⬇" label="Export JSON" />
                 <MenuItem onClick={handleImportClick} icon="⬆" label="Import JSON" />
               </div>
@@ -189,14 +212,16 @@ export default function Header() {
             onClick={() => setShowOpenDlg(false)}
           />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-            <div className="bg-gray-900 border border-gray-700 rounded-xl shadow-2xl w-full max-w-md pointer-events-auto">
+            <div className="rounded-xl shadow-2xl w-full max-w-md pointer-events-auto"
+              style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.25)' }}>
 
               {/* Dialog header */}
-              <div className="flex items-center justify-between px-5 py-3.5 border-b border-gray-700">
+              <div className="flex items-center justify-between px-5 py-3.5"
+                style={{ borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
                 <h2 className="text-sm font-semibold text-white">Open Saved Project</h2>
                 <button
                   onClick={() => setShowOpenDlg(false)}
-                  className="text-gray-500 hover:text-white text-lg leading-none"
+                  className="text-gray-500 hover:text-slate-900 text-lg leading-none"
                 >
                   ✕
                 </button>
@@ -215,11 +240,14 @@ export default function Header() {
                     <div
                       key={proj.projectId}
                       onClick={() => handleLoadProject(proj.projectId)}
-                      className="flex items-center gap-3 px-5 py-3.5 hover:bg-gray-800 cursor-pointer border-b border-gray-700/40 last:border-0 group transition-colors"
+                      className="flex items-center gap-3 px-5 py-3.5 cursor-pointer last:border-0 group transition-colors"
+                      style={{ borderBottom: '1px solid rgba(99,102,241,0.1)' }}
+                      onMouseEnter={e => e.currentTarget.style.background='rgba(99,102,241,0.07)'}
+                      onMouseLeave={e => e.currentTarget.style.background='transparent'}
                     >
                       <span className="text-2xl shrink-0">📁</span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-white truncate group-hover:text-blue-300 transition-colors">
+                        <div className="text-sm font-medium text-white truncate group-hover:text-indigo-300 transition-colors">
                           {proj.name || 'Untitled Project'}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
@@ -256,7 +284,10 @@ function MenuItem({ onClick, icon, label }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
+      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-slate-900 transition-colors"
+      style={{ background: 'transparent' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.1)'}
+      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
     >
       <span>{icon}</span>
       <span>{label}</span>

@@ -1,13 +1,51 @@
 import * as THREE from 'three'
 import { Evaluator, Brush, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg'
 import { objectManager } from '../managers/ObjectManager.js'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
 // Single shared evaluator. useGroups defaults to true — required for correct
 // SUBTRACTION results in three-bvh-csg@0.0.18.
 const evaluator = new Evaluator()
 
 /**
+ * Extract a merged BufferGeometry from a THREE.Object3D (Mesh or Group).
+ * Works for both simple meshes and complex electronics groups.
+ */
+function extractGeometry(object3d) {
+  if (!object3d) return null
+
+  if (object3d.isMesh && object3d.geometry) {
+    // Simple mesh — just return its world-space geometry
+    const geo = object3d.geometry.clone()
+    object3d.updateMatrixWorld(true)
+    geo.applyMatrix4(object3d.matrixWorld)
+    return geo
+  }
+
+  // Group — collect + merge all child mesh geometries in world space
+  const geos = []
+  object3d.updateMatrixWorld(true)
+  object3d.traverse(child => {
+    if (!child.isMesh || !child.geometry) return
+    child.updateMatrixWorld(true)
+    const g = child.geometry.clone()
+    g.applyMatrix4(child.matrixWorld)
+    // Normalize to position + normal only for merge compatibility
+    const out = new THREE.BufferGeometry()
+    if (g.attributes.position) out.setAttribute('position', g.attributes.position)
+    if (g.attributes.normal)   out.setAttribute('normal', g.attributes.normal)
+    out.morphAttributes = {}
+    geos.push(out)
+  })
+  if (geos.length === 0) return null
+  if (geos.length === 1) return geos[0]
+  const merged = mergeGeometries(geos, false)
+  return merged
+}
+
+/**
  * Run a boolean operation on two scene objects.
+ * Supports geometry objects AND electronics groups.
  * Returns { geometryJSON, color } or null on failure.
  *
  * operations: 'union' | 'subtract' (A−B) | 'subtractB' (B−A) | 'intersect'
@@ -18,21 +56,21 @@ export function runBoolean(idA, idB, operation) {
   if (!meshA || !meshB) return null
 
   try {
-    // Bake the full world transform (position + rotation + scale) into cloned
-    // geometries. The CSG evaluator sees two brushes both at identity transform,
-    // both in world space, so the intersection is computed in world space and
-    // the result geometry can be placed at (0,0,0) without any offset.
-    meshA.updateMatrixWorld(true)
-    const geoA = meshA.geometry.clone()
-    geoA.applyMatrix4(meshA.matrixWorld)
+    // Extract geometries — works for both simple meshes and electronics groups.
+    // extractGeometry() already applies the world transform so both geos are in world space.
+    const geoA = extractGeometry(meshA)
+    const geoB = extractGeometry(meshB)
+    if (!geoA || !geoB) return null
 
-    meshB.updateMatrixWorld(true)
-    const geoB = meshB.geometry.clone()
-    geoB.applyMatrix4(meshB.matrixWorld)
-
-    // Clone materials so the original mesh materials are never touched/disposed.
-    const matA = meshA.material.clone()
-    const matB = meshB.material.clone()
+    // Clone a representative material (use first mesh material for groups)
+    const getMat = (obj) => {
+      if (obj.isMesh && obj.material) return obj.material.clone()
+      let mat = null
+      obj.traverse(c => { if (c.isMesh && c.material && !mat) mat = c.material.clone() })
+      return mat ?? new THREE.MeshStandardMaterial({ color: '#888' })
+    }
+    const matA = getMat(meshA)
+    const matB = getMat(meshB)
 
     const brushA = new Brush(geoA, matA)
     brushA.updateMatrixWorld(true)

@@ -98,7 +98,7 @@ export default function CodeEditor() {
   const hasMotors       = objects.some(o => ['motor', 'motor_bo', 'motor_dc'].includes(o.type))
   const hasLeds         = objects.some(o => o.type === 'led')
   const hasServos       = objects.some(o => o.type === 'servo')
-  const hasArduino      = objects.some(o => o.type === 'arduino')
+  const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
   const hasControllable = hasMotors || hasLeds || hasServos
 
   const handleRun = () => {
@@ -180,7 +180,7 @@ export default function CodeEditor() {
       {/* Prerequisite hints */}
       {(noArduino || noComponent || noConnection) && (
         <div className="px-3 py-2 space-y-1 shrink-0 border-b border-gray-700/30">
-          {noArduino   && <Hint icon="⚠" text="Add an Arduino to the scene" />}
+          {noArduino   && <Hint icon="⚠" text="Add an Arduino or SUBO board to the scene" />}
           {noComponent && <Hint icon="⚠" text="Add a Motor, Servo or LED to the scene" />}
           {!noArduino && !noComponent && noConnection && (
             <Hint icon="⚠" text="Draw a wire from an Arduino pin to the component" />
@@ -198,7 +198,7 @@ export default function CodeEditor() {
       />
 
       {/* Run/Stop controls */}
-      <div className="flex gap-2 px-3 py-2 border-t border-gray-700/50 shrink-0">
+      <div data-tour="code-run" className="flex gap-2 px-3 py-2 border-t border-gray-700/50 shrink-0">
         {simulation.running ? (
           <button
             onClick={handleStop}
@@ -254,7 +254,7 @@ export default function CodeEditor() {
                   <div key={id} className="flex items-center gap-2 text-[10px] text-gray-400">
                     <span className="truncate max-w-[70px]">{obj?.name ?? id}</span>
                     <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                      <div className="h-full bg-blue-500 transition-all duration-100" style={{ width: `${(angle / 180) * 100}%` }} />
+                      <div className="h-full bg-indigo-500 transition-all duration-100" style={{ width: `${(angle / 180) * 100}%` }} />
                     </div>
                     <span className="w-8 text-right tabular-nums">{angle}°</span>
                   </div>

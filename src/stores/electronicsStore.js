@@ -32,6 +32,9 @@ export const useElectronicsStore = create((set, get) => ({
 
   code: DEFAULT_CODE,
 
+  // Serialized Blockly workspace (JSON) for the visual code editor
+  blocksJson: null,
+
   simulation: {
     running: false,
     motorSpeeds: {},   // motorComponentId → 0-255
@@ -98,6 +101,7 @@ export const useElectronicsStore = create((set, get) => ({
 
   // ── code ─────────────────────────────────────────────────────────────────
   setCode: (code) => set({ code }),
+  setBlocksJson: (blocksJson) => set({ blocksJson }),
 
   // ── simulation ───────────────────────────────────────────────────────────
   setMotorSpeed: (motorId, speed) =>
@@ -126,9 +130,21 @@ export const useElectronicsStore = create((set, get) => ({
 // ── Helpers for SimulationManager ────────────────────────────────────────────
 
 // Extract pin number from a pinId like "compId:D3" → 3, "compId:GND1" → null
+// SUBO board: silk label IOn → actual ESP32-S3 GPIO (from the Subo Arduino library)
+export const SUBO_IO_TO_GPIO = {
+  IO1: 4,  IO2: 39, IO3: 13, IO4: 38, IO5: 14, IO6: 48, IO7: 42,
+  IO8: 5,  IO9: 41, IO10: 40, IO11: 6, IO12: 7, IO13: 15, IO14: 16,
+  IO15: 17, IO16: 18, IO17: 8, IO18: 11, IO19: 10, IO20: 9, IO21: 3,
+}
+export const SUBO_ADC_IOS = new Set(['IO1', 'IO5', 'IO8', 'IO11', 'IO12', 'IO17', 'IO19', 'IO20', 'IO21'])
+
 export function pinNameToNumber(pinName) {
-  const m = pinName.match(/^D(\d+)$/)
-  return m ? parseInt(m[1], 10) : null
+  if (!pinName) return null
+  const d = pinName.match(/^D(\d+)$/)
+  if (d) return parseInt(d[1], 10)
+  // SUBO IOn label → its GPIO number, so wiring to IOn maps the same as the code's pins
+  if (pinName in SUBO_IO_TO_GPIO) return SUBO_IO_TO_GPIO[pinName]
+  return null
 }
 
 // Terminals that indicate the component receives a signal (not GND/power returns)

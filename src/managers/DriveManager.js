@@ -58,6 +58,11 @@ class DriveManager {
     this._robotMinLocalX = -3         // min local-X of robot bounding box (set in enter)
     this._robotMaxLocalX =  3         // max local-X of robot bounding box (set in enter)
 
+    // Rapier freefall mode — non-wheeled, non-legged objects
+    this._rapierBodies      = new Map()   // obj.id → { body, mesh, halfY }
+    this._savedPositions    = new Map()   // obj.id → { position, quaternion } at enter()
+    this._useRapierFreefall = false
+
     // Quaternion reuse objects (avoid allocation every frame)
     this._q     = new THREE.Quaternion()
     this._euler = new THREE.Euler()
@@ -70,10 +75,60 @@ class DriveManager {
     physicsManager.init()
   }
 
-  get isActive() { return !!this.rootGroup }
+  get isActive() { return !!this.rootGroup || this._useRapierFreefall }
+
+  /**
+   * Compute Rapier body parameters for a mesh.
+   *
+   * Returns { worldCtr, lCtr, wq, hx, hy, hz } where:
+   *   worldCtr — world-space center of the Rapier collider (local bbox rotated to world)
+   *   lCtr     — local offset of the collider center from the mesh's world origin
+   *              (needed in step() to recover mesh.position from Rapier translation)
+   *   wq       — world quaternion for the Rapier body
+   *   hx/hy/hz — LOCAL bbox half-extents (geometry-space × mesh scale, before rotation)
+   *
+   * Using local bbox for both position AND half-extents is critical:
+   *   • AABB center is wrong for rotated meshes (AABB grows with rotation).
+   *   • AABB half-extents inflate the collider for rotated / bent meshes, causing
+   *     objects to float or collide at wrong heights.
+   */
+  _bodyParamsForMesh(mesh) {
+    mesh.updateMatrixWorld(true)
+    const wq = new THREE.Quaternion(); mesh.getWorldQuaternion(wq)
+    const wp = new THREE.Vector3();    mesh.getWorldPosition(wp)
+    let hx, hy, hz, lCtr, worldCtr
+
+    if (mesh.geometry) {
+      if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox()
+      const lb = mesh.geometry.boundingBox
+      hx = (lb.max.x - lb.min.x) * 0.5 * Math.abs(mesh.scale.x)
+      hy = (lb.max.y - lb.min.y) * 0.5 * Math.abs(mesh.scale.y)
+      hz = (lb.max.z - lb.min.z) * 0.5 * Math.abs(mesh.scale.z)
+      // Center of local bbox in geometry-scale space (mesh origin = 0,0,0)
+      lCtr = new THREE.Vector3(
+        (lb.min.x + lb.max.x) * 0.5 * mesh.scale.x,
+        (lb.min.y + lb.max.y) * 0.5 * mesh.scale.y,
+        (lb.min.z + lb.max.z) * 0.5 * mesh.scale.z
+      )
+      // Rotate local center into world space, then offset from mesh world origin
+      worldCtr = lCtr.clone().applyQuaternion(wq).add(wp)
+    } else {
+      // Group / GLTF model: fall back to AABB with identity rotation so the
+      // axis-aligned extents are used directly (no double-rotation).
+      const bb = new THREE.Box3().setFromObject(mesh)
+      if (bb.isEmpty()) return null
+      const sz = new THREE.Vector3(); bb.getSize(sz)
+      hx = sz.x * 0.5; hy = sz.y * 0.5; hz = sz.z * 0.5
+      worldCtr = new THREE.Vector3(); bb.getCenter(worldCtr)
+      lCtr     = worldCtr.clone().sub(wp)   // offset from mesh origin
+      wq.set(0, 0, 0, 1)                    // identity — no double-rotation
+    }
+    return { worldCtr, lCtr, wq, hx: Math.max(0.01, hx), hy: Math.max(0.01, hy), hz: Math.max(0.01, hz) }
+  }
+
 
   enter(objects) {
-    if (!this.scene || this.rootGroup) return
+    if (!this.scene || this.rootGroup || this._useRapierFreefall) return
 
     // Split scene objects into robot parts (go into rootGroup) and standalone
     // obstacles (stay fixed; get static Rapier colliders so the robot stops on contact).
@@ -137,22 +192,54 @@ class DriveManager {
         this._drive.wheelbase = this.wheelbase
       }
     } else {
-      this._leftIds   = []
-      this._rightIds  = []
       this.wheelbase  = 3.0
       this._yawOffset = 0
       this._drive.wheelbase = 3.0
 
-      let n = 0
-      for (const obj of topLevel) {
-        const mesh = this.objectMgr.getMesh(obj.id)
-        if (!mesh) continue
-        mesh.updateMatrixWorld(true)
-        const p = new THREE.Vector3()
-        mesh.getWorldPosition(p)
-        pivotX += p.x; pivotZ += p.z; n++
+      if (motors.length === 1) {
+        // Single-motor robot: assign the motor as both left and right so the
+        // robot moves straight when code writes to it.  This also keeps
+        // _leftIds non-empty, which prevents the non-wheeled tipping block
+        // from running and causing the robot to flip over.
+        this._leftIds  = [motors[0].id]
+        this._rightIds = [motors[0].id]
+        const m0 = this.objectMgr.getMesh(motors[0].id)
+        if (m0) {
+          m0.updateMatrixWorld(true)
+          const mp = new THREE.Vector3()
+          m0.getWorldPosition(mp)
+          pivotX = mp.x
+          pivotZ = mp.z
+        }
+      } else {
+        this._leftIds  = []
+        this._rightIds = []
+
+        // Pivot = centroid of objects in the lowest-Y layer (the physical support/fulcrum).
+        // For a seesaw (platform resting on a cube), this anchors the pivot at the
+        // cube so _comLocalX is measured from the real support point, not the
+        // centroid of all centers (which would make the seesaw appear balanced).
+        let lowestBottomY = Infinity
+        for (const obj of topLevel) {
+          const mesh = this.objectMgr.getMesh(obj.id)
+          if (!mesh) continue
+          mesh.updateMatrixWorld(true)
+          const bb = new THREE.Box3().setFromObject(mesh)
+          if (!bb.isEmpty()) lowestBottomY = Math.min(lowestBottomY, bb.min.y)
+        }
+        let n = 0
+        for (const obj of topLevel) {
+          const mesh = this.objectMgr.getMesh(obj.id)
+          if (!mesh) continue
+          const bb = new THREE.Box3().setFromObject(mesh)
+          if (bb.isEmpty()) continue
+          if (bb.min.y <= lowestBottomY + 0.05) {
+            const ctr = bb.getCenter(new THREE.Vector3())
+            pivotX += ctr.x; pivotZ += ctr.z; n++
+          }
+        }
+        if (n > 0) { pivotX /= n; pivotZ /= n }
       }
-      if (n > 0) { pivotX /= n; pivotZ /= n }
     }
 
     // ── Step 1b: detect legged robot ─────────────────────────────────────────
@@ -186,6 +273,86 @@ class DriveManager {
     const { gravity, groundFriction: gf } = usePhysicsStore.getState()
     physicsManager.init().then(() => physicsManager.setGravity(gravity))
 
+    // ── Rapier freefall — objects with no motor (no wheels) ──────────────────
+    // Each object gets its own Rapier dynamic body. Rapier handles gravity,
+    // tipping, stacking and object-to-object collisions — no hand-written
+    // physics needed. Falls back to the rootGroup path only if Rapier isn't
+    // ready yet (first ~1 s of app startup).
+    // Robots with ≥1 motor always use the rootGroup path so the wheel and
+    // chassis stay as one unified rigid body (no Rapier contact explosions).
+    if (motors.length === 0 && !this._isLegged && physicsManager.ready) {
+      physicsManager.setGravity(gravity)   // ensure correct environment gravity
+
+      // Snapshot design-time positions so exit() can restore them.
+      // Without this, stop→start runs simulation from the already-settled state
+      // and nothing appears to move on the second (and later) runs.
+      this._savedPositions.clear()
+      for (const obj of topLevel) {
+        const mesh = this.objectMgr.getMesh(obj.id)
+        if (mesh) {
+          this._savedPositions.set(obj.id, {
+            position:   mesh.position.clone(),
+            quaternion: mesh.quaternion.clone(),
+          })
+        }
+      }
+
+      for (const obj of topLevel) {
+        const mesh = this.objectMgr.getMesh(obj.id)
+        if (!mesh || mesh.parent !== this.scene) continue
+        const p = this._bodyParamsForMesh(mesh)
+        if (!p) continue
+        const { worldCtr, lCtr, wq, hx, hy, hz } = p
+        const halfY = hy
+        worldCtr.y += 0.05   // small lift to prevent ground contact at t=0
+        const body = physicsManager.createDynamicBody(
+          'free_' + obj.id,
+          { x: worldCtr.x, y: worldCtr.y, z: worldCtr.z },
+          { x: wq.x, y: wq.y, z: wq.z, w: wq.w },
+          { x: hx, y: halfY, z: hz }
+        )
+        if (body) this._rapierBodies.set(obj.id, { body, mesh, halfY, lCtr })
+      }
+
+      // Static colliders for standalone obstacles
+      for (const obj of standaloneObjects) {
+        const mesh = this.objectMgr.getMesh(obj.id)
+        if (!mesh) continue
+        mesh.updateMatrixWorld(true)
+        const box  = new THREE.Box3().setFromObject(mesh)
+        const ctr2 = new THREE.Vector3(); box.getCenter(ctr2)
+        const half = new THREE.Vector3(); box.getSize(half).multiplyScalar(0.5)
+        physicsManager.createStaticObstacle(
+          'obs_' + obj.id, ctr2,
+          { x: Math.max(0.1, half.x), y: Math.max(0.1, half.y), z: Math.max(0.1, half.z) }
+        )
+        this._obstacleIds.push('obs_' + obj.id)
+      }
+
+      this._useRapierFreefall = true
+
+      // Pre-warm: run 15 Rapier steps at 1 ms with zero gravity so any initial
+      // contact violations (overlapping stacked objects, corner penetrations) are
+      // resolved with small position corrections rather than large velocity
+      // impulses.  After pre-warm, sync mesh positions to the clean start state.
+      physicsManager.setGravity(0)
+      for (let i = 0; i < 15; i++) physicsManager.step(0.001)
+      physicsManager.setGravity(gravity)
+      for (const [, { body, mesh: m, halfY: hy2, lCtr: lc }] of this._rapierBodies) {
+        const pos = body.translation()
+        const rot = body.rotation()
+        const q   = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
+        const safeY = Math.max(pos.y, hy2)
+        if (safeY !== pos.y) body.setTranslation({ x: pos.x, y: safeY, z: pos.z }, true)
+        const rc = lc.clone().applyQuaternion(q)
+        m.position.set(pos.x - rc.x, safeY - rc.y, pos.z - rc.z)
+        m.quaternion.copy(q)
+      }
+
+      this._lastTime = null
+      return   // skip rootGroup creation entirely
+    }
+
     // ── Step 2: create rootGroup at the axle midpoint and re-parent meshes ───
     this.rootGroup = new THREE.Group()
     this.rootGroup.userData.isDriveRoot = true
@@ -214,6 +381,24 @@ class DriveManager {
       mesh.position.copy(p)
       mesh.quaternion.copy(q)
       mesh.scale.copy(s)
+    }
+
+    // ── Legged: store knee-servo rest transforms relative to their arms ─────────
+    // Knee servos are siblings of arms in rootGroup, but must follow the arm tip
+    // when the hip servo rotates. We capture the design-time relative matrix here
+    // so _stepLegged() can re-apply it every frame after hip animation.
+    if (this._isLegged && this._leggedSystem) {
+      for (const leg of this._leggedSystem.legs) {
+        if (!leg.kneeServoId) continue
+        const armMesh  = this.objectMgr.getMesh(leg.armId)
+        const kneeMesh = this.objectMgr.getMesh(leg.kneeServoId)
+        if (armMesh && kneeMesh) {
+          armMesh.updateMatrixWorld(true)
+          kneeMesh.updateMatrixWorld(true)
+          // Knee's world transform expressed in arm-local space
+          leg._kneeRestMatrix = armMesh.matrixWorld.clone().invert().multiply(kneeMesh.matrixWorld)
+        }
+      }
     }
 
     // ── Step 3: create Rapier kinematic body at the pivot ────────────────────
@@ -294,7 +479,9 @@ class DriveManager {
     // floor while the rest floats.  Lifting the tilt into rootGroup.rotation
     // lets the settling physics in step() pivot the object flat under gravity,
     // exactly as a real dropped rigid body would.
-    if (motors.length < 2 && !this._isLegged) {
+    // Skip for 1-motor robots: the wheel's 90° design rotation would be extracted
+    // into rootGroup, immediately tilting the whole robot 90° sideways.
+    if (motors.length === 0 && !this._isLegged) {
       let dominantMesh = null, maxVol = 0
       for (const obj of topLevel) {
         const mesh = this.objectMgr.getMesh(obj.id)
@@ -368,7 +555,36 @@ class DriveManager {
   }
 
   exit(updateObject) {
-    if (!this.rootGroup) return
+    if (!this.rootGroup && !this._useRapierFreefall) return
+
+    // ── Rapier freefall cleanup ───────────────────────────────────────────────
+    if (this._useRapierFreefall) {
+      // Restore every object to its design-time position so the next simulation
+      // run always starts from the same authored state (not the settled state).
+      for (const [objId] of this._rapierBodies) {
+        physicsManager.removeBody('free_' + objId)
+        const saved = this._savedPositions.get(objId)
+        const mesh  = this.objectMgr.getMesh(objId)
+        if (saved && mesh) {
+          mesh.position.copy(saved.position)
+          mesh.quaternion.copy(saved.quaternion)
+          if (updateObject) {
+            const e = new THREE.Euler().setFromQuaternion(saved.quaternion)
+            updateObject(objId, {
+              position: { x: saved.position.x, y: saved.position.y, z: saved.position.z },
+              rotation: { x: e.x, y: e.y, z: e.z },
+            })
+          }
+        }
+      }
+      for (const id of this._obstacleIds) physicsManager.removeBody(id)
+      this._obstacleIds = []
+      this._rapierBodies.clear()
+      this._savedPositions.clear()
+      this._useRapierFreefall = false
+      this._lastTime = null
+      return
+    }
 
     // Reset pitch rotation and gravity Y-offset before extracting child world
     // transforms.  Without this, each mesh gets its tilted/lowered simulation
@@ -423,12 +639,62 @@ class DriveManager {
 
   // Called every animation frame.
   step() {
-    if (!this.rootGroup) return
+    if (!this.rootGroup && !this._useRapierFreefall) return
 
     const now = performance.now() / 1000
     const dt  = this._lastTime !== null ? Math.min(now - this._lastTime, 0.05) : 0
     this._lastTime = now
     if (dt === 0) return
+
+    // ── Rapier freefall path ──────────────────────────────────────────────────
+    // Each object is a Rapier dynamic body — gravity, tipping, stacking and
+    // object-to-object collisions are all handled by the physics engine.
+    if (this._useRapierFreefall) {
+      const gravity = usePhysicsStore.getState().gravity
+      physicsManager.setGravity(gravity)
+
+      // Dynamically enroll objects added to the scene since simulation started
+      for (const obj of useSceneStore.getState().objects) {
+        if (this._rapierBodies.has(obj.id) || obj.visible === false) continue
+        const mesh = this.objectMgr.getMesh(obj.id)
+        if (!mesh) continue
+        const p = this._bodyParamsForMesh(mesh)
+        if (!p) continue
+        const { worldCtr, lCtr, wq, hx, hy, hz } = p
+        const halfY = hy
+        worldCtr.y += 0.05
+        const body = physicsManager.createDynamicBody(
+          'free_' + obj.id,
+          { x: worldCtr.x, y: worldCtr.y, z: worldCtr.z },
+          { x: wq.x, y: wq.y, z: wq.z, w: wq.w },
+          { x: hx, y: halfY, z: hz }
+        )
+        if (body) this._rapierBodies.set(obj.id, { body, mesh, halfY, lCtr })
+      }
+
+      physicsManager.step(dt)
+
+      for (const [, { body, mesh, halfY, lCtr }] of this._rapierBodies) {
+        const pos = body.translation()
+        const rot = body.rotation()
+        const q   = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
+        // Hard floor clamp: Rapier's ground collider handles this, but we guard
+        // against numerical drift so the mesh never visually clips through y=0.
+        const safeY = Math.max(pos.y, halfY)
+        if (safeY !== pos.y) {
+          body.setTranslation({ x: pos.x, y: safeY, z: pos.z }, true)
+          const vel = body.linvel()
+          if (vel.y < 0) body.setLinvel({ x: vel.x, y: 0, z: vel.z }, true)
+          pos.y = safeY
+        }
+        // Rapier drives the collider centre.  Recover the mesh origin by
+        // un-applying the local centre offset in the body's current orientation.
+        const rc = lCtr.clone().applyQuaternion(q)
+        mesh.position.set(pos.x - rc.x, pos.y - rc.y, pos.z - rc.z)
+        mesh.quaternion.copy(q)
+      }
+      return
+    }
 
     // ── Legged robot path (always active in sim mode) ────────────────────────
     if (this._isLegged && this._leggedSystem) {
@@ -459,20 +725,45 @@ class DriveManager {
     // _comLocalY·sin(θ) term would model an inverted pendulum and cause
     // runaway tipping for every robot regardless of balance.
     if (this._leftIds.length === 0) {
+      // Dynamic COM: recalculate every frame so objects added after simulation
+      // starts are immediately reflected. Uses equal-weight averaging (each
+      // object counts once regardless of volume) so a small cube placed
+      // asymmetrically on a large platform has its full gravitational effect.
+      {
+        const allObjs = useSceneStore.getState().objects
+        let sumX = 0, sumZ = 0, n = 0
+        for (const obj of allObjs) {
+          if (obj.visible === false) continue
+          const mesh = this.objectMgr.getMesh(obj.id)
+          if (!mesh) continue
+          let lx, lz
+          if (mesh.parent === this.rootGroup) {
+            lx = mesh.position.x
+            lz = mesh.position.z
+          } else {
+            const lp = this.rootGroup.worldToLocal(
+              mesh.getWorldPosition(new THREE.Vector3())
+            )
+            lx = lp.x; lz = lp.z
+          }
+          sumX += lx; sumZ += lz; n++
+        }
+        if (n > 0) {
+          this._comLocalX = sumX / n
+          this._comLocalZ = sumZ / n
+        }
+      }
+
       // Non-wheeled physics: two independent torque sources are combined.
       //
-      // 1. COM-tipping: if the volume-weighted COM is offset from the pivot in X
-      //    or Z, gravity tips the object toward the heavy side — exactly like the
-      //    wheeled-robot pitch, but now for both axes.  This drives a seesaw or
-      //    any lopsided assembly to tip onto its heavy end.
+      // 1. COM-tipping: COM is offset from the pivot in X or Z → gravity tips
+      //    the object toward the heavy side (seesaw, asymmetric assembly).
       //
-      // 2. Settling: a restoring spring torque (−g·arm·sin θ) brings a design-time
-      //    tilt back to horizontal for symmetric objects.  The spring is blended
-      //    away when the COM is strongly offset, so it does not fight the seesaw.
+      // 2. Settling: restoring spring torque (−g·arm·sin θ) brings a tilted
+      //    object back to flat. Blended away when COM offset is large.
       //
-      // Which dominates is decided by the "tip ratio" (normalised COM offset):
-      //   tipRatio ≈ 0  → symmetric object → settling wins → lands flat
-      //   tipRatio ≈ 1  → lopsided seesaw  → tipping wins  → heavy side falls
+      // tipRatio ≈ 0  → symmetric → settling wins → lands flat
+      // tipRatio ≈ 1  → lopsided  → tipping wins  → heavy side falls
       const gScene = Math.abs(physEnv.gravity) / SCENE_TO_M
       const armP   = Math.max(0.5, this._pitchExtent)
       const armR   = Math.max(0.5,
@@ -501,7 +792,7 @@ class DriveManager {
       const lowestY = this.rootGroup.position.y
         + lxC * sinR
         + (this._robotMinY * cosP - lzC * sinP) * cosR
-      const isGrounded = lowestY < 0.5
+      const isGrounded = lowestY <= 0.05   // tipping only once nearly touching the floor
 
       // Physics only activates when grounded, or when COM-tipping is in play
       const active = isGrounded && (
@@ -536,29 +827,21 @@ class DriveManager {
       this.rootGroup.rotation.x = this._pitch
       this.rootGroup.rotation.z = this._roll
     }
-    if (this._leftIds.length > 0 && this._pitchExtent > 0.5 && Math.abs(this._comLocalZ) > 0.05) {
-      const gScene      = Math.abs(physEnv.gravity) / SCENE_TO_M
-      const pitchTorque = gScene * this._comLocalZ * Math.cos(this._pitch)
-      // Effective moment of inertia (distributed body, simplified)
-      const pitchI      = Math.max(1.0, this._pitchExtent * this._pitchExtent * 0.25)
-      this._pitchVel   += (pitchTorque / pitchI) * dt
-      this._pitchVel   *= Math.exp(-5.0 * dt)   // structural + air damping
-
-      // Ground contact: far end of robot body hits floor at _maxPitch
-      if (Math.abs(this._pitch) >= this._maxPitch) {
-        this._pitch = Math.sign(this._pitch || this._pitchVel) * this._maxPitch
-        if (Math.sign(this._pitchVel) === Math.sign(this._pitch)) this._pitchVel = 0
+    // ── Ground clamp ─────────────────────────────────────────────────────────
+    if (this._leftIds.length > 0) {
+      // Drop until the robot's LOWEST point (e.g. wheel bottoms) rests on the
+      // floor, so a robot built floating in the air falls and lands on its wheels
+      // instead of being pinned at its design height. A robot built already on the
+      // grid has _robotMinY ≈ 0, so this stays a no-op for the common case.
+      const groundY = -this._robotMinY
+      if (this.rootGroup.position.y < groundY) {
+        this.rootGroup.position.y = groundY
+        if (this._vy < 0) this._vy = 0
       }
-      this._pitch              += this._pitchVel * dt
-      this.rootGroup.rotation.x = this._pitch
-    }
-
-    // ── Pitch+roll-aware ground clamp ────────────────────────────────────────
-    // rootGroup can have both X-rotation (pitch) and Z-rotation (roll).
-    // World Y of a local point (lx, ly, lz) with XYZ Euler (Rx then Rz):
-    //   worldY = rootGroup.y + lx·sinR + (ly·cosP − lz·sinP)·cosR
-    // Minimise over the bounding box by choosing the worst-case lx and lz corner.
-    {
+    } else {
+      // Non-wheeled: full pitch+roll-aware clamp.
+      // World Y of a local point (lx, ly, lz) with XYZ Euler (Rx then Rz):
+      //   worldY = rootGroup.y + lx·sinR + (ly·cosP − lz·sinP)·cosR
       const sinP = Math.sin(this._pitch)
       const cosP = Math.cos(this._pitch)
       const sinR = Math.sin(this._roll)
@@ -571,6 +854,15 @@ class DriveManager {
       if (lowestWorldY < 0) {
         this.rootGroup.position.y -= lowestWorldY
         if (this._vy < 0) this._vy = 0
+
+        if ((sinR >= 0 && this._comLocalX < -0.3) ||
+            (sinR < 0  && this._comLocalX >  0.3)) {
+          this._rollVel  *= 0.05
+        }
+        if ((sinP * cosR >= 0 && this._comLocalZ >  0.3) ||
+            (sinP * cosR < 0  && this._comLocalZ < -0.3)) {
+          this._pitchVel *= 0.05
+        }
       }
     }
 
@@ -656,11 +948,35 @@ class DriveManager {
       wind:            physState.wind,
     }
 
-    // Skip auto-gait when Arduino code is running — user's myServo.write() takes over
-    const skipGait = simulationManager.isRunning()
+    // Skip auto-gait when code is running (Servo.write takes over) OR when no
+    // movement is commanded (legs rest in place until arrow keys / D-pad are held).
+    const skipGait = simulationManager.isRunning() || (speed === 0 && turn === 0)
 
     const { v: targetV, omega: targetOmega } =
       this._leggedSystem.step(dt, speed, turn, skipGait, physEnv, this.objectMgr)
+
+    // Sync knee servo positions to follow their arm tips.
+    // Hip servo animation (above) rotated each arm inside its rotorGroup.
+    // The knee servo is a rootGroup sibling — it must be repositioned every frame
+    // so it stays welded to the arm tip and the foot rotates around the right point.
+    {
+      this.rootGroup.updateMatrixWorld(true)
+      const _rootInv = this.rootGroup.matrixWorld.clone().invert()
+      const _p = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3()
+      for (const leg of this._leggedSystem.legs) {
+        if (!leg.kneeServoId || !leg._kneeRestMatrix) continue
+        const armMesh  = this.objectMgr.getMesh(leg.armId)
+        const kneeMesh = this.objectMgr.getMesh(leg.kneeServoId)
+        if (!armMesh || !kneeMesh) continue
+        armMesh.updateMatrixWorld(true)
+        // arm's current world × design-time knee offset → knee's desired world transform
+        const worldKnee = armMesh.matrixWorld.clone().multiply(leg._kneeRestMatrix)
+        // Convert to rootGroup-local so setting kneeMesh.position is correct
+        worldKnee.premultiply(_rootInv).decompose(_p, _q, _s)
+        kneeMesh.position.copy(_p)
+        kneeMesh.quaternion.copy(_q)
+      }
+    }
 
     let body = physicsManager.getBody(DRIVE_BODY_ID)
     if (!body && physicsManager.ready) {

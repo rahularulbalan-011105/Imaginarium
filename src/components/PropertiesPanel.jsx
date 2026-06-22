@@ -4,9 +4,13 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useGearStore } from '../stores/gearStore.js'
+import { useAssetStore } from '../stores/assetStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { r3, radToDeg, degToRad, snapRotationToAxes } from '../utils/helpers.js'
+import DimensionEditorPanel from './DimensionEditorPanel.jsx'
+import ExtrudePanel from './ExtrudePanel.jsx'
+import FilletPanel from './FilletPanel.jsx'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
   const handleChange = (axis) => (e) => {
@@ -28,7 +32,7 @@ function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
               step={step}
               onBlur={onBlurSnapshot}
               onChange={handleChange(axis)}
-              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-blue-500"
+              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-indigo-500"
             />
           </div>
         ))}
@@ -195,11 +199,11 @@ export default function PropertiesPanel() {
     const result = objectManager.attachBySurface(pA, pB)
     if (result) {
       updateObject(pB.objectId, { position: result.position, rotation: result.rotation })
-      // Move children already bonded to pB so they stay in place relative to it
       cascadeBonds(pB.objectId, bonds)
       addBond(pA.objectId, pB.objectId, result.relativeMatrix, pA.localNormal, pA.localCenter)
-      // Clear patch selection so stale patches from this operation don't bleed
-      // into the next attach via the 2-slot rolling window in toggleSelectPatch.
+      // Remove both patches so their 3D meshes are destroyed and don't block future selection.
+      removePatch(pA.id)
+      removePatch(pB.id)
       clearPatchSelection()
       snapshot()
     }
@@ -214,7 +218,7 @@ export default function PropertiesPanel() {
   const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc']
   const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'servo']
   const isMotor      = obj && MOTOR_TYPES.includes(obj.type)
-  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'led')
+  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led')
 
   // Secondary selection: shift-click on a motor or servo → direct Attach button
   const secondaryObj    = objects.find(o => o.id === secondaryId) ?? null
@@ -346,6 +350,7 @@ export default function PropertiesPanel() {
       // Read back actual position (bbox alignment may have shifted it)
       const pos = objectManager.getAttachedLocalPosition(selectedId)
       setShaftPos(pos ? { x: r3(pos.x), y: r3(pos.y), z: r3(pos.z) } : { x: snapX, y: 0, z: 0 })
+      snapshot()
     }
   }
 
@@ -359,8 +364,10 @@ export default function PropertiesPanel() {
     )
   }
 
+  const handleRemovePatch = (id) => { removePatch(id); snapshot() }
+
   if (!obj && selectedPatches.length > 0) {
-    return <SurfacePatchPanel patches={selectedPatches} canAttach={canRigidAttach} onAttach={handleRigidAttach} onRemove={removePatch} onUpdatePatch={updatePatch} objects={objects} />
+    return <SurfacePatchPanel patches={selectedPatches} canAttach={canRigidAttach} onAttach={handleRigidAttach} onRemove={handleRemovePatch} onUpdatePatch={updatePatch} objects={objects} />
   }
 
   const rotDeg = {
@@ -378,7 +385,7 @@ export default function PropertiesPanel() {
             patches={selectedPatches}
             canAttach={canRigidAttach}
             onAttach={handleRigidAttach}
-            onRemove={removePatch}
+            onRemove={handleRemovePatch}
             onUpdatePatch={updatePatch}
             objects={objects}
           />
@@ -392,7 +399,7 @@ export default function PropertiesPanel() {
           type="text"
           value={obj.name}
           onChange={(e) => update({ name: e.target.value })}
-          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-blue-500"
+          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500"
         />
       </div>
 
@@ -415,7 +422,7 @@ export default function PropertiesPanel() {
                   className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
                     Math.abs(shaftPos.x - x) < 0.01 && shaftPos.y === 0 && shaftPos.z === 0
                       ? 'bg-green-700/50 border-green-500/60 text-green-200'
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
                   }`}
                 >
                   {label}
@@ -451,7 +458,7 @@ export default function PropertiesPanel() {
 
           <button
             onClick={handleDetach}
-            className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-white text-xs rounded transition-colors"
+            className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-slate-900 text-xs rounded transition-colors"
           >
             Detach from {shaftLabel(attachedMotor)}
           </button>
@@ -515,7 +522,7 @@ export default function PropertiesPanel() {
                     <button
                       key={deg}
                       onClick={() => handleRotate90OnSurface(bond, deg)}
-                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-200 hover:text-white text-[10px] font-medium rounded transition-colors"
+                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-200 hover:text-slate-900 text-[10px] font-medium rounded transition-colors"
                     >
                       {label}
                     </button>
@@ -526,7 +533,7 @@ export default function PropertiesPanel() {
 
             <button
               onClick={() => { removeBond(bond.id); snapshot() }}
-              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-white text-xs rounded transition-colors"
+              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-slate-900 text-xs rounded transition-colors"
             >
               Detach Bond
             </button>
@@ -564,7 +571,7 @@ export default function PropertiesPanel() {
                 snapshot()
               }}
               title="Round each rotation axis to the nearest 0°/90°/180°/270° so the shape is perfectly grid-aligned"
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-900/40 hover:bg-indigo-700/50 border border-indigo-700/40 text-indigo-300 hover:text-white transition-colors"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-900/40 hover:bg-indigo-700/50 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 transition-colors"
             >
               <span>⊹</span>
               <span>Snap to Axes</span>
@@ -621,17 +628,17 @@ export default function PropertiesPanel() {
 
       {/* Direct attach: prop selected + shift-click on a motor/servo → one-click attach */}
       {isAttachable && secondaryShaft && (
-        <div className="mb-3 p-2.5 rounded bg-blue-900/30 border border-blue-600/50">
-          <div className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold mb-1">
+        <div className="mb-3 p-2.5 rounded bg-indigo-900/20 border border-indigo-700/50">
+          <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold mb-1">
             ⚙ Attach to {shaftLabel(secondaryShaft)}
           </div>
           <div className="text-[9px] text-gray-400 mb-2">
             Attach <span className="text-white font-medium">{obj.name}</span> to{' '}
-            <span className="text-blue-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
+            <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
           </div>
           <button
             onClick={() => handleAttachToMotor(secondaryShaft.id)}
-            className="w-full py-2 bg-blue-700 hover:bg-blue-600 text-white text-xs font-medium rounded transition-colors"
+            className="w-full py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-medium rounded transition-colors"
           >
             ✓ Attach to {secondaryShaft.name}
           </button>
@@ -653,8 +660,8 @@ export default function PropertiesPanel() {
                   onClick={() => setAttachPreset(key)}
                   className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
                     attachPreset === key
-                      ? 'bg-blue-700/60 border-blue-500 text-white'
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+                      ? 'bg-indigo-700/60 border-indigo-500 text-white'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
                   }`}
                 >
                   {label}
@@ -679,7 +686,7 @@ export default function PropertiesPanel() {
                   className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
                     alignX === key
                       ? 'bg-orange-700/60 border-orange-500 text-white'
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
                   }`}
                 >
                   {label}
@@ -695,7 +702,7 @@ export default function PropertiesPanel() {
           {shaftTargets.length === 1 ? (
             <button
               onClick={() => handleAttachToMotor(shaftTargets[0].id)}
-              className="w-full py-1.5 bg-blue-900/40 hover:bg-blue-700/60 border border-blue-700/50 text-blue-300 hover:text-white text-xs rounded transition-colors"
+              className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
             >
               ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
@@ -705,7 +712,7 @@ export default function PropertiesPanel() {
                 <button
                   key={m.id}
                   onClick={() => handleAttachToMotor(m.id)}
-                  className="w-full py-1.5 bg-blue-900/40 hover:bg-blue-700/60 border border-blue-700/50 text-blue-300 hover:text-white text-xs rounded transition-colors"
+                  className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
                 >
                   ⚙ Attach to {m.name} ({shaftLabel(m)})
                 </button>
@@ -732,7 +739,7 @@ export default function PropertiesPanel() {
                 className={`w-full text-left px-2 py-1 text-[10px] font-mono rounded transition-colors ${
                   currentShaftName === name
                     ? 'bg-green-700/60 text-green-200 border border-green-600/50'
-                    : 'text-gray-400 hover:bg-gray-700/60 hover:text-white'
+                    : 'text-gray-400 hover:bg-gray-700/60 hover:text-slate-900'
                 }`}
               >
                 {currentShaftName === name ? '▶ ' : '   '}{name}
@@ -763,7 +770,7 @@ export default function PropertiesPanel() {
             onChange={(e) => {
               if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) update({ color: e.target.value })
             }}
-            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-blue-500 font-mono"
+            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500 font-mono"
           />
         </div>
       </div>
@@ -778,8 +785,8 @@ export default function PropertiesPanel() {
               onClick={() => update({ material: m })}
               className={`py-1.5 rounded text-xs capitalize transition-colors ${
                 obj.material === m
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white border border-gray-600/50'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-slate-900 border border-gray-600/50'
               }`}
             >
               {m}
@@ -893,6 +900,162 @@ export default function PropertiesPanel() {
         )
       })()}
 
+      {/* ── Fillet / Chamfer — only for box and rectprism ───────────────────── */}
+      {!isElectronics && (obj.type === 'box' || obj.type === 'rectprism') && (() => {
+        const maxR = obj.type === 'rectprism' ? 0.70 : 0.95
+        const curR = obj.fillet ?? 0
+        const isChamfer = (obj.filletSegments ?? 3) === 1
+        const isPartial = obj.filletMode === 'partial'
+        const axis      = obj.filletAxis ?? 'z'
+        const corners   = obj.filletCorners ?? [true, true, true, true]
+
+        // Toggle one corner of the cross-section (an edge running along `axis`)
+        const toggleCorner = (i) => {
+          const next = corners.slice()
+          next[i] = !next[i]
+          update({ fillet: curR > 0 ? curR : 0.3, filletCorners: next })
+          snapshot()
+        }
+        // 2×2 grid → corner index. mask order is [BL, BR, TR, TL].
+        const gridOrder = [3, 2, 0, 1] // TL, TR, BL, BR (visual top-down)
+
+        return (
+          <div className="mb-3">
+            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1.5">Edge Style</div>
+
+            {/* Fillet vs Chamfer type selector */}
+            <div className="flex gap-1 mb-2">
+              {[
+                { label: 'Fillet', segs: 3, active: !isChamfer },
+                { label: 'Chamfer', segs: 1, active: isChamfer },
+              ].map(({ label, segs, active }) => (
+                <button
+                  key={label}
+                  onClick={() => { update({ filletSegments: segs }); snapshot() }}
+                  className={`flex-1 py-1 rounded text-[10px] uppercase font-semibold border transition-colors ${
+                    active
+                      ? segs === 1
+                        ? 'bg-orange-700/60 border-orange-500 text-white'
+                        : 'bg-indigo-700/60 border-indigo-500 text-white'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+
+            {/* All edges vs Selected edges */}
+            <div className="flex gap-1 mb-2">
+              {[
+                { label: 'All Edges', partial: false },
+                { label: 'Pick Edges', partial: true },
+              ].map(({ label, partial }) => (
+                <button
+                  key={label}
+                  onClick={() => { update({ filletMode: partial ? 'partial' : 'all' }); snapshot() }}
+                  className={`flex-1 py-1 rounded text-[10px] font-semibold border transition-colors ${
+                    isPartial === partial
+                      ? 'bg-teal-700/60 border-teal-500 text-white'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+
+            {/* Per-edge picker (partial mode) */}
+            {isPartial && (
+              <div className="mb-2 p-2 rounded bg-gray-800/50 border border-teal-700/30">
+                <div className="text-[9px] text-gray-400 mb-1">Edges run along</div>
+                <div className="flex gap-1 mb-2">
+                  {['x', 'y', 'z'].map(a => (
+                    <button
+                      key={a}
+                      onClick={() => { update({ filletAxis: a }); snapshot() }}
+                      className={`flex-1 py-1 rounded text-[10px] uppercase font-semibold border transition-colors ${
+                        axis === a
+                          ? 'bg-teal-700/60 border-teal-500 text-white'
+                          : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+                      }`}
+                    >{a}</button>
+                  ))}
+                </div>
+                <div className="text-[9px] text-gray-400 mb-1">Tap an edge to round it</div>
+                {/* 2×2 corner grid — each cell is one of the 4 edges parallel to the axis */}
+                <div className="grid grid-cols-2 gap-1 w-24 mx-auto mb-1">
+                  {gridOrder.map(i => (
+                    <button
+                      key={i}
+                      onClick={() => toggleCorner(i)}
+                      className={`aspect-square rounded border-2 transition-colors flex items-center justify-center text-[14px] ${
+                        corners[i]
+                          ? 'bg-teal-600/50 border-teal-400 text-teal-100'
+                          : 'bg-gray-900 border-gray-600 text-gray-600 hover:border-gray-400'
+                      }`}
+                      title={corners[i] ? 'Rounded — click to sharpen' : 'Sharp — click to round'}
+                    >{corners[i] ? '◜' : '└'}</button>
+                  ))}
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => { update({ filletCorners: [true, true, true, true] }); snapshot() }}
+                    className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-slate-900"
+                  >All 4</button>
+                  <button
+                    onClick={() => { update({ filletCorners: [false, false, false, false] }); snapshot() }}
+                    className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-slate-900"
+                  >None</button>
+                </div>
+                <div className="text-[9px] text-gray-600 mt-1">
+                  One cell = one edge · two adjacent = one side
+                </div>
+              </div>
+            )}
+
+            {/* Radius slider */}
+            <input
+              type="range"
+              min={0}
+              max={maxR}
+              step={0.01}
+              value={curR}
+              onChange={e => update({ fillet: parseFloat(e.target.value) })}
+              onMouseUp={snapshot}
+              className="w-full mb-1.5 cursor-pointer accent-indigo-500"
+              style={{ height: '4px' }}
+            />
+
+            {/* Numeric input + reset */}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                max={maxR}
+                step={0.01}
+                value={curR}
+                onChange={e => {
+                  const v = parseFloat(e.target.value)
+                  if (!isNaN(v)) update({ fillet: Math.max(0, Math.min(maxR, v)) })
+                }}
+                onBlur={snapshot}
+                className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-indigo-500"
+              />
+              <span className="text-[9px] text-gray-500 shrink-0">r</span>
+              {curR > 0 && (
+                <button
+                  onClick={() => { update({ fillet: 0 }); snapshot() }}
+                  title="Remove fillet"
+                  className="shrink-0 text-[9px] text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-red-900/30 transition-colors"
+                >✕</button>
+              )}
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">
+              {isPartial
+                ? (isChamfer ? 'Chamfer — only the picked edges are cut' : 'Fillet — only the picked edges are rounded')
+                : (isChamfer ? 'Chamfer — flat angled cut on every edge' : 'Fillet — smooth round on every edge')}
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Bend / Deform — only for primitive geometry */}
       {!isElectronics && obj.type !== 'csg' && (
         <div className="mb-3">
@@ -910,7 +1073,7 @@ export default function PropertiesPanel() {
                 className={`flex-1 py-1 rounded text-[10px] uppercase font-semibold border transition-colors ${
                   (obj.deform?.bendAxis ?? 'y') === axis
                     ? 'bg-purple-700/60 border-purple-500 text-white'
-                    : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+                    : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
                 }`}
               >
                 {axis}
@@ -975,6 +1138,40 @@ export default function PropertiesPanel() {
         </div>
       )}
 
+      {/* ── Dimensions (editable W/H/D with one-sided scaling) ──────────────── */}
+      {!isElectronics && (
+        <div className="mb-3">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1.5">Dimensions</div>
+          <DimensionEditorPanel obj={obj} />
+        </div>
+      )}
+
+      {/* ── Face Extrude ──────────────────────────────────────────────────────── */}
+      {!isElectronics && (
+        <details className="mb-3 group">
+          <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-400 flex items-center gap-1 select-none">
+            <span className="text-gray-600 group-open:text-indigo-400">▶</span>
+            Extrude Face
+          </summary>
+          <div className="mt-2">
+            <ExtrudePanel obj={obj} />
+          </div>
+        </details>
+      )}
+
+      {/* ── Fillet / Bevel ────────────────────────────────────────────────────── */}
+      {!isElectronics && (
+        <details className="mb-3 group">
+          <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-400 flex items-center gap-1 select-none">
+            <span className="text-gray-600 group-open:text-indigo-400">▶</span>
+            Fillet / Bevel
+          </summary>
+          <div className="mt-2">
+            <FilletPanel obj={obj} />
+          </div>
+        </details>
+      )}
+
       {/* Visibility */}
       <div className="mb-3 flex items-center justify-between">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider">Visible</div>
@@ -1004,6 +1201,31 @@ export default function PropertiesPanel() {
           Delete
         </button>
       </div>
+      {!isElectronics && <SaveAssetButton obj={obj} />}
     </div>
+  )
+}
+
+function SaveAssetButton({ obj }) {
+  const saveAsset = useAssetStore((s) => s.saveAsset)
+  const [flash, setFlash] = useState(false)
+
+  const handleSave = () => {
+    saveAsset(obj)
+    setFlash(true)
+    setTimeout(() => setFlash(false), 1200)
+  }
+
+  return (
+    <button
+      onClick={handleSave}
+      className={`mt-2 w-full py-1.5 text-xs rounded transition-all ${
+        flash
+          ? 'bg-indigo-700 text-indigo-100'
+          : 'bg-gray-800 hover:bg-indigo-900/40 border border-gray-600/50 hover:border-indigo-700/50 text-gray-400 hover:text-indigo-300'
+      }`}
+    >
+      {flash ? '✓ Saved to Library' : '📦 Save as Asset'}
+    </button>
   )
 }

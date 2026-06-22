@@ -89,7 +89,7 @@ export default function ObjectList() {
             onClick={(e) => handleRowClick(e, obj.id)}
             className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-gray-800/50 group transition-colors ${
               isPrimary
-                ? 'bg-blue-900/40 border-l-2 border-l-blue-500'
+                ? 'bg-indigo-900/20 border-l-2 border-l-indigo-500'
                 : isSecondary
                 ? 'bg-orange-900/30 border-l-2 border-l-orange-500'
                 : 'hover:bg-gray-800/50'
@@ -98,7 +98,7 @@ export default function ObjectList() {
             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: obj.color }} />
             <span className="text-sm shrink-0">{TYPE_ICONS[obj.type] ?? '📦'}</span>
             <span className={`flex-1 text-xs truncate ${
-              isPrimary ? 'text-white' : isSecondary ? 'text-orange-300' : 'text-gray-300'
+              isPrimary ? 'text-indigo-800' : isSecondary ? 'text-orange-300' : 'text-gray-300'
             }`}>
               {obj.name}
               {isSecondary && <span className="ml-1 text-[9px] text-orange-400 opacity-70">2nd</span>}
@@ -107,7 +107,7 @@ export default function ObjectList() {
               <button
                 onClick={(e) => handleToggleVisible(e, obj)}
                 title={obj.visible ? 'Hide' : 'Show'}
-                className="text-gray-400 hover:text-white text-xs px-1 py-0.5 rounded hover:bg-gray-700"
+                className="text-gray-400 hover:text-slate-900 text-xs px-1 py-0.5 rounded hover:bg-gray-700"
               >
                 {obj.visible ? '👁' : '🚫'}
               </button>

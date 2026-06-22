@@ -1,25 +1,30 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { STLLoader } from 'three-stdlib'
 
 const loader = new GLTFLoader()
 
 // Scale to use for each model type (longest bounding-box dimension → this value)
 export const MODEL_SCALE_TARGET = {
   arduino:  6.8,
+  subo:     null,   // sized in Blender (public/models/subo.glb) — use as-is
   motor_bo: 5.0,
   motor_dc: 5.0,
   led:      1.2,
   servo:    4.0,
+  free_wheels: 8.0,
 }
 
 const BASE = import.meta.env.BASE_URL
 
 const MODEL_PATHS = {
   arduino:  `${BASE}models/arduino_uno.glb`,
+  subo:     `${BASE}models/subo.glb`,
   motor_bo: `${BASE}models/motor_bo.glb`,
   motor_dc: `${BASE}models/motor_dc.glb`,
   led:      `${BASE}models/led.glb`,
   servo:    `${BASE}models/servo.glb`,
+  free_wheels: `${BASE}models/free_wheels.glb`,
 }
 
 // module-level cache: name → THREE.Group (scaled & centered) | null (not found)
@@ -36,7 +41,9 @@ export async function preloadModels() {
           root.traverse(c => {
             if (c.isMesh) { c.castShadow = true; c.receiveShadow = true }
           })
-          scaleAndCenter(root, MODEL_SCALE_TARGET[key])
+          // target null/0 → use the GLB's own size as authored (already sized &
+          // centred in Blender). Otherwise normalise the longest dim to target.
+          if (MODEL_SCALE_TARGET[key]) scaleAndCenter(root, MODEL_SCALE_TARGET[key])
           _cache[key] = root
           resolve()
         },
@@ -168,6 +175,94 @@ export function detectRotorAxis(rotorNode) {
   if (s.z > s.x && s.z > s.y) return 'z'
   return 'x'
 }
+
+// ── User file import ──────────────────────────────────────────────────────────
+
+function normalizeGeometry(geo) {
+  geo.computeBoundingBox()
+  const center = new THREE.Vector3()
+  const size   = new THREE.Vector3()
+  geo.boundingBox.getCenter(center)
+  geo.boundingBox.getSize(size)
+  geo.translate(-center.x, -center.y, -center.z)
+  const maxDim = Math.max(size.x, size.y, size.z)
+  if (maxDim > 0.001) {
+    const s = 10 / maxDim
+    geo.scale(s, s, s)
+  }
+}
+
+export async function loadGLTFFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    new GLTFLoader().load(url, (gltf) => {
+      URL.revokeObjectURL(url)
+      const root = gltf.scene
+
+      // Collect all non-skinned meshes and their world matrices BEFORE modifying anything
+      root.updateMatrixWorld(true)
+      const pairs = []
+      root.traverse(child => {
+        if (!child.isMesh || child.isSkinnedMesh) return
+        pairs.push({ worldMatrix: child.matrixWorld.clone(), geometry: child.geometry.clone() })
+      })
+      if (!pairs.length) { reject(new Error('No meshes in GLB')); return }
+
+      // Normalization: compute bounding box of the WHOLE scene
+      const box = new THREE.Box3().setFromObject(root)
+      const center = new THREE.Vector3()
+      const size   = new THREE.Vector3()
+      box.getCenter(center)
+      box.getSize(size)
+      const maxDim = Math.max(size.x, size.y, size.z)
+      const s = maxDim > 0.001 ? 10 / maxDim : 1
+
+      // Build a flat Group: each mesh has its geometry baked to normalized world space,
+      // local transform set to identity.  The Group itself stays at origin/scale-1.
+      const group = new THREE.Group()
+      for (const { worldMatrix, geometry } of pairs) {
+        geometry.applyMatrix4(worldMatrix)          // local → world
+        geometry.translate(-center.x, -center.y, -center.z)  // center
+        geometry.scale(s, s, s)                     // normalize to ~10 units
+        geometry.morphAttributes = {}
+        geometry.computeVertexNormals()
+
+        const mesh = new THREE.Mesh(
+          geometry,
+          new THREE.MeshStandardMaterial({
+            color: new THREE.Color('#a8c8e8'),
+            side: THREE.DoubleSide,
+            roughness: 0.7,
+            metalness: 0.1,
+          })
+        )
+        mesh.castShadow = true
+        mesh.receiveShadow = true
+        group.add(mesh)
+      }
+
+      resolve(group)   // THREE.Group (not a BufferGeometry)
+    }, undefined, (err) => { URL.revokeObjectURL(url); reject(err) })
+  })
+}
+
+export async function loadSTLFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const geo = new STLLoader().parse(e.target.result)
+        geo.computeVertexNormals()
+        normalizeGeometry(geo)
+        resolve(geo)
+      } catch (err) { reject(err) }
+    }
+    reader.onerror = reject
+    reader.readAsArrayBuffer(file)
+  })
+}
+
+// ── LED glow meshes ───────────────────────────────────────────────────────────
 
 // Collect the meshes that should glow on an LED model
 export function findEmissiveMeshes(group) {

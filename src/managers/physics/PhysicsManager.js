@@ -1,4 +1,4 @@
-import { ENVIRONMENTS } from './EnvironmentConfig.js'
+import { ENVIRONMENTS, SCENE_TO_M } from './EnvironmentConfig.js'
 
 let _rapier = null
 
@@ -24,17 +24,23 @@ class PhysicsManager {
     this._initPromise = getRapier().then(R => {
       this._R = R
       const earth = ENVIRONMENTS.earth
-      this.world  = new R.World({ x: 0.0, y: earth.gravity, z: 0.0 })
+      // Use scene-unit gravity (1 scene unit = 0.05 m → g = 9.81/0.05 ≈ 196 su/s²).
+      // Dynamic bodies need this to fall at the correct visual speed.
+      // Kinematic bodies (wheeled robot) ignore gravity entirely, so this is safe.
+      this.world  = new R.World({ x: 0.0, y: earth.gravity / SCENE_TO_M, z: 0.0 })
       // Static ground plane
       // Large flat cuboid centred at y = -0.5 → top face flush with y = 0.
       // ColliderDesc.halfSpace was removed in newer Rapier builds; cuboid is equivalent
       // for robot-scale scenes (500×500 units, larger than any scene the user builds).
-      const gDesc = R.RigidBodyDesc.fixed().setTranslation(0, -0.5, 0)
+      // Ground plane: thick cuboid (2 units tall) so fast-moving objects don't
+      // tunnel through. Top face flush at y=0. 200×200 su covers any scene
+      // while keeping Rapier's broad-phase numerically reliable.
+      const gDesc = R.RigidBodyDesc.fixed().setTranslation(0, -1.0, 0)
       const gBody = this.world.createRigidBody(gDesc)
       const gCol  = R.ColliderDesc
-        .cuboid(500, 0.5, 500)
+        .cuboid(200, 1.0, 200)
         .setFriction(earth.groundFriction)
-        .setRestitution(0.2)
+        .setRestitution(0.0)
       this.world.createCollider(gCol, gBody)
       this.ready = true
     }).catch(err => {
@@ -43,14 +49,45 @@ class PhysicsManager {
     return this._initPromise
   }
 
-  /** Update world gravity (call from DriveManager when environment changes). */
-  setGravity(y) {
+  /** Update world gravity. Pass m/s² (e.g. -9.81); converts to scene units internally. */
+  setGravity(y_m_s2) {
     if (!this.world) return
+    if (!Number.isFinite(y_m_s2)) return   // guard against NaN/undefined → frozen physics
     try {
-      this.world.gravity = { x: 0, y, z: 0 }
+      this.world.gravity = { x: 0, y: y_m_s2 / SCENE_TO_M, z: 0 }
     } catch {
       // Some Rapier builds expose gravity as read-only; silently ignore.
     }
+  }
+
+  /**
+   * Create a dynamic (free-falling, fully physics-driven) rigid body.
+   * Position and halfExtents are in scene units.
+   * rotation is a quaternion { x, y, z, w }.
+   */
+  createDynamicBody(id, position, rotation, halfExtents) {
+    if (!this.ready) return null
+    this.removeBody(id)
+    const R    = this._R
+    const desc = R.RigidBodyDesc.dynamic()
+      .setTranslation(position.x, position.y, position.z)
+      .setRotation(rotation)
+      .setLinearDamping(0.15)
+      .setAngularDamping(2.0)
+      .setCanSleep(false)   // never sleep — a mid-air body must keep falling and
+                            // must respond to gravity/environment changes instantly
+    const body = this.world.createRigidBody(desc)
+    const col  = R.ColliderDesc
+      .cuboid(
+        Math.max(0.01, halfExtents.x),
+        Math.max(0.01, halfExtents.y),
+        Math.max(0.01, halfExtents.z),
+      )
+      .setFriction(0.7)
+      .setRestitution(0.1)
+    this.world.createCollider(col, body)
+    this._bodies.set(id, body)
+    return body
   }
 
   createRobotBody(id, position, halfExtents = { x: 0.5, y: 0.25, z: 0.75 }) {

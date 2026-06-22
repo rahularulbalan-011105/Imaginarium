@@ -234,7 +234,7 @@ export default function DrivePanel() {
               <div>Hold <kbd className="px-1 py-0.5 text-[9px] bg-gray-700 rounded">↑↓←→</kbd> arrow keys to walk · buttons above work too</div>
               <div className="text-gray-500">Gait runs automatically — no code needed</div>
               {running && (
-                <div className="text-amber-400">Code running · servos may override gait</div>
+                <div className="text-indigo-400">Code running · servos may override gait</div>
               )}
             </div>
           </div>
@@ -292,7 +292,7 @@ export default function DrivePanel() {
             )}
           </div>
 
-          <div className="shrink-0 text-[9px] font-mono text-gray-700 text-right space-y-0.5 border-l border-gray-700/50 pl-4">
+          <div className="shrink-0 text-[9px] font-mono text-slate-600 text-right space-y-0.5 border-l border-gray-700/50 pl-4">
             <div className="text-gray-500 font-sans font-medium mb-1">Quick reference</div>
             <div><span className="text-blue-400">analogWrite</span>(pin, <span className="text-green-400">255</span>);  <span className="text-gray-600">// full fwd</span></div>
             <div><span className="text-blue-400">analogWrite</span>(pin, <span className="text-yellow-400">128</span>);  <span className="text-gray-600">// half</span></div>

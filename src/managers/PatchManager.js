@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 
-const IDLE_COLOR  = 0x0088ff
-const SEL_COLOR   = 0xff8800
-const DRAW_COLOR  = 0x00ccff
-const HANDLE_R    = 0.06
+const IDLE_COLOR  = 0x00aaff
+const SEL_COLOR   = 0xffaa00
+const DRAW_COLOR  = 0x00eeff
+const HANDLE_R    = 0.07
 
 class PatchManager {
   constructor() {
@@ -16,6 +16,8 @@ class PatchManager {
     this._draw     = null
     // active move/resize drag
     this._interact = null
+    // extrude hover preview Group (world-space, not parented to an object)
+    this._extrudeHover = null
     // callbacks set by Viewport
     this.onPatchCreated  = null  // (patch) => void
     this.onPatchUpdated  = null  // (id, updates) => void
@@ -70,6 +72,78 @@ class PatchManager {
   }
 
   cancelDraw() { this._clearDraw() }
+
+  // ── Click a face → auto-detect the entire face extent and highlight it ──
+  buildFacePatch(event, bounds) {
+    const info = this._detectFace(event, bounds)
+    if (!info) return null
+    const { objectId, faceNormal, faceTangent, faceBitangent, faceCenterWorld, faceWidth, faceHeight } = info
+
+    const om = this.objectMgr.getMesh(objectId)
+    if (!om) return null
+    om.updateMatrixWorld(true)
+
+    const invM = new THREE.Matrix4().copy(om.matrixWorld).invert()
+    const wq   = new THREE.Quaternion(); om.getWorldQuaternion(wq)
+    const invQ = wq.clone().invert()
+
+    const localCenter  = faceCenterWorld.clone().applyMatrix4(invM)
+    const localNormal  = faceNormal.clone().applyQuaternion(invQ).normalize()
+    const localTangent = faceTangent.clone().applyQuaternion(invQ).normalize()
+
+    return {
+      id: crypto.randomUUID(),
+      objectId,
+      localCenter:  { x: localCenter.x,  y: localCenter.y,  z: localCenter.z  },
+      localNormal:  { x: localNormal.x,  y: localNormal.y,  z: localNormal.z  },
+      localTangent: { x: localTangent.x, y: localTangent.y, z: localTangent.z },
+      width:  Math.max(faceWidth, 0.05),
+      height: Math.max(faceHeight, 0.05),
+    }
+  }
+
+  // ── Extrude tool: returns world-space face data for the clicked face ──────
+  getFaceInfo(event, bounds) {
+    return this._detectFace(event, bounds)
+  }
+
+  // Show a teal highlight over the face under the cursor (extrude hover preview)
+  showExtrudeHover(event, bounds) {
+    const info = this._detectFace(event, bounds)
+    if (!info) { this.clearExtrudeHover(); return }
+    const { faceNormal, faceTangent, faceBitangent, faceCenterWorld, faceWidth, faceHeight } = info
+
+    this.clearExtrudeHover()
+
+    const rotM = new THREE.Matrix4().makeBasis(faceTangent, faceBitangent, faceNormal)
+    const q    = new THREE.Quaternion().setFromRotationMatrix(rotM)
+    const pos  = faceCenterWorld.clone().addScaledVector(faceNormal, 0.005)
+
+    const geo  = new THREE.PlaneGeometry(faceWidth, faceHeight)
+    const mesh = new THREE.Mesh(geo,
+      new THREE.MeshBasicMaterial({ color: 0x00ffcc, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthTest: false }))
+    mesh.position.copy(pos); mesh.quaternion.copy(q)
+    mesh.userData.isPatchMesh = true
+
+    const bdr = new THREE.LineSegments(
+      new THREE.EdgesGeometry(geo),
+      new THREE.LineBasicMaterial({ color: 0x00ffcc, depthTest: false }))
+    bdr.position.copy(pos); bdr.quaternion.copy(q)
+    bdr.userData.isPatchMesh = true
+
+    const g = new THREE.Group()
+    g.userData.isPatchMesh = true
+    g.add(mesh, bdr)
+    this.scene.add(g)
+    this._extrudeHover = g
+  }
+
+  clearExtrudeHover() {
+    if (!this._extrudeHover) return
+    this._extrudeHover.children.forEach(c => { c.geometry?.dispose(); c.material?.dispose() })
+    this.scene.remove(this._extrudeHover)
+    this._extrudeHover = null
+  }
 
   // ── Interact: move or resize an existing patch ──────────────────────────
 
@@ -161,8 +235,17 @@ class PatchManager {
     }
   }
 
+  setVisible(visible) {
+    for (const m of this._meshes.values()) {
+      if (m.plane)  m.plane.visible  = visible
+      if (m.border) m.border.visible = visible
+      m.handles?.forEach(h => { h.visible = visible })
+    }
+  }
+
   dispose() {
     this._clearDraw()
+    this.clearExtrudeHover()
     for (const id of [...this._meshes.keys()]) this._remove(id)
   }
 
@@ -208,8 +291,8 @@ class PatchManager {
     const q    = new THREE.Quaternion().setFromRotationMatrix(rotM)
 
     const color   = sel ? SEL_COLOR  : IDLE_COLOR
-    const opacity = sel ? 0.45 : 0.25
-    const bcolor  = sel ? 0xff6600 : 0x0066ff
+    const opacity = sel ? 0.55 : 0.30
+    const bcolor  = sel ? 0xff7700 : 0x0099ff
 
     const geo   = new THREE.PlaneGeometry(localW, localH)
     const plane = new THREE.Mesh(geo,
@@ -325,6 +408,68 @@ class PatchManager {
     const wc = new THREE.Vector3(patch.localCenter.x, patch.localCenter.y, patch.localCenter.z)
       .applyMatrix4(om.matrixWorld)
     return new THREE.Plane().setFromNormalAndCoplanarPoint(wn, wc)
+  }
+
+  // ── Core face detection: returns world-space face geometry data ──────────
+  // Shared by buildFacePatch (patch creation) and getFaceInfo (extrude tool).
+  _detectFace(event, bounds) {
+    const hit = this._raycastScene(event, bounds)
+    if (!hit) return null
+    const { objectId, point, faceNormal } = hit
+
+    const om = this.objectMgr.getMesh(objectId)
+    if (!om) return null
+    om.updateMatrixWorld(true)
+
+    const up        = Math.abs(faceNormal.y) < 0.99 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0)
+    const tangent   = up.clone().cross(faceNormal).normalize()
+    const bitangent = new THREE.Vector3().crossVectors(faceNormal, tangent).normalize()
+
+    const DOT_THRESHOLD = Math.cos(THREE.MathUtils.degToRad(20))
+    const coplanarVerts = []
+
+    om.traverse(child => {
+      if (!child.isMesh || !child.geometry) return
+      if (child.userData.isPatchMesh || child.userData.isPinSphere || child.userData.isAttachMarker) return
+      child.updateMatrixWorld(true)
+      const pos = child.geometry.attributes.position
+      const idx = child.geometry.index
+      const getV = i => new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(child.matrixWorld)
+      const count = idx ? idx.count : pos.count
+      for (let i = 0; i < count; i += 3) {
+        const a = idx ? idx.getX(i) : i
+        const b = idx ? idx.getX(i + 1) : i + 1
+        const c = idx ? idx.getX(i + 2) : i + 2
+        const v0 = getV(a), v1 = getV(b), v2 = getV(c)
+        const triN = new THREE.Vector3()
+          .crossVectors(v1.clone().sub(v0), v2.clone().sub(v0)).normalize()
+        if (triN.dot(faceNormal) >= DOT_THRESHOLD) coplanarVerts.push(v0, v1, v2)
+      }
+    })
+
+    let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity
+    const d = point.dot(faceNormal)
+    for (const v of coplanarVerts) {
+      const u = v.dot(tangent), vv = v.dot(bitangent)
+      if (u  < minU) minU = u; if (u  > maxU) maxU = u
+      if (vv < minV) minV = vv; if (vv > maxV) maxV = vv
+    }
+    const w = (coplanarVerts.length > 0 && isFinite(minU)) ? maxU - minU : 1.2
+    const h = (coplanarVerts.length > 0 && isFinite(minV)) ? maxV - minV : 1.2
+    const faceCenterWorld = new THREE.Vector3()
+      .addScaledVector(tangent,    (minU + maxU) / 2)
+      .addScaledVector(bitangent,  (minV + maxV) / 2)
+      .addScaledVector(faceNormal, d)
+
+    return {
+      objectId,
+      faceNormal:    faceNormal.clone(),
+      faceTangent:   tangent.clone(),
+      faceBitangent: bitangent.clone(),
+      faceCenterWorld,
+      faceWidth:  Math.max(w, 0.05),
+      faceHeight: Math.max(h, 0.05),
+    }
   }
 
   _raycastScene(event, bounds) {

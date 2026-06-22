@@ -39,8 +39,31 @@ export const SERVO_PINS = {
   GND:     { x: -2.2, y: 0.4, z: -0.4, color: 0x222222, type: 'gnd',   label: 'GND' },
 }
 
+// SUBO board (custom ESP32-S3). Pins use the real silk labels IO1..IO21 from the
+// Subo Arduino library; the simulator resolves IOn → GPIO via pinNameToNumber.
+const SUBO_ADC = new Set(['IO1', 'IO5', 'IO8', 'IO11', 'IO12', 'IO17', 'IO19', 'IO20', 'IO21'])
+const suboPinStyle = (io) => SUBO_ADC.has(io)
+  ? { color: 0x22cc88, type: 'analog' }   // ADC-capable
+  : { color: 0xff8800, type: 'pwm' }      // PWM-capable digital out
+
+// Static fallback layout (used only if the GLB is missing; GLB path auto-places).
+// Each IO is a 3-pin S / 5V / G connector — IO1–IO4 left edge, IO5–IO8 right edge.
+export const SUBO_PINS = (() => {
+  const pins = {}
+  const add = (io, x, z) => {
+    pins[io]        = { x,        y: 0.55, z, label: io,   ...suboPinStyle(io) }
+    pins[`${io}_V`] = { x,        y: 0.55, z: z + 0.45, color: 0xff2222, type: 'power', label: '5V' }
+    pins[`${io}_G`] = { x,        y: 0.55, z: z + 0.90, color: 0x333333, type: 'gnd',   label: 'G'  }
+  }
+  const zs = [-2.1, -0.7, 0.7, 2.1]
+  ;['IO1','IO2','IO3','IO4'].forEach((io, i) => add(io, -3.0, zs[i]))
+  ;['IO5','IO6','IO7','IO8'].forEach((io, i) => add(io,  2.1, zs[i]))
+  return pins
+})()
+
 export const PIN_DEFS = {
   arduino:  ARDUINO_PINS,
+  subo:     SUBO_PINS,
   motor:    MOTOR_PINS,
   motor_bo: MOTOR_PINS,
   motor_dc: MOTOR_PINS,
@@ -266,6 +289,88 @@ function buildArduinoProcedural() {
     root.add(pin)
   }
 
+  root.traverse(c => { c.castShadow = true; c.receiveShadow = true })
+  return root
+}
+
+// ─── SUBO board (custom ESP32) ───────────────────────────────────────────────
+
+export function createSuboGroup() {
+  const glbScene = cloneModel('subo')
+  if (glbScene) return buildSuboFromGLB(glbScene)
+  return buildSuboProcedural()
+}
+
+// Connectors broken out to the side headers, each a 3-pin S / 5V / G group
+// (servo-style, matching the silk). Signal key = IOn so it resolves to its GPIO.
+const SUBO_CONNECTORS_LEFT  = ['IO1', 'IO2', 'IO3', 'IO4']
+const SUBO_CONNECTORS_RIGHT = ['IO5', 'IO6', 'IO7', 'IO8']
+
+function buildSuboFromGLB(scene) {
+  // preloadModels' scaleAndCenter normalises the whole board to the configured
+  // target size. root stays at scale 1 so pin spheres added to it land in true
+  // world coordinates (scaling root here would double-transform them).
+  const root = new THREE.Group()
+  root.add(scene)
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  root.updateMatrixWorld(true)
+
+  // Anchor pins to the PCB mesh bounds (not the whole model's bbox, which can be
+  // inflated by stray geometry and would fling the pins off the board).
+  let pcb = null
+  root.traverse(c => { if (c.isMesh && /pcb/i.test(c.name) && !pcb) pcb = c })
+  const box  = new THREE.Box3().setFromObject(pcb ?? root)
+  const size = box.getSize(new THREE.Vector3())
+  const sorted = [['x', size.x], ['y', size.y], ['z', size.z]].sort((a, b) => a[1] - b[1])
+  const thinAxis = sorted[0][0]   // thickness
+  const medAxis  = sorted[1][0]   // shorter dim (connectors spread along this)
+  const longAxis = sorted[2][0]   // longer dim — headers on the left/right wings
+
+  const above   = box.max[thinAxis] + 0.25
+  const medMin  = box.min[medAxis]
+  const medSpan = size[medAxis]
+  const pins = {}
+
+  // A 3-pin connector (S / 5V / G), pins spaced inward from the wing edge.
+  const placeConnector = (io, side, t) => {
+    const edge   = side < 0 ? box.min[longAxis] + 0.3 : box.max[longAxis] - 0.3
+    const inward = side < 0 ? +1 : -1
+    const medPos = medMin + medSpan * t
+    const trio = [
+      { key: io,        off: 0.0, label: io,   ...suboPinStyle(io) },
+      { key: `${io}_V`, off: 0.6, label: '5V', color: 0xff2222, type: 'power' },
+      { key: `${io}_G`, off: 1.2, label: 'G',  color: 0x333333, type: 'gnd' },
+    ]
+    for (const pin of trio) {
+      const p = { x: 0, y: 0, z: 0 }
+      p[longAxis] = edge + inward * pin.off
+      p[medAxis]  = medPos
+      p[thinAxis] = above
+      pins[pin.key] = { ...p, color: pin.color, type: pin.type, label: pin.label }
+    }
+  }
+  const ts = [0.15, 0.38, 0.62, 0.85]
+  SUBO_CONNECTORS_LEFT.forEach((io, i)  => placeConnector(io, -1, ts[i]))
+  SUBO_CONNECTORS_RIGHT.forEach((io, i) => placeConnector(io, +1, ts[i]))
+
+  root.userData.dynamicPins = pins
+  const lo = { dx: 0, dy: 0, dz: 0 }
+  if (thinAxis === 'x') lo.dx = 0.5
+  else if (thinAxis === 'z') lo.dz = 0.5
+  else lo.dy = 0.5
+  root.userData.labelOffset = lo
+
+  return root
+}
+
+function buildSuboProcedural() {
+  const root = new THREE.Group()
+  const board = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.22, 4.0), mat(0x0b0b14, { roughness: 0.7 }))
+  root.add(board)
+  // 6×8 LED matrix hint
+  const matrix = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.02, 1.8), mat(0x1a1a22, { roughness: 1 }))
+  matrix.position.y = 0.12
+  root.add(matrix)
   root.traverse(c => { c.castShadow = true; c.receiveShadow = true })
   return root
 }

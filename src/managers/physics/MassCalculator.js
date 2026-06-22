@@ -5,7 +5,7 @@ const DENSITY = { plastic: 1200, metal: 7800, rubber: 1200, default: 1000 }
 
 // Fixed masses for electronics (kg)
 const ELEC_MASS = {
-  arduino: 0.025, motor: 0.120, motor_bo: 0.100, motor_dc: 0.080,
+  arduino: 0.025, subo: 0.020, motor: 0.120, motor_bo: 0.100, motor_dc: 0.080,
   servo: 0.021, led: 0.003,
 }
 

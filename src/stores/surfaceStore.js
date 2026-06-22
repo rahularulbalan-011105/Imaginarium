@@ -25,6 +25,7 @@ export const useSurfaceStore = create((set) => ({
     })
   },
   clearPatchSelection() { set({ selectedIds: [] }) },
+  setPatches(patches) { set({ patches }) },
   removePatchesForObject(objectId) {
     set(s => {
       const patches = {}

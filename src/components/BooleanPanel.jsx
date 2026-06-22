@@ -35,12 +35,22 @@ const OPERATIONS = [
 ]
 
 const COLOR_CLASSES = {
-  blue:   'bg-blue-800/40 hover:bg-blue-700/60 border-blue-600/50 text-blue-200',
+  blue:   'bg-indigo-800/30 hover:bg-indigo-700/40 border-indigo-600/50 text-indigo-200',
   orange: 'bg-orange-800/40 hover:bg-orange-700/60 border-orange-600/50 text-orange-200',
   purple: 'bg-purple-800/40 hover:bg-purple-700/60 border-purple-600/50 text-purple-200',
 }
 
 const OP_NAMES = { union: 'Union', subtract: 'Subtract', subtractB: 'Subtract', intersect: 'Intersect' }
+
+const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
+const GEOMETRY_TYPES = new Set(['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane',
+  'tetrahedron', 'pyramid', 'pentpyramid', 'octahedron', 'dodecahedron', 'rectprism',
+  'csg', 'model', 'gear', 'bolt', 'screw'])
+
+export function isBooleanCandidate(obj) {
+  if (!obj) return false
+  return GEOMETRY_TYPES.has(obj.type) || ELEC_TYPES.has(obj.type)
+}
 
 export default function BooleanPanel({ selectedId, secondaryId }) {
   const objects = useSceneStore((s) => s.objects)
@@ -56,6 +66,9 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
   const objB = objects.find((o) => o.id === secondaryId)
 
   if (!objA || !objB) return null
+
+  const aIsElec = ELEC_TYPES.has(objA.type)
+  const bIsElec = ELEC_TYPES.has(objB.type)
 
   const handleOp = async (opId) => {
     setBusy(true)
@@ -95,6 +108,11 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
       <div className="text-[10px] text-purple-400 uppercase tracking-wider font-semibold">
         Boolean Operations
       </div>
+      {(aIsElec || bIsElec) && (
+        <div className="text-[10px] text-indigo-400 bg-indigo-900/20 border border-indigo-700/30 rounded p-2">
+          ⚡ Electronics geometry mode — the physical shapes of the components will be used for the boolean operation.
+        </div>
+      )}
 
       {/* Object pair summary */}
       <div className="flex items-center gap-2 bg-gray-800/60 rounded p-2 text-xs">

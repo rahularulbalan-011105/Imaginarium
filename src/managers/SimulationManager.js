@@ -12,6 +12,12 @@ const BUILTIN_NAMES = new Set([
   'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
   'sin','cos','tan','random','randomSeed','Serial','onRuntimeError',
   'Servo',
+  // SUBO library API + constants
+  'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
+  'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
+  'IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12',
+  'IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21',
+  'SUBO_BUZZER_PIN','SUBO_LED_PIN','SUBO_LED_NUM','SUBO_BUTTONR','SUBO_BUTTONL',
 ])
 
 class SimulationManager {
@@ -54,6 +60,16 @@ class SimulationManager {
       new Promise((resolve, reject) => {
         if (!self._running) { reject(new Error('stopped')); return }
         const id = setTimeout(resolve, Math.max(1, Number(ms) || 0))
+        self._cancelDelay = () => { clearTimeout(id); reject(new Error('stopped')) }
+      })
+
+    // Yield control to the browser once per loop() iteration. Without this, a
+    // loop() that never calls delay() (easy to make with blocks) spins forever
+    // on the main thread and hard-freezes the page. Also lets stop() interrupt.
+    const __yield = () =>
+      new Promise((resolve, reject) => {
+        if (!self._running) { reject(new Error('stopped')); return }
+        const id = setTimeout(resolve, 0)
         self._cancelDelay = () => { clearTimeout(id); reject(new Error('stopped')) }
       })
 
@@ -158,6 +174,35 @@ class SimulationManager {
       detach()   { this._pin = -1 }
     }
 
+    // ── SUBO board library shims ──────────────────────────────────────────────
+    // Lets real Subo sketches (Subo.h / MotorExpansion.h) run in the simulator.
+    // Motor-expansion pins (GPIO): M1A=9, M1B=3, M2A=10, M2B=11 → drive wired motors.
+    const _mexSet = (a, b, c, d) => {
+      _write(9, a, false); _write(3, b, false); _write(10, c, false); _write(11, d, false)
+    }
+    const SuboMatrixInit = () => {}
+    const stripclear     = () => { if (self._onSuboMatrix) self._onSuboMatrix('clear') }
+    const setAllLED      = (r, g, b) => { if (self._onSuboMatrix) self._onSuboMatrix('all', r, g, b) }
+    const setSingleLED   = (n, r, g, b) => { if (self._onSuboMatrix) self._onSuboMatrix('one', n, r, g, b) }
+    const playLEDSeq     = () => {}
+    const playTone       = (f, dur) => { if (self._onSerialOut) self._onSerialOut(`♪ ${Math.round(f)}Hz ${dur}s\n`) }
+    const stopBuzzer     = () => {}
+    const playBuzSeq     = () => {}
+    const start_motors   = () => {}
+    const drive_motors   = (m1a, m1b, m2a, m2b) => _mexSet(+m1a || 0, +m1b || 0, +m2a || 0, +m2b || 0)
+    const runMotor       = (dir, speed) => {
+      const s = Number(speed) || 0
+      if      (dir === 'F') _mexSet(s, 0, s, 0)
+      else if (dir === 'B') _mexSet(0, s, 0, s)
+      else if (dir === 'L') _mexSet(s, 0, 0, s)
+      else if (dir === 'R') _mexSet(0, s, s, 0)
+      else                  _mexSet(0, 0, 0, 0)
+    }
+
+    // SUBO constants (IOn → GPIO, onboard pins) — prepended to the script so the
+    // user's library-style code (digitalWrite(IO3,...) etc.) resolves them.
+    const SUBO_CONSTS = `const IO1=4,IO2=39,IO3=13,IO4=38,IO5=14,IO6=48,IO7=42,IO8=5,IO9=41,IO10=40,IO11=6,IO12=7,IO13=15,IO14=16,IO15=17,IO16=18,IO17=8,IO18=11,IO19=10,IO20=9,IO21=3,SUBO_BUZZER_PIN=2,SUBO_LED_PIN=12,SUBO_LED_NUM=48,SUBO_BUTTONR=47,SUBO_BUTTONL=1;`
+
     // ── Parse + transpile ─────────────────────────────────────────────────────
 
     for (const [pin, comps] of Object.entries(pinMap))
@@ -169,10 +214,12 @@ class SimulationManager {
     }
 
     const script = `
+${SUBO_CONSTS}
 ${jsCode}
 if (typeof setup === 'function') await setup();
 while (true) {
   if (typeof loop === 'function') await loop();
+  await __yield();
 }
 `
 
@@ -183,7 +230,9 @@ while (true) {
         'delay','HIGH','LOW','OUTPUT','INPUT',
         'millis','micros','map','constrain',
         'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
-        'sin','cos','tan','random','randomSeed','Serial','onRuntimeError','Servo',
+        'sin','cos','tan','random','randomSeed','Serial','onRuntimeError','Servo','__yield',
+        'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
+        'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
         `"use strict";
          return (async () => {
            try { ${script} }
@@ -201,7 +250,9 @@ while (true) {
         delay, HIGH, LOW, OUTPUT, INPUT,
         millis, micros, map, constrain,
         abs, min, max, sq, sqrt, pow, floor, ceil, round, log, exp,
-        sin, cos, tan, random, randomSeed, Serial, onRuntimeError, Servo
+        sin, cos, tan, random, randomSeed, Serial, onRuntimeError, Servo, __yield,
+        SuboMatrixInit, setAllLED, setSingleLED, playLEDSeq, stripclear,
+        playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor
       ).then(() => { self._running = false })
 
     } catch (e) {

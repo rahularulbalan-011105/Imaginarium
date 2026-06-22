@@ -1,10 +1,45 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
-import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup } from '../utils/electronicsFactory.js'
+import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry } from '../utils/geometryFactory.js'
+import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup } from '../utils/electronicsFactory.js'
+import { cloneModel } from '../utils/modelLoader.js'
 import { wireManager } from './WireManager.js'
 
-const ELECTRONICS  = new Set(['arduino', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
+// Live geometry registry — holds imported model geometries by object ID.
+// Bypasses the toJSON/parse round-trip which can silently produce empty geometries.
+const _importedGeoms = new Map()
+export function storeImportedGeometry(id, geo) { _importedGeoms.set(id, geo) }
+export function clearImportedGeometry(id) { _importedGeoms.delete(id) }
+
+// ── Fillet helpers (uniform "all 12 edges" vs partial "selected edges") ──────
+// A stable string describing exactly which geometry a box's fillet settings map
+// to. When it changes, the mesh geometry is rebuilt.
+function filletKey(obj, radius, segs) {
+  if (obj.filletMode === 'partial') {
+    const corners = (obj.filletCorners ?? [true, true, true, true]).map(c => (c ? 1 : 0)).join('')
+    return `p|${obj.type}|${radius.toFixed(3)}|${segs}|${obj.filletAxis ?? 'z'}|${corners}`
+  }
+  return `a|${obj.type}|${radius.toFixed(3)}|${segs}`
+}
+
+function buildFilletedBox(obj, radius, segs) {
+  if (obj.filletMode === 'partial') {
+    return createPartialFilletedBoxGeometry(
+      obj.type, radius, segs,
+      obj.filletAxis ?? 'z',
+      obj.filletCorners ?? [true, true, true, true],
+    )
+  }
+  return createFilletedBoxGeometry(obj.type, radius, segs)
+}
+
+function stampFilletKey(geo, obj, radius, segs) {
+  geo.userData._filletKey  = filletKey(obj, radius, segs)
+  geo.userData._fillet     = radius
+  geo.userData._filletSegs = segs
+}
+
+const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo'])
@@ -34,6 +69,8 @@ class ObjectManager {
 
     if (obj.type === 'arduino') {
       object3d = createArduinoGroup()
+    } else if (obj.type === 'subo') {
+      object3d = createSuboGroup()
     } else if (obj.type === 'motor_bo') {
       object3d = createMotorBOGroup()
     } else if (obj.type === 'motor_dc') {
@@ -58,8 +95,35 @@ class ObjectManager {
       const geo = new BufferGeometryLoader().parse(obj.geometryJSON)
       const mat = createMaterial(obj.color, obj.material)
       object3d = new THREE.Mesh(geo, mat)
+    } else if (obj.type === 'model') {
+      // Built-in library models (and reloads) resolve from the preloaded cache by
+      // modelKey; user-imported files live in the per-id _importedGeoms registry.
+      let stored = _importedGeoms.get(obj.id)
+      if (!stored && obj.modelKey) stored = cloneModel(obj.modelKey)
+      if (stored && (stored.isGroup || stored.isObject3D) && !stored.isBufferGeometry) {
+        // GLB/GLTF: flat Group of normalized meshes — clone the whole hierarchy
+        object3d = stored.clone(true)
+        object3d.traverse(c => { if (c.isMesh && c.material) c.material = c.material.clone() })
+      } else {
+        // STL or fallback: single BufferGeometry → Mesh
+        let geo = stored && stored.isBufferGeometry ? stored.clone() : null
+        if (!geo && obj.geometryJSON) {
+          try { geo = new BufferGeometryLoader().parse(obj.geometryJSON) }
+          catch (e) { console.warn('[Model] geometryJSON parse failed:', e) }
+        }
+        if (!geo) geo = new THREE.BoxGeometry(2, 2, 2)
+        const mat = createMaterial(obj.color, obj.material)
+        mat.side = THREE.DoubleSide
+        object3d = new THREE.Mesh(geo, mat)
+      }
     } else {
-      const geo = createGeometry(obj.type)
+      const fillet = obj.fillet ?? 0
+      const filletSegs = obj.filletSegments ?? 3
+      const isFillable = obj.type === 'box' || obj.type === 'rectprism'
+      const geo = (fillet > 0 && isFillable)
+        ? buildFilletedBox(obj, fillet, filletSegs)
+        : createGeometry(obj.type)
+      if (fillet > 0 && isFillable) stampFilletKey(geo, obj, fillet, filletSegs)
       const mat = createMaterial(obj.color, obj.material)
       object3d = new THREE.Mesh(geo, mat)
       if (obj.deform?.bend) applyBendDeform(geo, obj.deform.bend, obj.deform.bendAxis ?? 'y')
@@ -73,6 +137,12 @@ class ObjectManager {
     if (!ELECTRONICS.has(obj.type)) {
       object3d.castShadow = true
       object3d.receiveShadow = true
+    }
+
+    // Stamp the material type so updateMesh only rebuilds the material when the
+    // type actually changes (not on every colour tweak).
+    if (!ELECTRONICS.has(obj.type) && obj.material) {
+      object3d.traverse(c => { if (c.isMesh && c.material) c.material.userData.matType = obj.material })
     }
 
     this._applyTransform(object3d, obj)
@@ -94,13 +164,10 @@ class ObjectManager {
     const o = this.objects.get(id)
     if (!o) return
 
-    // Transform is managed by Three.js parenting while attached to a rotor
-    if (this.attachedObjects.has(id)) {
-      o.visible = obj.visible !== false
-      return
-    }
-
-    this._applyTransform(o, obj)
+    const attached = this.attachedObjects.has(id)
+    // Transform is managed by Three.js parenting while attached to a rotor, so
+    // skip it for attached objects — but DO still apply colour/material below.
+    if (!attached) this._applyTransform(o, obj)
     o.visible = obj.visible !== false
 
     // Keep attachmentOffset in userData in sync with Zustand
@@ -108,11 +175,12 @@ class ObjectManager {
       o.userData.attachmentOffset = obj.attachmentOffset
     }
 
-    // Non-electronics: update material color + bend deform
-    if (!ELECTRONICS.has(obj.type) && obj.type !== 'csg') {
-      // Update color on all mesh children (handles Mesh and Group for bolt/screw)
+    // Colour + material apply to ALL non-electronics objects — including attached
+    // wheels and CSG/boolean results (these were previously skipped, which is why
+    // recolouring them did nothing).
+    if (!ELECTRONICS.has(obj.type)) {
       o.traverse(child => {
-        if (!child.isMesh || !child.material) return
+        if (!child.isMesh || !child.material?.color) return
         child.material.color.set(obj.color)
         if (obj.material && child.material.userData.matType !== obj.material) {
           const newMat = createMaterial(obj.color, obj.material)
@@ -121,6 +189,10 @@ class ObjectManager {
           child.material = newMat
         }
       })
+    }
+
+    // Geometry rebuilds (gear params / fillet / bend) — shapes only, not CSG.
+    if (!ELECTRONICS.has(obj.type) && obj.type !== 'csg') {
       // Gear: rebuild geometry when parameters change
       if (obj.type === 'gear' && o.geometry) {
         const t = obj.teeth ?? 12, m = obj.module ?? 0.25, fw = obj.faceWidth ?? 0.5, b = obj.bore ?? 0
@@ -129,6 +201,21 @@ class ObjectManager {
           o.geometry.dispose()
           o.geometry = createSpurGearGeometry({ teeth: t, module: m, faceWidth: fw, bore: b })
           Object.assign(o.geometry.userData, { _gt: t, _gm: m, _gfw: fw, _gb: b })
+        }
+      }
+      // Box/rectprism: rebuild geometry when fillet radius / type / edge selection changes
+      if ((obj.type === 'box' || obj.type === 'rectprism') && o.geometry) {
+        const newFillet = obj.fillet ?? 0
+        const oldKey = o.geometry.userData._filletKey ?? ''
+        const newKey = newFillet > 0 ? filletKey(obj, newFillet, obj.filletSegments ?? 3) : ''
+        if (oldKey !== newKey) {
+          o.geometry.dispose()
+          o.geometry = (newFillet > 0)
+            ? buildFilletedBox(obj, newFillet, obj.filletSegments ?? 3)
+            : createGeometry(obj.type)
+          stampFilletKey(o.geometry, obj, newFillet, obj.filletSegments ?? 3)
+          // Re-apply bend on the new geometry if one was set
+          if (obj.deform?.bend) applyBendDeform(o.geometry, obj.deform.bend, obj.deform.bendAxis ?? 'y')
         }
       }
       if (o.geometry && obj.deform?.bend !== undefined) {
@@ -264,11 +351,76 @@ class ObjectManager {
     return true
   }
 
+  // Re-parent a mesh into a motor's rotorGroup while PRESERVING its current
+  // world transform exactly (no shaft-snapping / axis zeroing). Used to restore
+  // saved/undone attachments so wheels keep the exact position they were saved at.
+  reattachAtWorld(objectId, motorId) {
+    const mesh = this.objects.get(objectId)
+    const motorMesh = this.objects.get(motorId)
+    if (!mesh || !motorMesh?.userData.rotorGroup) return false
+    const rotorGroup = motorMesh.userData.rotorGroup
+    motorMesh.updateMatrixWorld(true)
+    mesh.updateMatrixWorld(true)
+    const worldPos = new THREE.Vector3(); mesh.getWorldPosition(worldPos)
+    const worldQuat = new THREE.Quaternion(); mesh.getWorldQuaternion(worldQuat)
+    const rotorQuat = new THREE.Quaternion(); rotorGroup.getWorldQuaternion(rotorQuat)
+    if (mesh.parent) mesh.parent.remove(mesh)
+    rotorGroup.add(mesh)
+    mesh.position.copy(rotorGroup.worldToLocal(worldPos.clone()))
+    mesh.quaternion.copy(rotorQuat.invert().multiply(worldQuat))
+    this.attachedObjects.set(objectId, motorId)
+    return true
+  }
+
+  // Get the current world-space position of any mesh (attached or not).
+  // Returns plain {x,y,z} or null. Used by snapshot helpers so exports
+  // capture the post-attachment visual position, not the stale design position.
+  getWorldPos(id) {
+    const mesh = this.objects.get(id)
+    if (!mesh) return null
+    mesh.updateMatrixWorld(true)
+    const e = mesh.matrixWorld.elements  // column-major; col 3 = translation
+    return { x: e[12], y: e[13], z: e[14] }
+  }
+
   // Read the attached object's local position within the rotorGroup.
   getAttachedLocalPosition(objectId) {
     const mesh = this.objects.get(objectId)
     if (!mesh || !this.attachedObjects.has(objectId)) return null
     return { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }
+  }
+
+  // Read the attached object's FULL local transform within the rotorGroup
+  // (position + quaternion + scale). This is the exact ground truth for saving an
+  // attachment — restoring it directly (reattachLocal) reproduces the wheel
+  // exactly, with no fragile world→local round-trip.
+  getAttachedLocalTransform(objectId) {
+    const mesh = this.objects.get(objectId)
+    if (!mesh || !this.attachedObjects.has(objectId)) return null
+    return {
+      position:   { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+      quaternion: { x: mesh.quaternion.x, y: mesh.quaternion.y, z: mesh.quaternion.z, w: mesh.quaternion.w },
+      scale:      { x: mesh.scale.x, y: mesh.scale.y, z: mesh.scale.z },
+    }
+  }
+
+  // Re-parent a mesh into a motor's rotorGroup and set its EXACT saved local
+  // transform. Used to restore saved attachments perfectly. Returns false if the
+  // motor's mesh/rotorGroup isn't ready yet (e.g. a GLB still loading) so the
+  // caller can retry.
+  reattachLocal(objectId, motorId, t) {
+    const mesh = this.objects.get(objectId)
+    const motorMesh = this.objects.get(motorId)
+    if (!mesh || !motorMesh?.userData.rotorGroup || !t) return false
+    const rotorGroup = motorMesh.userData.rotorGroup
+    if (mesh.parent) mesh.parent.remove(mesh)
+    rotorGroup.add(mesh)
+    mesh.position.set(t.position.x, t.position.y, t.position.z)
+    if (t.quaternion) mesh.quaternion.set(t.quaternion.x, t.quaternion.y, t.quaternion.z, t.quaternion.w)
+    if (t.scale) mesh.scale.set(t.scale.x, t.scale.y, t.scale.z)
+    mesh.updateMatrixWorld(true)
+    this.attachedObjects.set(objectId, motorId)
+    return true
   }
 
   // Move an attached object to a new local position within the rotorGroup.
@@ -550,6 +702,35 @@ class ObjectManager {
     this.wires.set(connId, line)
   }
 
+  // Re-route panel-created wires each frame so they follow their components as
+  // they move (during simulation the meshes are reparented into the drive group
+  // and driven around). Each wire line carries its two endpoint pin ids in
+  // userData; we rebuild the arch from the components' live WORLD positions.
+  // Skips wires whose endpoints haven't moved.
+  updateWires() {
+    if (this.wires.size === 0) return
+    for (const [, line] of this.wires) {
+      const ud = line.userData
+      if (!ud?.fromPinId || !ud?.toPinId) continue   // 3D-drag wires use WireManager instead
+      const fromMesh = this.objects.get(ud.fromPinId.split(':')[0])
+      const toMesh   = this.objects.get(ud.toPinId.split(':')[0])
+      if (!fromMesh || !toMesh) continue
+      const a = fromMesh.getWorldPosition(new THREE.Vector3()); a.y += 0.5
+      const b = toMesh.getWorldPosition(new THREE.Vector3());   b.y += 0.5
+      if (ud._wa && ud._wb &&
+          ud._wa.distanceToSquared(a) < 1e-6 && ud._wb.distanceToSquared(b) < 1e-6) continue
+      ud._wa = a.clone(); ud._wb = b.clone()
+      const archY = Math.max(a.y, b.y) + 1.5
+      line.geometry.setFromPoints([
+        a,
+        new THREE.Vector3(a.x, archY, a.z),
+        new THREE.Vector3(b.x, archY, b.z),
+        b,
+      ])
+      line.geometry.computeBoundingSphere()
+    }
+  }
+
   removeWire(connId) {
     const line = this.wires.get(connId)
     if (!line) return
@@ -594,6 +775,7 @@ class ObjectManager {
         child.material?.dispose()
       }
     })
+    _importedGeoms.delete(id)
     this.objects.delete(id)
   }
 
