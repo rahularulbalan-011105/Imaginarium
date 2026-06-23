@@ -5,10 +5,7 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useJointStore } from '../stores/jointStore.js'
-<<<<<<< HEAD
-=======
 import { useRobotStore } from '../stores/robotStore.js'
->>>>>>> master
 import { storageManager } from '../managers/StorageManager.js'
 import { clear as clearHistory } from '../managers/history/editorDispatch.js'
 import { saveJSONToFile, readJSONFile } from '../utils/export.js'
@@ -34,10 +31,7 @@ export default function Header() {
   const setPatches       = useSurfaceStore((s) => s.setPatches)
   const setBonds         = useRigidStore((s) => s.setBonds)
   const setJoints        = useJointStore((s) => s.setJoints)
-<<<<<<< HEAD
-=======
   const setBlueprints    = useRobotStore((s) => s.setBlueprints)
->>>>>>> master
 
   const [saving, setSaving]           = useState(false)
   const [saveFlash, setSaveFlash]     = useState(false)
@@ -65,14 +59,9 @@ export default function Header() {
     if (data.surface?.patches !== undefined) setPatches(data.surface.patches)
     if (data.rigid?.bonds     !== undefined) setBonds(data.rigid.bonds)
     if (data.joints?.joints   !== undefined) setJoints(data.joints.joints)
-<<<<<<< HEAD
-    clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
-  }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments, setPatches, setBonds, setJoints])
-=======
     setBlueprints(data.robots?.blueprints ?? {})   // absent in 1.0 files → cleared
     clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
   }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments, setPatches, setBonds, setJoints, setBlueprints])
->>>>>>> master
 
   // ── save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -144,22 +133,13 @@ export default function Header() {
 
   return (
     <>
-<<<<<<< HEAD
       <header data-tour="header" className="flex items-center gap-3 px-4 h-12 shrink-0 z-10"
         style={{ background: 'linear-gradient(90deg,#F7F9FC 0%,#FFFFFF 50%,#F7F9FC 100%)', borderBottom: '1px solid rgba(99,102,241,0.18)' }}>
-=======
-      <header className="flex items-center gap-3 px-4 h-12 shrink-0 z-10"
-        style={{ background: 'linear-gradient(90deg,#16130c 0%,#1c1810 50%,#16130c 100%)', borderBottom: '1px solid rgba(245,158,11,0.18)' }}>
->>>>>>> master
         {/* Logo */}
         <div className="flex items-center gap-2 mr-2">
           <span className="text-lg">🧊</span>
           <span className="text-sm font-bold hidden sm:block"
-<<<<<<< HEAD
             style={{ background: 'linear-gradient(90deg,#6366f1,#4F46E5)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-=======
-            style={{ background: 'linear-gradient(90deg,#f59e0b,#f97316)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
->>>>>>> master
             3D Editor
           </span>
         </div>
@@ -170,11 +150,7 @@ export default function Header() {
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           className="bg-transparent text-sm text-gray-200 px-1 py-0.5 focus:outline-none w-40 min-w-0"
-<<<<<<< HEAD
           style={{ borderBottom: '1px solid rgba(99,102,241,0.35)' }}
-=======
-          style={{ borderBottom: '1px solid rgba(245,158,11,0.35)' }}
->>>>>>> master
         />
 
         <div className="flex-1" />
@@ -193,11 +169,7 @@ export default function Header() {
           }`}
           style={saveFlash
             ? { background: 'linear-gradient(90deg,#16a34a,#15803d)', boxShadow: '0 0 8px rgba(63,185,80,0.4)' }
-<<<<<<< HEAD
             : { background: 'linear-gradient(90deg,#6366f1,#4f46e5)', boxShadow: '0 0 8px rgba(99,102,241,0.3)' }}
-=======
-            : { background: 'linear-gradient(90deg,#d97706,#ea580c)', boxShadow: '0 0 8px rgba(245,158,11,0.3)' }}
->>>>>>> master
         >
           {saving ? 'Saving…' : saveFlash ? '✓ Saved' : '💾 Save'}
         </button>
@@ -206,13 +178,8 @@ export default function Header() {
         <div className="relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
-<<<<<<< HEAD
             className="px-3 py-1 text-xs text-gray-300 hover:text-slate-900 rounded transition-colors"
             style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}
-=======
-            className="px-3 py-1 text-xs text-gray-300 hover:text-white rounded transition-colors"
-            style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.25)' }}
->>>>>>> master
           >
             ☰ File
           </button>
@@ -220,17 +187,10 @@ export default function Header() {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
               <div className="absolute right-0 top-full mt-1 w-48 rounded shadow-2xl z-20 py-1"
-<<<<<<< HEAD
                 style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.25)' }}>
                 <MenuItem onClick={handleNewProject}  icon="📄" label="New Project" />
                 <MenuItem onClick={handleOpenDialog}  icon="📂" label="Open Saved…" />
                 <div className="my-1" style={{ borderTop: '1px solid rgba(99,102,241,0.15)' }} />
-=======
-                style={{ background: '#1a1712', border: '1px solid rgba(245,158,11,0.25)' }}>
-                <MenuItem onClick={handleNewProject}  icon="📄" label="New Project" />
-                <MenuItem onClick={handleOpenDialog}  icon="📂" label="Open Saved…" />
-                <div className="my-1" style={{ borderTop: '1px solid rgba(245,158,11,0.15)' }} />
->>>>>>> master
                 <MenuItem onClick={handleExportJSON}  icon="⬇" label="Export JSON" />
                 <MenuItem onClick={handleImportClick} icon="⬆" label="Import JSON" />
               </div>
@@ -256,19 +216,11 @@ export default function Header() {
           />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
             <div className="rounded-xl shadow-2xl w-full max-w-md pointer-events-auto"
-<<<<<<< HEAD
               style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.25)' }}>
 
               {/* Dialog header */}
               <div className="flex items-center justify-between px-5 py-3.5"
                 style={{ borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
-=======
-              style={{ background: '#1a1712', border: '1px solid rgba(245,158,11,0.25)' }}>
-
-              {/* Dialog header */}
-              <div className="flex items-center justify-between px-5 py-3.5"
-                style={{ borderBottom: '1px solid rgba(245,158,11,0.15)' }}>
->>>>>>> master
                 <h2 className="text-sm font-semibold text-white">Open Saved Project</h2>
                 <button
                   onClick={() => setShowOpenDlg(false)}
@@ -292,22 +244,13 @@ export default function Header() {
                       key={proj.projectId}
                       onClick={() => handleLoadProject(proj.projectId)}
                       className="flex items-center gap-3 px-5 py-3.5 cursor-pointer last:border-0 group transition-colors"
-<<<<<<< HEAD
                       style={{ borderBottom: '1px solid rgba(99,102,241,0.1)' }}
                       onMouseEnter={e => e.currentTarget.style.background='rgba(99,102,241,0.07)'}
-=======
-                      style={{ borderBottom: '1px solid rgba(245,158,11,0.1)' }}
-                      onMouseEnter={e => e.currentTarget.style.background='rgba(245,158,11,0.07)'}
->>>>>>> master
                       onMouseLeave={e => e.currentTarget.style.background='transparent'}
                     >
                       <span className="text-2xl shrink-0">📁</span>
                       <div className="flex-1 min-w-0">
-<<<<<<< HEAD
                         <div className="text-sm font-medium text-white truncate group-hover:text-indigo-300 transition-colors">
-=======
-                        <div className="text-sm font-medium text-white truncate group-hover:text-amber-300 transition-colors">
->>>>>>> master
                           {proj.name || 'Untitled Project'}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
@@ -344,15 +287,9 @@ function MenuItem({ onClick, icon, label }) {
   return (
     <button
       onClick={onClick}
-<<<<<<< HEAD
       className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-slate-900 transition-colors"
       style={{ background: 'transparent' }}
       onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.1)'}
-=======
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-white transition-colors"
-      style={{ background: 'transparent' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'rgba(245,158,11,0.1)'}
->>>>>>> master
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
     >
       <span>{icon}</span>

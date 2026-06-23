@@ -28,9 +28,6 @@ export const useUiStore = create((set) => ({
   setSimActive: (v) => set({ simActive: v }),
   setExtrudeTool: (v) => set({ extrudeToolActive: v, ...(v ? {} : { extrudeState: null }) }),
   setExtrudeState: (s) => set({ extrudeState: s }),
-<<<<<<< HEAD
-=======
   setSnapTranslate: (v) => set({ snapTranslate: v }),
   setSnapRotateDeg: (v) => set({ snapRotateDeg: v }),
->>>>>>> master
 }))

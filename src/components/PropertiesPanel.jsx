@@ -34,11 +34,7 @@ function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
               step={step}
               onBlur={onBlurSnapshot}
               onChange={handleChange(axis)}
-<<<<<<< HEAD
               className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-indigo-500"
-=======
-              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-amber-500"
->>>>>>> master
             />
           </div>
         ))}
@@ -409,11 +405,7 @@ export default function PropertiesPanel() {
           type="text"
           value={obj.name}
           onChange={(e) => update({ name: e.target.value })}
-<<<<<<< HEAD
           className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500"
-=======
-          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-amber-500"
->>>>>>> master
         />
       </div>
 
@@ -642,30 +634,17 @@ export default function PropertiesPanel() {
 
       {/* Direct attach: prop selected + shift-click on a motor/servo → one-click attach */}
       {isAttachable && secondaryShaft && (
-<<<<<<< HEAD
         <div className="mb-3 p-2.5 rounded bg-indigo-900/20 border border-indigo-700/50">
           <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold mb-1">
-=======
-        <div className="mb-3 p-2.5 rounded bg-amber-900/20 border border-amber-700/50">
-          <div className="text-[10px] text-amber-400 uppercase tracking-wider font-semibold mb-1">
->>>>>>> master
             ⚙ Attach to {shaftLabel(secondaryShaft)}
           </div>
           <div className="text-[9px] text-gray-400 mb-2">
             Attach <span className="text-white font-medium">{obj.name}</span> to{' '}
-<<<<<<< HEAD
             <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
           </div>
           <button
             onClick={() => handleAttachToMotor(secondaryShaft.id)}
             className="w-full py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-medium rounded transition-colors"
-=======
-            <span className="text-amber-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
-          </div>
-          <button
-            onClick={() => handleAttachToMotor(secondaryShaft.id)}
-            className="w-full py-2 bg-amber-700 hover:bg-amber-600 text-white text-xs font-medium rounded transition-colors"
->>>>>>> master
           >
             ✓ Attach to {secondaryShaft.name}
           </button>
@@ -687,13 +666,8 @@ export default function PropertiesPanel() {
                   onClick={() => setAttachPreset(key)}
                   className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
                     attachPreset === key
-<<<<<<< HEAD
                       ? 'bg-indigo-700/60 border-indigo-500 text-white'
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
-=======
-                      ? 'bg-amber-700/60 border-amber-500 text-white'
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
->>>>>>> master
                   }`}
                 >
                   {label}
@@ -734,11 +708,7 @@ export default function PropertiesPanel() {
           {shaftTargets.length === 1 ? (
             <button
               onClick={() => handleAttachToMotor(shaftTargets[0].id)}
-<<<<<<< HEAD
               className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
-=======
-              className="w-full py-1.5 bg-amber-900/20 hover:bg-amber-700/40 border border-amber-700/40 text-amber-300 hover:text-white text-xs rounded transition-colors"
->>>>>>> master
             >
               ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
@@ -748,11 +718,7 @@ export default function PropertiesPanel() {
                 <button
                   key={m.id}
                   onClick={() => handleAttachToMotor(m.id)}
-<<<<<<< HEAD
                   className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
-=======
-                  className="w-full py-1.5 bg-amber-900/20 hover:bg-amber-700/40 border border-amber-700/40 text-amber-300 hover:text-white text-xs rounded transition-colors"
->>>>>>> master
                 >
                   ⚙ Attach to {m.name} ({shaftLabel(m)})
                 </button>
@@ -810,11 +776,7 @@ export default function PropertiesPanel() {
             onChange={(e) => {
               if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) update({ color: e.target.value })
             }}
-<<<<<<< HEAD
             className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500 font-mono"
-=======
-            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-amber-500 font-mono"
->>>>>>> master
           />
         </div>
       </div>
@@ -829,13 +791,8 @@ export default function PropertiesPanel() {
               onClick={() => update({ material: m })}
               className={`py-1.5 rounded text-xs capitalize transition-colors ${
                 obj.material === m
-<<<<<<< HEAD
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-slate-900 border border-gray-600/50'
-=======
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white border border-gray-600/50'
->>>>>>> master
               }`}
             >
               {m}
@@ -986,11 +943,7 @@ export default function PropertiesPanel() {
                       ? segs === 1
                         ? 'bg-orange-700/60 border-orange-500 text-white'
                         : 'bg-indigo-700/60 border-indigo-500 text-white'
-<<<<<<< HEAD
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
-=======
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
->>>>>>> master
                   }`}
                 >{label}</button>
               ))}
@@ -1008,11 +961,7 @@ export default function PropertiesPanel() {
                   className={`flex-1 py-1 rounded text-[10px] font-semibold border transition-colors ${
                     isPartial === partial
                       ? 'bg-teal-700/60 border-teal-500 text-white'
-<<<<<<< HEAD
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
-=======
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
->>>>>>> master
                   }`}
                 >{label}</button>
               ))}
@@ -1030,11 +979,7 @@ export default function PropertiesPanel() {
                       className={`flex-1 py-1 rounded text-[10px] uppercase font-semibold border transition-colors ${
                         axis === a
                           ? 'bg-teal-700/60 border-teal-500 text-white'
-<<<<<<< HEAD
                           : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
-=======
-                          : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
->>>>>>> master
                       }`}
                     >{a}</button>
                   ))}
@@ -1058,19 +1003,11 @@ export default function PropertiesPanel() {
                 <div className="flex gap-1">
                   <button
                     onClick={() => { update({ filletCorners: [true, true, true, true] }); snapshot() }}
-<<<<<<< HEAD
                     className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-slate-900"
                   >All 4</button>
                   <button
                     onClick={() => { update({ filletCorners: [false, false, false, false] }); snapshot() }}
                     className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-slate-900"
-=======
-                    className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-white"
-                  >All 4</button>
-                  <button
-                    onClick={() => { update({ filletCorners: [false, false, false, false] }); snapshot() }}
-                    className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-white"
->>>>>>> master
                   >None</button>
                 </div>
                 <div className="text-[9px] text-gray-600 mt-1">
@@ -1218,13 +1155,8 @@ export default function PropertiesPanel() {
       {/* ── Face Extrude ──────────────────────────────────────────────────────── */}
       {!isElectronics && (
         <details className="mb-3 group">
-<<<<<<< HEAD
           <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-400 flex items-center gap-1 select-none">
             <span className="text-gray-600 group-open:text-indigo-400">▶</span>
-=======
-          <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
-            <span className="text-gray-600 group-open:text-amber-400">▶</span>
->>>>>>> master
             Extrude Face
           </summary>
           <div className="mt-2">
@@ -1236,13 +1168,8 @@ export default function PropertiesPanel() {
       {/* ── Fillet / Bevel ────────────────────────────────────────────────────── */}
       {!isElectronics && (
         <details className="mb-3 group">
-<<<<<<< HEAD
           <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-400 flex items-center gap-1 select-none">
             <span className="text-gray-600 group-open:text-indigo-400">▶</span>
-=======
-          <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
-            <span className="text-gray-600 group-open:text-amber-400">▶</span>
->>>>>>> master
             Fillet / Bevel
           </summary>
           <div className="mt-2">
@@ -1251,8 +1178,6 @@ export default function PropertiesPanel() {
         </details>
       )}
 
-<<<<<<< HEAD
-=======
       {/* ── Inspect (measure / mass / size) ───────────────────────────────────── */}
       <InspectSection obj={obj} secondaryObj={objects.find(o => o.id === secondaryId) ?? null} />
 
@@ -1299,7 +1224,6 @@ export default function PropertiesPanel() {
         </button>
       )}
 
->>>>>>> master
       {/* Visibility */}
       <div className="mb-3 flex items-center justify-between">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider">Visible</div>
@@ -1334,8 +1258,6 @@ export default function PropertiesPanel() {
   )
 }
 
-<<<<<<< HEAD
-=======
 // ── Text shape editor: live string + size + thickness ─────────────────────────
 function TextShapeEditor({ obj, update, snapshot }) {
   return (
@@ -1603,7 +1525,6 @@ function PatternTools({ obj, insertObject, snapshot }) {
   )
 }
 
->>>>>>> master
 function SaveAssetButton({ obj }) {
   const saveAsset = useAssetStore((s) => s.saveAsset)
   const [flash, setFlash] = useState(false)
@@ -1619,13 +1540,8 @@ function SaveAssetButton({ obj }) {
       onClick={handleSave}
       className={`mt-2 w-full py-1.5 text-xs rounded transition-all ${
         flash
-<<<<<<< HEAD
           ? 'bg-indigo-700 text-indigo-100'
           : 'bg-gray-800 hover:bg-indigo-900/40 border border-gray-600/50 hover:border-indigo-700/50 text-gray-400 hover:text-indigo-300'
-=======
-          ? 'bg-amber-700 text-amber-100'
-          : 'bg-gray-800 hover:bg-amber-900/40 border border-gray-600/50 hover:border-amber-700/50 text-gray-400 hover:text-amber-300'
->>>>>>> master
       }`}
     >
       {flash ? '✓ Saved to Library' : '📦 Save as Asset'}

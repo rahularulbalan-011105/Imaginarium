@@ -19,14 +19,11 @@ const BUILTIN_NAMES = new Set([
   'IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12',
   'IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21',
   'SUBO_BUZZER_PIN','SUBO_LED_PIN','SUBO_LED_NUM','SUBO_BUTTONR','SUBO_BUTTONL',
-<<<<<<< HEAD
-=======
   // Sensors / outputs API + constants
   'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
   'A0','A1','A2','A3','A4','A5','A6','A7','INPUT_PULLUP','LED_BUILTIN',
   'WHITE','BLACK','SSD1306_WHITE','SSD1306_BLACK','SSD1306_INVERSE',
   'SSD1306_SWITCHCAPVCC','SSD1306_EXTERNALVCC','SCREEN_WIDTH','SCREEN_HEIGHT',
->>>>>>> master
 ])
 
 class SimulationManager {
@@ -316,11 +313,7 @@ class SimulationManager {
 
     // SUBO constants (IOn → GPIO, onboard pins) — prepended to the script so the
     // user's library-style code (digitalWrite(IO3,...) etc.) resolves them.
-<<<<<<< HEAD
-    const SUBO_CONSTS = `const IO1=4,IO2=39,IO3=13,IO4=38,IO5=14,IO6=48,IO7=42,IO8=5,IO9=41,IO10=40,IO11=6,IO12=7,IO13=15,IO14=16,IO15=17,IO16=18,IO17=8,IO18=11,IO19=10,IO20=9,IO21=3,SUBO_BUZZER_PIN=2,SUBO_LED_PIN=12,SUBO_LED_NUM=48,SUBO_BUTTONR=47,SUBO_BUTTONL=1;`
-=======
     const SUBO_CONSTS = `const IO1=4,IO2=39,IO3=13,IO4=38,IO5=14,IO6=48,IO7=42,IO8=5,IO9=41,IO10=40,IO11=6,IO12=7,IO13=15,IO14=16,IO15=17,IO16=18,IO17=8,IO18=11,IO19=10,IO20=9,IO21=3,SUBO_BUZZER_PIN=2,SUBO_LED_PIN=12,SUBO_LED_NUM=48,SUBO_BUTTONR=47,SUBO_BUTTONL=1,A0=14,A1=15,A2=16,A3=17,A4=18,A5=19,A6=20,A7=21,INPUT_PULLUP=2,LED_BUILTIN=13,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;`
->>>>>>> master
 
     // ── Parse + transpile ─────────────────────────────────────────────────────
 
@@ -356,10 +349,7 @@ while (true) {
         'sin','cos','tan','random','randomSeed','Serial','onRuntimeError','Servo','__yield',
         'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
         'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
-<<<<<<< HEAD
-=======
         'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
->>>>>>> master
         `"use strict";
          return (async () => {
            try { ${script} }
@@ -379,12 +369,8 @@ while (true) {
         abs, min, max, sq, sqrt, pow, floor, ceil, round, log, exp,
         sin, cos, tan, random, randomSeed, Serial, onRuntimeError, Servo, __yield,
         SuboMatrixInit, setAllLED, setSingleLED, playLEDSeq, stripclear,
-<<<<<<< HEAD
-        playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor
-=======
         playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor,
         delayMicroseconds, pulseIn, tone, noTone, Wire, Adafruit_SSD1306
->>>>>>> master
       ).then(() => { self._running = false })
 
     } catch (e) {

@@ -96,16 +96,11 @@ export default function CodeEditor() {
 
   const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor']
   const hasConnections  = Object.keys(connections).length > 0
-<<<<<<< HEAD
   const hasMotors       = objects.some(o => ['motor', 'motor_bo', 'motor_dc'].includes(o.type))
   const hasLeds         = objects.some(o => o.type === 'led')
   const hasServos       = objects.some(o => o.type === 'servo')
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
   const hasControllable = hasMotors || hasLeds || hasServos
-=======
-  const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
-  const hasControllable = objects.some(o => CONTROLLABLE.includes(o.type))
->>>>>>> master
 
   const handleRun = () => {
     setError(null)
@@ -187,11 +182,7 @@ export default function CodeEditor() {
       {(noArduino || noComponent || noConnection) && (
         <div className="px-3 py-2 space-y-1 shrink-0 border-b border-gray-700/30">
           {noArduino   && <Hint icon="⚠" text="Add an Arduino or SUBO board to the scene" />}
-<<<<<<< HEAD
-          {noComponent && <Hint icon="⚠" text="Add a Motor, Servo or LED to the scene" />}
-=======
           {noComponent && <Hint icon="⚠" text="Add an electronics component (motor, servo, LED, sensor, buzzer, OLED…)" />}
->>>>>>> master
           {!noArduino && !noComponent && noConnection && (
             <Hint icon="⚠" text="Draw a wire from an Arduino pin to the component" />
           )}
@@ -264,11 +255,7 @@ export default function CodeEditor() {
                   <div key={id} className="flex items-center gap-2 text-[10px] text-gray-400">
                     <span className="truncate max-w-[70px]">{obj?.name ?? id}</span>
                     <div className="flex-1 h-1.5 bg-gray-800 rounded-full overflow-hidden">
-<<<<<<< HEAD
                       <div className="h-full bg-indigo-500 transition-all duration-100" style={{ width: `${(angle / 180) * 100}%` }} />
-=======
-                      <div className="h-full bg-amber-500 transition-all duration-100" style={{ width: `${(angle / 180) * 100}%` }} />
->>>>>>> master
                     </div>
                     <span className="w-8 text-right tabular-nums">{angle}°</span>
                   </div>

@@ -149,13 +149,10 @@ export default function Viewport() {
         scale: vec3FromObject(mesh.scale),
       })
 
-<<<<<<< HEAD
       // Propagate rigid bonds — when moving the parent, drag the child with it.
       // Do NOT reverse-propagate when a bond-child is dragged directly; its
       // relativeMatrix is updated in onDraggingChanged after the drag ends.
-=======
       // Rigid bonds move as ONE welded unit — grabbing either part moves both.
->>>>>>> master
       const allBonds = useRigidStore.getState().getBonds()
 
       // Forward: dragging a parent drags its children (and their children).
@@ -163,8 +160,6 @@ export default function Viewport() {
         if (bond.parentId !== id) continue
         const result = objectManager.propagateBond(id, bond.relativeMatrix, true, bond.childId)
         if (result) updateObject(bond.childId, result)
-<<<<<<< HEAD
-=======
       }
 
       // Reverse: dragging a child drags its parent up the chain, so the whole
@@ -195,7 +190,6 @@ export default function Viewport() {
         seen.add(cb.parentId)
         curId = cb.parentId
         curWorld = parentWorld
->>>>>>> master
       }
     }
 
@@ -657,25 +651,16 @@ export default function Viewport() {
   return (
     <div
       ref={containerRef}
-<<<<<<< HEAD
       data-tour="viewport"
-=======
->>>>>>> master
       className="relative flex-1 overflow-hidden bg-white"
       onDragOver={(e) => { e.preventDefault(); setDropHighlight(true) }}
       onDragLeave={() => setDropHighlight(false)}
       onDrop={handleViewportDrop}
     >
       {dropHighlight && (
-<<<<<<< HEAD
         <div className="absolute inset-0 z-30 pointer-events-none border-4 border-indigo-400/80 rounded-sm">
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="bg-gray-900/90 text-indigo-300 text-sm font-medium px-5 py-3 rounded-xl shadow-2xl">
-=======
-        <div className="absolute inset-0 z-30 pointer-events-none border-4 border-amber-400/80 rounded-sm">
-          <div className="absolute inset-0 flex items-center justify-center">
-            <div className="bg-gray-900/90 text-amber-300 text-sm font-medium px-5 py-3 rounded-xl shadow-2xl">
->>>>>>> master
               📥 Drop GLB / GLTF / STL to import
             </div>
           </div>
@@ -719,11 +704,7 @@ export default function Viewport() {
               ? 'Click a corner, edge, or face on the FIRST object'
               : 'Now click a corner, edge, or face on the SECOND object'}
             <button
-<<<<<<< HEAD
               className="pointer-events-auto ml-2 text-teal-400 hover:text-slate-900 transition-colors"
-=======
-              className="pointer-events-auto ml-2 text-teal-400 hover:text-white transition-colors"
->>>>>>> master
               onClick={() => setJointPick(null)}
             >
               ✕ Cancel
@@ -787,11 +768,7 @@ export default function Viewport() {
 
       {/* Shift+click hint when one object is selected */}
       {selectedId && !secondaryId && !wireDragging && (
-<<<<<<< HEAD
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-indigo-600/90 border border-indigo-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
-=======
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-amber-600/90 border border-amber-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
->>>>>>> master
           Shift+click another object to enable Boolean operations
         </div>
       )}
@@ -810,11 +787,7 @@ export default function Viewport() {
             <span className="text-base">⬆</span>
             Click any face to extrude it outward
             <button
-<<<<<<< HEAD
               className="pointer-events-auto ml-2 text-purple-400 hover:text-slate-900 transition-colors"
-=======
-              className="pointer-events-auto ml-2 text-purple-400 hover:text-white transition-colors"
->>>>>>> master
               onClick={() => useUiStore.getState().setExtrudeTool(false)}
             >
               ✕ Exit
@@ -823,7 +796,6 @@ export default function Viewport() {
         </div>
       )}
 
-<<<<<<< HEAD
       {/* Empty-scene guidance — purely visual, never blocks canvas input */}
       {objects.length === 0 && !simActive && !surfaceToolActive && !extrudeToolActive && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
@@ -839,8 +811,6 @@ export default function Viewport() {
         </div>
       )}
 
-=======
->>>>>>> master
       {/* View indicator + quick-view switcher (top-right corner) */}
       {!simActive && <ViewGizmo />}
 

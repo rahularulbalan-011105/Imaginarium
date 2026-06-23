@@ -14,11 +14,7 @@ export default function StatusBar() {
         <>
           <span>│</span>
           <span>
-<<<<<<< HEAD
             Selected: <span className="text-indigo-400">{selectedObj.name}</span>
-=======
-            Selected: <span className="text-amber-400">{selectedObj.name}</span>
->>>>>>> master
           </span>
           <span>│</span>
           <span>

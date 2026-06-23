@@ -12,7 +12,6 @@ import BattlePanel from './components/BattlePanel.jsx'
 import PanelErrorBoundary from './components/PanelErrorBoundary.jsx'
 import AssetLibrary from './components/AssetLibrary.jsx'
 import JointPanel from './components/JointPanel.jsx'
-<<<<<<< HEAD
 import WiringPanel from './components/WiringPanel.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
@@ -20,10 +19,7 @@ import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
 import PanelHint from './components/onboarding/PanelHint.jsx'
-=======
 import RobotPanel from './components/RobotPanel.jsx'
-import WiringPanel from './components/WiringPanel.jsx'
->>>>>>> master
 import { useSceneStore } from './stores/sceneStore.js'
 import { useUiStore } from './stores/uiStore.js'
 import { useElectronicsStore } from './stores/electronicsStore.js'
@@ -61,13 +57,8 @@ function LoadingScreen() {
 function ResizeHandle({ onMouseDown }) {
   return (
     <div
-<<<<<<< HEAD
       className="shrink-0 w-1 cursor-col-resize hover:bg-indigo-500/40 active:bg-indigo-500/60 transition-colors"
       style={{ background: 'rgba(40,44,58,0.8)' }}
-=======
-      className="shrink-0 w-1 cursor-col-resize hover:bg-amber-500/40 active:bg-amber-500/60 transition-colors"
-      style={{ background: 'rgba(50,48,43,0.8)' }}
->>>>>>> master
       onMouseDown={onMouseDown}
     />
   )
@@ -94,31 +85,6 @@ function AppEditor() {
   const clipboard = useRef(null)
   // Smart duplicate-and-repeat chain: { newId, prev:{position,rotation,scale} }
   const dupChain = useRef(null)
-
-  // ── Resizable sidebars ────────────────────────────────────────────────────
-  const [leftWidth,  setLeftWidth]  = useState(56)   // default 56px (old w-14)
-  const [rightWidth, setRightWidth] = useState(256)  // default 256px (old w-64)
-  const leftResizing  = useRef(false)
-  const rightResizing = useRef(false)
-
-  useEffect(() => {
-    const onMove = (e) => {
-      if (leftResizing.current)  setLeftWidth(Math.max(48, Math.min(220, e.clientX)))
-      if (rightResizing.current) setRightWidth(Math.max(180, Math.min(520, window.innerWidth - e.clientX)))
-    }
-    const onUp = () => {
-      leftResizing.current  = false
-      rightResizing.current = false
-      document.body.style.cursor    = ''
-      document.body.style.userSelect = ''
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup',   onUp)
-    return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup',   onUp)
-    }
-  }, [])
 
   // ── Resizable sidebars ────────────────────────────────────────────────────
   const [leftWidth,  setLeftWidth]  = useState(104)  // readable categorized toolbar
@@ -266,12 +232,9 @@ function AppEditor() {
   }, [])
 
   useEffect(() => { resetBaseline() }, [])
-<<<<<<< HEAD
-=======
 
   // Push snap-to-grid settings down to the transform gizmo whenever they change.
   useEffect(() => { sceneManager.setSnap(snapTranslate, snapRotateDeg) }, [snapTranslate, snapRotateDeg])
->>>>>>> master
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -373,13 +336,6 @@ function AppEditor() {
           } else {
             deleteSelected(); snapshot()
           }
-<<<<<<< HEAD
-          break
-        }
-        case 'd': case 'D':
-          if (e.ctrlKey || e.metaKey) { e.preventDefault(); if (selectedId) { duplicateObject(selectedId); snapshot() } }
-=======
->>>>>>> master
           break
         }
         case 'd': case 'D':
@@ -444,16 +400,6 @@ function AppEditor() {
 
   // ── Right sidebar logic ───────────────────────────────────────────────────
   const TABS = [
-<<<<<<< HEAD
-    { id: 'properties', label: 'Properties', hint: 'Edit the selected object — size, color, position, material and more' },
-    { id: 'objects',    label: 'Objects',    hint: 'List of everything in your scene — click to select, toggle visibility' },
-    { id: 'wiring',     label: '⚡ Wiring',  hint: 'Connect electronics — click two pins to run a wire between them' },
-    { id: 'joints',     label: '⚙ Joints',  hint: 'Link two parts with a hinge, slider, or pivot so they move together' },
-    { id: 'blocks',     label: '🧩 Blocks',  hint: 'Program with drag-and-drop blocks (no typing needed)' },
-    { id: 'code',       label: '{ } Code',  hint: 'Program with Arduino C++ code, with templates and a serial monitor' },
-    { id: 'battle',     label: '⚔ Battle',  hint: 'Drive your robot in a head-to-head robo-sumo match' },
-    { id: 'library',    label: '📦 Library', hint: 'Add more shapes, import 3D models, and reuse saved parts' },
-=======
     { id: 'properties', label: 'Props' },
     { id: 'objects',    label: 'Objects' },
     { id: 'wiring',     label: '⚡ Wiring' },
@@ -463,18 +409,13 @@ function AppEditor() {
     { id: 'code',       label: '{ } Code' },
     { id: 'battle',     label: '⚔ Battle' },
     { id: 'library',    label: '📦 Library' },
->>>>>>> master
   ]
 
   const renderRightPanel = () => {
     // Boolean is a tab that only appears while two boolean-capable objects are
     // selected. It's auto-focused on selection but the rest stay clickable.
     const tabs = bothBoolean
-<<<<<<< HEAD
       ? [{ id: 'boolean', label: '⊕ Boolean', hint: 'Combine the two selected shapes — union, subtract, or intersect' }, ...TABS]
-=======
-      ? [{ id: 'boolean', label: '⊕ Boolean' }, ...TABS]
->>>>>>> master
       : TABS
     // Guard against showing the Boolean panel after the pair is broken
     const panel = (activePanel === 'boolean' && !bothBoolean) ? 'properties' : activePanel
@@ -482,32 +423,20 @@ function AppEditor() {
     return (
       <>
         <div className="flex border-b border-gray-700/50 shrink-0 overflow-x-auto">
-<<<<<<< HEAD
           {tabs.map(({ id, label, hint }) => {
-=======
-          {tabs.map(({ id, label }) => {
->>>>>>> master
             const isBool = id === 'boolean'
             const active = panel === id
             return (
               <button
                 key={id}
-<<<<<<< HEAD
                 data-tour={`tab-${id}`}
                 onClick={() => setActivePanel(id)}
                 title={hint}
-=======
-                onClick={() => setActivePanel(id)}
->>>>>>> master
                 className={`shrink-0 px-2 py-2 text-[10px] font-medium transition-colors whitespace-nowrap ${
                   active
                     ? isBool
                       ? 'text-purple-200 border-b-2 border-purple-500 bg-purple-900/30'
-<<<<<<< HEAD
                       : 'text-indigo-700 border-b-2 border-indigo-500 bg-indigo-50'
-=======
-                      : 'text-white border-b-2 border-amber-500 bg-gray-800/50'
->>>>>>> master
                     : isBool
                       ? 'text-purple-400 hover:text-purple-200'
                       : 'text-gray-500 hover:text-gray-300'
@@ -519,19 +448,13 @@ function AppEditor() {
           })}
         </div>
         <div className="flex-1 min-h-0 overflow-y-auto">
-<<<<<<< HEAD
           <PanelHint panelId={panel} />
-=======
->>>>>>> master
           {panel === 'boolean'    ? <BooleanPanel selectedId={selectedId} secondaryId={secondaryId} />
             : panel === 'properties' ? <PropertiesPanel />
             : panel === 'objects'  ? <ObjectList />
             : panel === 'wiring'   ? <WiringPanel />
             : panel === 'joints'   ? <JointPanel />
-<<<<<<< HEAD
-=======
             : panel === 'robot'    ? <RobotPanel />
->>>>>>> master
             : panel === 'blocks'   ? <PanelErrorBoundary label="Blocks"><BlocksPanel /></PanelErrorBoundary>
             : panel === 'battle'   ? <PanelErrorBoundary label="Battle"><BattlePanel /></PanelErrorBoundary>
             : panel === 'library'  ? <AssetLibrary />
@@ -559,11 +482,7 @@ function AppEditor() {
       <Header />
       <div className="flex flex-1 min-h-0">
         {/* Left toolbar — resizable */}
-<<<<<<< HEAD
         <div data-tour="toolbar" style={{ width: leftWidth, flexShrink: 0 }} className="overflow-hidden">
-=======
-        <div style={{ width: leftWidth, flexShrink: 0 }} className="overflow-hidden">
->>>>>>> master
           <Toolbar />
         </div>
         <ResizeHandle onMouseDown={startLeftResize} />
@@ -572,11 +491,7 @@ function AppEditor() {
 
         <ResizeHandle onMouseDown={startRightResize} />
         {/* Right panel — resizable */}
-<<<<<<< HEAD
         <div data-tour="panel" className="flex flex-col shrink-0 bg-gray-900" style={{ width: rightWidth }}>
-=======
-        <div className="flex flex-col shrink-0 bg-gray-900" style={{ width: rightWidth }}>
->>>>>>> master
           {renderRightPanel()}
         </div>
       </div>

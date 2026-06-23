@@ -37,15 +37,9 @@ export default function ViewGizmo() {
       <button
         onClick={() => setOpen(o => !o)}
         title="Current view — click to switch"
-<<<<<<< HEAD
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-900/85 border border-gray-600/60 shadow-lg backdrop-blur-sm hover:border-indigo-500/70 transition-colors pointer-events-auto"
       >
         <span className="text-indigo-400 text-xs">◳</span>
-=======
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-900/85 border border-gray-600/60 shadow-lg backdrop-blur-sm hover:border-amber-500/70 transition-colors pointer-events-auto"
-      >
-        <span className="text-amber-400 text-xs">◳</span>
->>>>>>> master
         <span className="text-[11px] font-semibold text-white tracking-wide">{label}</span>
         <span className="text-gray-500 text-[9px]">{open ? '▲' : '▼'}</span>
       </button>
@@ -60,13 +54,8 @@ export default function ViewGizmo() {
                 onClick={() => go(v.key)}
                 className={`px-2 py-1.5 rounded text-[10px] font-semibold border transition-colors ${
                   label === v.label
-<<<<<<< HEAD
                     ? 'bg-indigo-600 border-indigo-400 text-white'
                     : 'bg-gray-800 border-gray-600/50 text-gray-300 hover:bg-gray-700 hover:text-slate-900'
-=======
-                    ? 'bg-amber-600 border-amber-400 text-white'
-                    : 'bg-gray-800 border-gray-600/50 text-gray-300 hover:bg-gray-700 hover:text-white'
->>>>>>> master
                 }`}
                 title={`${v.label} view`}
               >
@@ -78,13 +67,8 @@ export default function ViewGizmo() {
             onClick={() => go('home')}
             className={`w-full px-2 py-1.5 rounded text-[10px] font-semibold border transition-colors ${
               label === 'Perspective'
-<<<<<<< HEAD
                 ? 'bg-indigo-600 border-indigo-400 text-white'
                 : 'bg-gray-800 border-gray-600/50 text-gray-300 hover:bg-gray-700 hover:text-slate-900'
-=======
-                ? 'bg-amber-600 border-amber-400 text-white'
-                : 'bg-gray-800 border-gray-600/50 text-gray-300 hover:bg-gray-700 hover:text-white'
->>>>>>> master
             }`}
             title="Home / isometric view"
           >

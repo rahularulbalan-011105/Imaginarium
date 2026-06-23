@@ -1,7 +1,5 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three-stdlib'
-<<<<<<< HEAD
-=======
 import { FontLoader } from 'three/addons/loaders/FontLoader.js'
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
 import helvetiker from 'three/examples/fonts/helvetiker_regular.typeface.json'
@@ -30,7 +28,6 @@ export function createTextGeometry(text, size = 1, height = 0.4) {
   geo.userData._th  = h
   return geo
 }
->>>>>>> master
 
 // Base dimensions of each fillable box type (matches createGeometry below)
 const BOX_DIMS = {

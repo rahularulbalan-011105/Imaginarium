@@ -39,8 +39,6 @@ export const SERVO_PINS = {
   GND:     { x: -2.2, y: 0.4, z: -0.4, color: 0x222222, type: 'gnd',   label: 'GND' },
 }
 
-<<<<<<< HEAD
-=======
 // ─── Sensors & extra outputs ──────────────────────────────────────────────────
 // Static pin layouts (used since these GLBs don't auto-compute dynamic pins).
 // Pins sit in a small fanned row near the model so they're easy to click + wire.
@@ -72,7 +70,6 @@ export const GAS_PINS = {
   AO:  { x:  1.2, y: -0.1, z: 1.2, color: 0x22cc88, type: 'analog',  label: 'AO'  },
 }
 
->>>>>>> master
 // SUBO board (custom ESP32-S3). Pins use the real silk labels IO1..IO21 from the
 // Subo Arduino library; the simulator resolves IOn → GPIO via pinNameToNumber.
 const SUBO_ADC = new Set(['IO1', 'IO5', 'IO8', 'IO11', 'IO12', 'IO17', 'IO19', 'IO20', 'IO21'])

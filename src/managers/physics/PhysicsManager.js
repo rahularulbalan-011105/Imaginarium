@@ -90,8 +90,6 @@ class PhysicsManager {
     return body
   }
 
-<<<<<<< HEAD
-=======
   /**
    * Create ONE dynamic body with MULTIPLE box colliders — a compound rigid body,
    * for a welded/bonded assembly that should fall and tumble as a single object.
@@ -122,7 +120,6 @@ class PhysicsManager {
     return body
   }
 
->>>>>>> master
   createRobotBody(id, position, halfExtents = { x: 0.5, y: 0.25, z: 0.75 }) {
     if (!this.ready) return null
     this.removeBody(id)

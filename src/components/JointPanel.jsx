@@ -49,11 +49,7 @@ function JointCard({ joint, objects }) {
         </div>
         <button
           onClick={e => { e.stopPropagation(); update({ visible: !joint.visible }) }}
-<<<<<<< HEAD
           className={`text-[10px] px-1.5 py-0.5 rounded ${joint.visible ? 'text-indigo-400' : 'text-gray-600'}`}
-=======
-          className={`text-[10px] px-1.5 py-0.5 rounded ${joint.visible ? 'text-amber-400' : 'text-gray-600'}`}
->>>>>>> master
           title="Toggle marker visibility"
         >
           {joint.visible ? '👁' : '👁‍🗨'}
@@ -73,11 +69,7 @@ function JointCard({ joint, objects }) {
                   onClick={() => update({ type: key })}
                   className={`text-[10px] py-1 rounded flex flex-col items-center gap-0.5 transition-colors ${
                     joint.type === key
-<<<<<<< HEAD
                       ? 'bg-indigo-600/30 text-indigo-300 border border-indigo-600/50'
-=======
-                      ? 'bg-amber-600/30 text-amber-300 border border-amber-600/50'
->>>>>>> master
                       : 'bg-gray-700/40 text-gray-400 hover:text-gray-200'
                   }`}
                 >
@@ -101,11 +93,7 @@ function JointCard({ joint, objects }) {
                       (ax === 'x' && joint.axis.x === 1) ||
                       (ax === 'y' && joint.axis.y === 1) ||
                       (ax === 'z' && joint.axis.z === 1)
-<<<<<<< HEAD
                         ? 'bg-indigo-600/40 text-indigo-300'
-=======
-                        ? 'bg-amber-600/40 text-amber-300'
->>>>>>> master
                         : 'bg-gray-700/40 text-gray-400 hover:text-gray-200'
                     }`}
                   >
@@ -135,11 +123,7 @@ function JointCard({ joint, objects }) {
                         : { ...joint.limits, minAngle: v }
                       })
                     }}
-<<<<<<< HEAD
                     className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-=======
-                    className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-amber-500 focus:outline-none"
->>>>>>> master
                   />
                 </div>
                 <div className="flex-1">
@@ -154,11 +138,7 @@ function JointCard({ joint, objects }) {
                         : { ...joint.limits, maxAngle: v }
                       })
                     }}
-<<<<<<< HEAD
                     className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-=======
-                    className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-amber-500 focus:outline-none"
->>>>>>> master
                   />
                 </div>
               </div>
@@ -173,11 +153,7 @@ function JointCard({ joint, objects }) {
               </div>
               {['x', 'y', 'z'].map(ax => (
                 <div key={ax} className="flex items-center gap-2 mb-1">
-<<<<<<< HEAD
                   <span className="text-[9px] font-bold text-indigo-500 uppercase w-3">{ax}</span>
-=======
-                  <span className="text-[9px] font-bold text-amber-500 uppercase w-3">{ax}</span>
->>>>>>> master
                   <input
                     type="range"
                     min={joint.limits.minAngle}
@@ -185,15 +161,9 @@ function JointCard({ joint, objects }) {
                     step={1}
                     value={joint.ballRot?.[ax] ?? 0}
                     onChange={e => jointManager.driveBall(joint.id, ax, parseFloat(e.target.value))}
-<<<<<<< HEAD
                     className="flex-1 accent-indigo-500"
                   />
                   <span className="text-[10px] text-indigo-400 w-8 text-right">
-=======
-                    className="flex-1 accent-amber-500"
-                  />
-                  <span className="text-[10px] text-amber-400 w-8 text-right">
->>>>>>> master
                     {(joint.ballRot?.[ax] ?? 0).toFixed(0)}°
                   </span>
                 </div>
@@ -211,15 +181,9 @@ function JointCard({ joint, objects }) {
                 step={0.5}
                 value={joint.type === 'slider' ? joint.currentPosition : joint.currentAngle}
                 onChange={e => jointManager.driveJoint(joint.id, parseFloat(e.target.value))}
-<<<<<<< HEAD
                 className="w-full accent-indigo-500"
               />
               <div className="text-[10px] text-indigo-400 text-center">
-=======
-                className="w-full accent-amber-500"
-              />
-              <div className="text-[10px] text-amber-400 text-center">
->>>>>>> master
                 {joint.type === 'slider'
                   ? joint.currentPosition.toFixed(1) + ' units'
                   : joint.currentAngle.toFixed(1) + '°'}
@@ -235,11 +199,7 @@ function JointCard({ joint, objects }) {
                   type="checkbox"
                   checked={joint.motorSettings.motorized}
                   onChange={e => update({ motorSettings: { ...joint.motorSettings, motorized: e.target.checked } })}
-<<<<<<< HEAD
                   className="accent-indigo-500"
-=======
-                  className="accent-amber-500"
->>>>>>> master
                 />
                 <span className="text-[10px] text-gray-300">Motorized</span>
               </label>
@@ -251,11 +211,7 @@ function JointCard({ joint, objects }) {
                       type="number"
                       value={joint.motorSettings.speed}
                       onChange={e => update({ motorSettings: { ...joint.motorSettings, speed: parseFloat(e.target.value) || 0 } })}
-<<<<<<< HEAD
                       className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-=======
-                      className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-amber-500 focus:outline-none"
->>>>>>> master
                     />
                   </div>
                   <div>
@@ -272,11 +228,7 @@ function JointCard({ joint, objects }) {
                           : { ...joint.motorSettings, torque: v }
                         })
                       }}
-<<<<<<< HEAD
                       className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-=======
-                      className="w-full bg-gray-700 text-white text-[11px] px-2 py-1 rounded border border-gray-600 focus:border-amber-500 focus:outline-none"
->>>>>>> master
                     />
                   </div>
                 </div>
@@ -329,11 +281,7 @@ export default function JointPanel() {
     <div className="flex flex-col h-full">
       {/* Create joint UI */}
       <div className="px-3 py-3 border-b border-gray-700/50 space-y-2">
-<<<<<<< HEAD
         <div className="text-[9px] text-indigo-500 uppercase tracking-wider font-semibold">
-=======
-        <div className="text-[9px] text-amber-500 uppercase tracking-wider font-semibold">
->>>>>>> master
           Create Joint
         </div>
 
@@ -361,22 +309,14 @@ export default function JointPanel() {
                 {objects.find(o => o.id === selectedId)?.name ?? '?'}
               </span>
               {' '}→{' '}
-<<<<<<< HEAD
               <span className="text-indigo-300 font-medium">
-=======
-              <span className="text-amber-300 font-medium">
->>>>>>> master
                 {objects.find(o => o.id === secondaryId)?.name ?? '?'}
               </span>
             </div>
             <select
               value={pendingType}
               onChange={e => setPendingType(e.target.value)}
-<<<<<<< HEAD
               className="w-full bg-gray-700 text-white text-[11px] px-2 py-1.5 rounded border border-gray-600 focus:border-indigo-500 focus:outline-none"
-=======
-              className="w-full bg-gray-700 text-white text-[11px] px-2 py-1.5 rounded border border-gray-600 focus:border-amber-500 focus:outline-none"
->>>>>>> master
             >
               {Object.entries(JOINT_TYPES).map(([k, m]) => (
                 <option key={k} value={k}>{m.icon} {m.label}</option>
@@ -384,11 +324,7 @@ export default function JointPanel() {
             </select>
             <button
               onClick={createJoint}
-<<<<<<< HEAD
               className="w-full py-2 rounded text-xs bg-indigo-700/40 hover:bg-indigo-600/50 border border-indigo-600/50 text-indigo-300 transition-colors font-semibold"
-=======
-              className="w-full py-2 rounded text-xs bg-amber-700/40 hover:bg-amber-600/50 border border-amber-600/50 text-amber-300 transition-colors font-semibold"
->>>>>>> master
             >
               ⚙ Create Joint
             </button>

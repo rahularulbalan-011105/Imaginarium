@@ -55,11 +55,7 @@ export default function BattlePanel() {
           <div className="absolute top-3 right-4"><HPBar side="right" name={mode === 'online' ? 'Challenger' : 'P2'} hp={hp.p2} lives={lives.p2} color="#ef4444" you={mode === 'online' && role === 'guest'} /></div>
           {message && status !== 'loading' && (
             <div className="absolute top-20 left-1/2 -translate-x-1/2 text-center">
-<<<<<<< HEAD
               <div className={`px-5 py-2 rounded-xl font-extrabold tracking-wide shadow-2xl ${status === 'matchover' ? 'text-2xl text-indigo-300 bg-black/70' : 'text-lg text-white bg-black/55'}`}>{message}</div>
-=======
-              <div className={`px-5 py-2 rounded-xl font-extrabold tracking-wide shadow-2xl ${status === 'matchover' ? 'text-2xl text-amber-300 bg-black/70' : 'text-lg text-white bg-black/55'}`}>{message}</div>
->>>>>>> master
             </div>
           )}
           {status === 'loading' && (
@@ -71,11 +67,7 @@ export default function BattlePanel() {
           )}
           {status === 'matchover' && (
             <div className="absolute bottom-10 left-1/2 -translate-x-1/2 pointer-events-auto">
-<<<<<<< HEAD
               <button onClick={exit} className="px-5 py-2.5 rounded-lg text-sm font-bold bg-indigo-600 hover:bg-indigo-500 text-white shadow-xl">✓ Done</button>
-=======
-              <button onClick={exit} className="px-5 py-2.5 rounded-lg text-sm font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-xl">✓ Done</button>
->>>>>>> master
             </div>
           )}
         </div>
@@ -95,11 +87,7 @@ export default function BattlePanel() {
         {[['local', 'Same PC'], ['online', '🌐 Online']].map(([m, label]) => (
           <button key={m} onClick={() => useGameStore.getState().setMode(m)}
             className={`flex-1 py-1.5 rounded text-[11px] font-semibold border transition-colors ${
-<<<<<<< HEAD
               mode === m ? 'bg-red-700/60 border-red-500 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900'}`}>
-=======
-              mode === m ? 'bg-red-700/60 border-red-500 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white'}`}>
->>>>>>> master
             {label}
           </button>
         ))}
@@ -138,11 +126,7 @@ export default function BattlePanel() {
                 <div className="text-center bg-gray-800/70 border border-indigo-700/40 rounded-lg p-2">
                   <div className="text-[9px] text-gray-400 uppercase tracking-wider">Room code — share it</div>
                   <div className="text-2xl font-mono font-bold tracking-[0.3em] text-indigo-300 my-1">{roomCode}</div>
-<<<<<<< HEAD
                   <button onClick={() => navigator.clipboard?.writeText(roomCode)} className="text-[10px] text-gray-400 hover:text-slate-900 underline">copy</button>
-=======
-                  <button onClick={() => navigator.clipboard?.writeText(roomCode)} className="text-[10px] text-gray-400 hover:text-white underline">copy</button>
->>>>>>> master
                 </div>
               )}
               <div className={`text-[11px] ${connState === 'connected' ? 'text-green-400' : 'text-yellow-400'}`}>
@@ -192,11 +176,7 @@ function KeyBind({ label, value, onBind }) {
   }, [listening]) // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <button onClick={() => setListening(true)}
-<<<<<<< HEAD
       className={`flex items-center justify-between px-2 py-1 rounded border text-[10px] ${listening ? 'border-indigo-400 bg-indigo-900/30 text-indigo-200' : 'border-gray-600/50 bg-gray-800 text-gray-300 hover:border-gray-400'}`}>
-=======
-      className={`flex items-center justify-between px-2 py-1 rounded border text-[10px] ${listening ? 'border-amber-400 bg-amber-900/30 text-amber-200' : 'border-gray-600/50 bg-gray-800 text-gray-300 hover:border-gray-400'}`}>
->>>>>>> master
       <span className="text-gray-500">{label}</span>
       <span className="font-mono font-bold">{listening ? 'press…' : keyName(value)}</span>
     </button>
@@ -216,11 +196,7 @@ function LiveFront({ title, slot, accent }) {
         {FRONTS.map(([f, arrow]) => (
           <button key={f} onClick={() => battleManager.changeFront(slot, f)}
             title="Which face drives forward"
-<<<<<<< HEAD
             className={`w-6 h-6 rounded text-xs border ${front === f ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900'}`}>{arrow}</button>
-=======
-            className={`w-6 h-6 rounded text-xs border ${front === f ? 'bg-amber-600 border-amber-400 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white'}`}>{arrow}</button>
->>>>>>> master
         ))}
       </div>
     </div>
@@ -245,11 +221,7 @@ function ControlsEditor({ slot, title, accent }) {
           {FRONTS.map(([f, arrow]) => (
             <button key={f} onClick={() => setControl(slot, 'front', f)}
               title="If pressing Forward moves sideways, change this"
-<<<<<<< HEAD
               className={`w-6 h-6 rounded text-xs border ${c.front === f ? 'bg-indigo-600 border-indigo-400 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900'}`}>{arrow}</button>
-=======
-              className={`w-6 h-6 rounded text-xs border ${c.front === f ? 'bg-amber-600 border-amber-400 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white'}`}>{arrow}</button>
->>>>>>> master
           ))}
         </div>
       </div>

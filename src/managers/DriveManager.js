@@ -61,14 +61,9 @@ class DriveManager {
     this._robotMaxLocalX =  3         // max local-X of robot bounding box (set in enter)
 
     // Rapier freefall mode — non-wheeled, non-legged objects
-<<<<<<< HEAD
-    this._rapierBodies      = new Map()   // obj.id → { body, mesh, halfY }
-    this._savedPositions    = new Map()   // obj.id → { position, quaternion } at enter()
-=======
     this._rapierBodies      = new Map()   // rootId → { body, mesh, halfY, lCtr, compound }
     this._savedPositions    = new Map()   // obj.id → { position, quaternion } at enter()
     this._freefallSkip      = new Set()   // bonded child ids that follow a compound body
->>>>>>> master
     this._useRapierFreefall = false
 
     // Quaternion reuse objects (avoid allocation every frame)
@@ -134,8 +129,6 @@ class DriveManager {
     return { worldCtr, lCtr, wq, hx: Math.max(0.01, hx), hy: Math.max(0.01, hy), hz: Math.max(0.01, hz) }
   }
 
-<<<<<<< HEAD
-=======
   // Build compound-body parts for a bonded assembly: one box collider per member,
   // expressed in the ROOT's local frame. The body is created at the root's world
   // pose, so the root mesh follows the body directly and bonded children follow the
@@ -185,7 +178,6 @@ class DriveManager {
     mesh.quaternion.copy(q)
   }
 
->>>>>>> master
 
   enter(objects) {
     if (!this.scene || this.rootGroup || this._useRapierFreefall) return
@@ -352,11 +344,7 @@ class DriveManager {
     // ready yet (first ~1 s of app startup).
     // Robots with ≥1 motor always use the rootGroup path so the wheel and
     // chassis stay as one unified rigid body (no Rapier contact explosions).
-<<<<<<< HEAD
-    if (motors.length === 0 && !this._isLegged && physicsManager.ready) {
-=======
     if ((forcedPath === 'freefall' || (forcedPath == null && motors.length === 0 && !this._isLegged)) && physicsManager.ready) {
->>>>>>> master
       physicsManager.setGravity(gravity)   // ensure correct environment gravity
 
       // Snapshot design-time positions so exit() can restore them.
@@ -373,23 +361,6 @@ class DriveManager {
         }
       }
 
-<<<<<<< HEAD
-      for (const obj of topLevel) {
-        const mesh = this.objectMgr.getMesh(obj.id)
-        if (!mesh || mesh.parent !== this.scene) continue
-        const p = this._bodyParamsForMesh(mesh)
-        if (!p) continue
-        const { worldCtr, lCtr, wq, hx, hy, hz } = p
-        const halfY = hy
-        worldCtr.y += 0.05   // small lift to prevent ground contact at t=0
-        const body = physicsManager.createDynamicBody(
-          'free_' + obj.id,
-          { x: worldCtr.x, y: worldCtr.y, z: worldCtr.z },
-          { x: wq.x, y: wq.y, z: wq.z, w: wq.w },
-          { x: hx, y: halfY, z: hz }
-        )
-        if (body) this._rapierBodies.set(obj.id, { body, mesh, halfY, lCtr })
-=======
       // Enroll one body per ASSEMBLY: a welded group → a single compound body;
       // a loose object → its own simple body. Bonded child members get no body
       // (they follow the root via bonds).
@@ -427,7 +398,6 @@ class DriveManager {
           if (body) this._rapierBodies.set(rootId, { body, mesh: rootMesh, halfY: 0, lCtr: new THREE.Vector3(), compound: true })
           for (const id of memberIds) if (id !== rootId) this._freefallSkip.add(id)
         }
->>>>>>> master
       }
 
       // Static colliders for standalone obstacles
@@ -454,7 +424,6 @@ class DriveManager {
       physicsManager.setGravity(0)
       for (let i = 0; i < 15; i++) physicsManager.step(0.001)
       physicsManager.setGravity(gravity)
-<<<<<<< HEAD
       for (const [, { body, mesh: m, halfY: hy2, lCtr: lc }] of this._rapierBodies) {
         const pos = body.translation()
         const rot = body.rotation()
@@ -465,9 +434,7 @@ class DriveManager {
         m.position.set(pos.x - rc.x, safeY - rc.y, pos.z - rc.z)
         m.quaternion.copy(q)
       }
-=======
       for (const [, entry] of this._rapierBodies) this._syncFreefallBody(entry)
->>>>>>> master
 
       this._lastTime = null
       return   // skip rootGroup creation entirely
@@ -679,24 +646,6 @@ class DriveManager {
 
     // ── Rapier freefall cleanup ───────────────────────────────────────────────
     if (this._useRapierFreefall) {
-<<<<<<< HEAD
-      // Restore every object to its design-time position so the next simulation
-      // run always starts from the same authored state (not the settled state).
-      for (const [objId] of this._rapierBodies) {
-        physicsManager.removeBody('free_' + objId)
-        const saved = this._savedPositions.get(objId)
-        const mesh  = this.objectMgr.getMesh(objId)
-        if (saved && mesh) {
-          mesh.position.copy(saved.position)
-          mesh.quaternion.copy(saved.quaternion)
-          if (updateObject) {
-            const e = new THREE.Euler().setFromQuaternion(saved.quaternion)
-            updateObject(objId, {
-              position: { x: saved.position.x, y: saved.position.y, z: saved.position.z },
-              rotation: { x: e.x, y: e.y, z: e.z },
-            })
-          }
-=======
       for (const [objId] of this._rapierBodies) physicsManager.removeBody('free_' + objId)
       // Restore EVERY object (incl. bonded children that had no body of their own)
       // to its design-time pose so the next run starts from the authored state.
@@ -711,17 +660,13 @@ class DriveManager {
             position: { x: saved.position.x, y: saved.position.y, z: saved.position.z },
             rotation: { x: e.x, y: e.y, z: e.z },
           })
->>>>>>> master
         }
       }
       for (const id of this._obstacleIds) physicsManager.removeBody(id)
       this._obstacleIds = []
       this._rapierBodies.clear()
       this._savedPositions.clear()
-<<<<<<< HEAD
-=======
       this._freefallSkip = new Set()
->>>>>>> master
       this._useRapierFreefall = false
       this._lastTime = null
       return
@@ -794,44 +739,28 @@ class DriveManager {
       const gravity = usePhysicsStore.getState().gravity
       physicsManager.setGravity(gravity)
 
-<<<<<<< HEAD
-      // Dynamically enroll objects added to the scene since simulation started
-      for (const obj of useSceneStore.getState().objects) {
-        if (this._rapierBodies.has(obj.id) || obj.visible === false) continue
-=======
       // Dynamically enroll loose objects added to the scene since sim started.
       // Bonded child members (followed via bonds inside a compound body) are skipped.
       for (const obj of useSceneStore.getState().objects) {
         if (this._rapierBodies.has(obj.id) || this._freefallSkip?.has(obj.id) || obj.visible === false) continue
->>>>>>> master
         const mesh = this.objectMgr.getMesh(obj.id)
         if (!mesh) continue
         const p = this._bodyParamsForMesh(mesh)
         if (!p) continue
         const { worldCtr, lCtr, wq, hx, hy, hz } = p
-<<<<<<< HEAD
         const halfY = hy
-=======
->>>>>>> master
         worldCtr.y += 0.05
         const body = physicsManager.createDynamicBody(
           'free_' + obj.id,
           { x: worldCtr.x, y: worldCtr.y, z: worldCtr.z },
           { x: wq.x, y: wq.y, z: wq.z, w: wq.w },
-<<<<<<< HEAD
-          { x: hx, y: halfY, z: hz }
-        )
-        if (body) this._rapierBodies.set(obj.id, { body, mesh, halfY, lCtr })
-=======
           { x: hx, y: hy, z: hz }
         )
         if (body) this._rapierBodies.set(obj.id, { body, mesh, halfY: hy, lCtr, compound: false })
->>>>>>> master
       }
 
       physicsManager.step(dt)
 
-<<<<<<< HEAD
       for (const [, { body, mesh, halfY, lCtr }] of this._rapierBodies) {
         const pos = body.translation()
         const rot = body.rotation()
@@ -851,9 +780,7 @@ class DriveManager {
         mesh.position.set(pos.x - rc.x, pos.y - rc.y, pos.z - rc.z)
         mesh.quaternion.copy(q)
       }
-=======
       for (const [, entry] of this._rapierBodies) this._syncFreefallBody(entry)
->>>>>>> master
       return
     }
 
@@ -997,36 +924,7 @@ class DriveManager {
       const groundY = -this._robotMinY
       if (this.rootGroup.position.y < groundY) {
         this.rootGroup.position.y = groundY
-<<<<<<< HEAD
         if (this._vy < 0) this._vy = 0
-      }
-    } else {
-      // Non-wheeled: full pitch+roll-aware clamp.
-      // World Y of a local point (lx, ly, lz) with XYZ Euler (Rx then Rz):
-      //   worldY = rootGroup.y + lx·sinR + (ly·cosP − lz·sinP)·cosR
-      const sinP = Math.sin(this._pitch)
-      const cosP = Math.cos(this._pitch)
-      const sinR = Math.sin(this._roll)
-      const cosR = Math.cos(this._roll)
-      const lxC  = sinR >= 0 ? this._robotMinLocalX : this._robotMaxLocalX
-      const lzC  = sinP * cosR >= 0 ? this._robotMaxLocalZ : this._robotMinLocalZ
-      const lowestWorldY = this.rootGroup.position.y
-        + lxC * sinR
-        + (this._robotMinY * cosP - lzC * sinP) * cosR
-      if (lowestWorldY < 0) {
-        this.rootGroup.position.y -= lowestWorldY
-=======
->>>>>>> master
-        if (this._vy < 0) this._vy = 0
-
-        if ((sinR >= 0 && this._comLocalX < -0.3) ||
-            (sinR < 0  && this._comLocalX >  0.3)) {
-          this._rollVel  *= 0.05
-        }
-        if ((sinP * cosR >= 0 && this._comLocalZ >  0.3) ||
-            (sinP * cosR < 0  && this._comLocalZ < -0.3)) {
-          this._pitchVel *= 0.05
-        }
       }
     } else {
       // Non-wheeled / bonded rigid group: drop straight down until the ACTUAL

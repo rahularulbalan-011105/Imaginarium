@@ -1,15 +1,9 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
-<<<<<<< HEAD
-import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup } from '../utils/electronicsFactory.js'
-import { cloneModel } from '../utils/modelLoader.js'
-=======
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
 import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup } from '../utils/electronicsFactory.js'
 import { cloneModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
->>>>>>> master
 import { wireManager } from './WireManager.js'
 
 // Live geometry registry — holds imported model geometries by object ID.
@@ -46,9 +40,6 @@ function stampFilletKey(geo, obj, radius, segs) {
   geo.userData._filletSegs = segs
 }
 
-<<<<<<< HEAD
-const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
-=======
 // Render a shape as a translucent "hole" (Tinkercad-style) or as a normal solid.
 // Holes are see-through and don't write depth so overlapping solids stay visible.
 function applyHoleStyle(object3d, obj) {
@@ -64,7 +55,6 @@ function applyHoleStyle(object3d, obj) {
 }
 
 const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor'])
->>>>>>> master
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo'])
@@ -184,11 +174,8 @@ class ObjectManager {
       object3d.traverse(c => { if (c.isMesh && c.material) c.material.userData.matType = obj.material })
     }
 
-<<<<<<< HEAD
-=======
     if (!ELECTRONICS.has(obj.type)) applyHoleStyle(object3d, obj)
 
->>>>>>> master
     this._applyTransform(object3d, obj)
     object3d.visible = obj.visible !== false
     this.scene.add(object3d)
@@ -233,11 +220,8 @@ class ObjectManager {
           child.material = newMat
         }
       })
-<<<<<<< HEAD
-=======
       // Hole vs solid translucency (runs after any material swap above)
       applyHoleStyle(o, obj)
->>>>>>> master
     }
 
     // Geometry rebuilds (gear params / fillet / bend) — shapes only, not CSG.
@@ -432,8 +416,6 @@ class ObjectManager {
     return true
   }
 
-<<<<<<< HEAD
-=======
   // Write text onto an OLED component's on-screen canvas (rendered in the 3D view).
   setOledScreen(oledId, text) {
     this.objects.get(oledId)?.userData?.oledScreen?.update(text)
@@ -475,7 +457,6 @@ class ObjectManager {
     return (best === Infinity || best > maxUnits) ? null : best
   }
 
->>>>>>> master
   // Get the current world-space position of any mesh (attached or not).
   // Returns plain {x,y,z} or null. Used by snapshot helpers so exports
   // capture the post-attachment visual position, not the stale design position.
