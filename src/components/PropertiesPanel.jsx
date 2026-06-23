@@ -151,6 +151,9 @@ export default function PropertiesPanel() {
   const duplicateObject = useSceneStore((s) => s.duplicateObject)
   const insertObject    = useSceneStore((s) => s.insertObject)
   const markStandalone  = useSceneStore((s) => s.markStandalone)
+  const toggleHole      = useSceneStore((s) => s.toggleHole)
+  const groupSelected   = useSceneStore((s) => s.groupSelected)
+  const ungroupSelected = useSceneStore((s) => s.ungroupSelected)
   const { snapshot } = useHistory()
 
   const attachments     = useElectronicsStore((s) => s.attachments)
@@ -1178,8 +1181,48 @@ export default function PropertiesPanel() {
       {/* ── Inspect (measure / mass / size) ───────────────────────────────────── */}
       <InspectSection obj={obj} secondaryObj={objects.find(o => o.id === secondaryId) ?? null} />
 
+      {/* ── Text shape content ────────────────────────────────────────────────── */}
+      {obj.type === 'text' && <TextShapeEditor obj={obj} update={update} snapshot={snapshot} />}
+
+      {/* ── Align (two-object) ────────────────────────────────────────────────── */}
+      <AlignTools obj={obj} secondaryObj={secondaryObj} updateObject={updateObject} snapshot={snapshot} />
+
       {/* ── Pattern / Mirror ──────────────────────────────────────────────────── */}
       <PatternTools obj={obj} insertObject={insertObject} snapshot={snapshot} />
+
+      {/* ── Hole / Solid + Group / Ungroup ────────────────────────────────────── */}
+      {!isElectronics && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider">Type</div>
+          <button
+            onClick={() => { toggleHole(obj.id); snapshot() }}
+            title="Holes carve out solids when grouped (Tinkercad-style)"
+            className={`px-3 py-1 rounded text-xs transition-colors border ${
+              obj.isHole
+                ? 'bg-sky-800/40 text-sky-200 border-sky-700/50'
+                : 'bg-gray-700 text-gray-300 border-gray-600/50'
+            }`}
+          >
+            {obj.isHole ? '◌ Hole' : '◼ Solid'}
+          </button>
+        </div>
+      )}
+      {!isElectronics && secondaryObj && (
+        <button
+          onClick={() => { if (groupSelected()) snapshot() }}
+          className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-purple-700 hover:bg-purple-600 text-white transition-colors"
+        >
+          ⊕ Group selected (Ctrl+G)
+        </button>
+      )}
+      {Array.isArray(obj.groupMembers) && obj.groupMembers.length > 0 && (
+        <button
+          onClick={() => { if (ungroupSelected()) snapshot() }}
+          className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100 transition-colors"
+        >
+          ⊟ Ungroup ({obj.groupMembers.length}) (Ctrl+Shift+G)
+        </button>
+      )}
 
       {/* Visibility */}
       <div className="mb-3 flex items-center justify-between">
@@ -1212,6 +1255,102 @@ export default function PropertiesPanel() {
       </div>
       {!isElectronics && <SaveAssetButton obj={obj} />}
     </div>
+  )
+}
+
+// ── Text shape editor: live string + size + thickness ─────────────────────────
+function TextShapeEditor({ obj, update, snapshot }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Text</div>
+      <input
+        type="text"
+        value={obj.textContent ?? ''}
+        placeholder="Type text…"
+        onChange={(e) => update({ textContent: e.target.value })}
+        onBlur={snapshot}
+        className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 mb-2 focus:outline-none focus:border-amber-500"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-[9px] text-gray-500">
+          Size
+          <input
+            type="number" step={0.1} min={0.1}
+            value={r3(obj.textSize ?? 1)}
+            onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textSize: v }) }}
+            onBlur={snapshot}
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-amber-500"
+          />
+        </label>
+        <label className="text-[9px] text-gray-500">
+          Thickness
+          <input
+            type="number" step={0.1} min={0.05}
+            value={r3(obj.textHeight ?? 0.4)}
+            onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textHeight: v }) }}
+            onBlur={snapshot}
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-amber-500"
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+// ── Align: line up the primary + secondary selection along a world axis ────────
+function AlignTools({ obj, secondaryObj, updateObject, snapshot }) {
+  if (!secondaryObj) return null
+
+  const apply = (axis, mode) => {
+    const ma = objectManager.getMesh(obj.id)
+    const mb = objectManager.getMesh(secondaryObj.id)
+    if (!ma || !mb) return
+    ma.updateMatrixWorld(true); mb.updateMatrixWorld(true)
+    const ba = new THREE.Box3().setFromObject(ma)
+    const bb = new THREE.Box3().setFromObject(mb)
+    if (ba.isEmpty() || bb.isEmpty()) return
+
+    // World-space target coordinate for the chosen reference edge/center.
+    const lo = Math.min(ba.min[axis], bb.min[axis])
+    const hi = Math.max(ba.max[axis], bb.max[axis])
+    const target = mode === 'min' ? lo : mode === 'max' ? hi : (lo + hi) / 2
+
+    ;[[obj, ba], [secondaryObj, bb]].forEach(([ob, box]) => {
+      const cur = mode === 'min' ? box.min[axis] : mode === 'max' ? box.max[axis] : (box.min[axis] + box.max[axis]) / 2
+      const pos = { ...ob.position }
+      pos[axis] += target - cur
+      updateObject(ob.id, { position: pos })
+    })
+    snapshot()
+  }
+
+  const Btn = ({ axis, mode, label }) => (
+    <button
+      onClick={() => apply(axis, mode)}
+      className="flex-1 py-1 rounded text-[10px] bg-gray-700 hover:bg-amber-700 text-gray-200 hover:text-white transition-colors"
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <details className="mb-3 group">
+      <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+        <span className="text-gray-600 group-open:text-amber-400">▶</span>
+        Align (2 objects)
+      </summary>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {['x', 'y', 'z'].map((axis) => (
+          <div key={axis} className="flex items-center gap-1">
+            <span className="w-3 text-[10px] font-bold text-gray-500 uppercase">{axis}</span>
+            <Btn axis={axis} mode="min" label="Min" />
+            <Btn axis={axis} mode="center" label="Center" />
+            <Btn axis={axis} mode="max" label="Max" />
+          </div>
+        ))}
+        <div className="text-[9px] text-gray-600">Lines up the two selected objects along each axis.</div>
+      </div>
+    </details>
   )
 }
 

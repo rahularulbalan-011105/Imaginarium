@@ -7,6 +7,10 @@ export const useUiStore = create((set) => ({
   transformMode: 'translate',
   showProjectDialog: false,
 
+  // Snap-to-grid: 0 = free (off). Value is grid step in scene units; rotation in degrees.
+  snapTranslate: 0,
+  snapRotateDeg: 0,
+
   surfaceToolActive: false,
   simActive: false,
 
@@ -24,4 +28,6 @@ export const useUiStore = create((set) => ({
   setSimActive: (v) => set({ simActive: v }),
   setExtrudeTool: (v) => set({ extrudeToolActive: v, ...(v ? {} : { extrudeState: null }) }),
   setExtrudeState: (s) => set({ extrudeState: s }),
+  setSnapTranslate: (v) => set({ snapTranslate: v }),
+  setSnapRotateDeg: (v) => set({ snapRotateDeg: v }),
 }))

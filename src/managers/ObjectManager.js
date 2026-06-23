@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
-import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry } from '../utils/geometryFactory.js'
+import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
 import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup } from '../utils/electronicsFactory.js'
 import { cloneModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
@@ -38,6 +38,20 @@ function stampFilletKey(geo, obj, radius, segs) {
   geo.userData._filletKey  = filletKey(obj, radius, segs)
   geo.userData._fillet     = radius
   geo.userData._filletSegs = segs
+}
+
+// Render a shape as a translucent "hole" (Tinkercad-style) or as a normal solid.
+// Holes are see-through and don't write depth so overlapping solids stay visible.
+function applyHoleStyle(object3d, obj) {
+  const wantHole   = !!obj.isHole
+  const wantTransp = obj.material === 'transparent'
+  object3d.traverse(child => {
+    if (!child.isMesh || !child.material) return
+    child.material.transparent = wantHole || wantTransp
+    child.material.opacity     = wantHole ? 0.28 : (wantTransp ? 0.45 : 1)
+    child.material.depthWrite   = !wantHole
+    child.material.needsUpdate = true
+  })
 }
 
 const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor'])
@@ -102,6 +116,10 @@ class ObjectManager {
       object3d = createBoltGroup(obj.color)
     } else if (obj.type === 'screw') {
       object3d = createScrewGroup(obj.color)
+    } else if (obj.type === 'text') {
+      const geo = createTextGeometry(obj.textContent ?? 'Text', obj.textSize ?? 1, obj.textHeight ?? 0.4)
+      const mat = createMaterial(obj.color, obj.material)
+      object3d = new THREE.Mesh(geo, mat)
     } else if (obj.type === 'csg' && obj.geometryJSON) {
       const geo = new BufferGeometryLoader().parse(obj.geometryJSON)
       const mat = createMaterial(obj.color, obj.material)
@@ -156,6 +174,8 @@ class ObjectManager {
       object3d.traverse(c => { if (c.isMesh && c.material) c.material.userData.matType = obj.material })
     }
 
+    if (!ELECTRONICS.has(obj.type)) applyHoleStyle(object3d, obj)
+
     this._applyTransform(object3d, obj)
     object3d.visible = obj.visible !== false
     this.scene.add(object3d)
@@ -200,6 +220,8 @@ class ObjectManager {
           child.material = newMat
         }
       })
+      // Hole vs solid translucency (runs after any material swap above)
+      applyHoleStyle(o, obj)
     }
 
     // Geometry rebuilds (gear params / fillet / bend) — shapes only, not CSG.
@@ -231,6 +253,17 @@ class ObjectManager {
       }
       if (o.geometry && obj.deform?.bend !== undefined) {
         applyBendDeform(o.geometry, obj.deform.bend ?? 0, obj.deform.bendAxis ?? 'y')
+      }
+      // Text: rebuild geometry when the string / size / depth changes
+      if (obj.type === 'text' && o.geometry) {
+        const str = String(obj.textContent ?? 'Text') || 'Text'
+        const sz  = Math.max(0.05, obj.textSize ?? 1)
+        const th  = Math.max(0.01, obj.textHeight ?? 0.4)
+        const ud  = o.geometry.userData
+        if (ud._txt !== str || ud._tsz !== sz || ud._th !== th) {
+          o.geometry.dispose()
+          o.geometry = createTextGeometry(str, sz, th)
+        }
       }
     }
   }

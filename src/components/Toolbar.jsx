@@ -1,8 +1,10 @@
+import { useRef } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { patchManager } from '../managers/PatchManager.js'
+import { svgTextToGeometry } from '../utils/svgImport.js'
 
 const SHAPES = [
   { type: 'cylinder',    label: 'Cylinder',   icon: '⬤', key: '1' },
@@ -15,6 +17,7 @@ const SHAPES = [
   { type: 'octahedron',  label: 'Octahedron',  icon: '◈',  key: '8' },
   { type: 'dodecahedron',label: 'Dodecahedron',icon: '⬡',  key: '9' },
   { type: 'rectprism',   label: 'Rect Prism',  icon: '▭',  key: '0' },
+  { type: 'text',        label: 'Text',        icon: '🅣' },
 ]
 
 const TRANSFORM_MODES = [
@@ -37,6 +40,14 @@ export default function Toolbar() {
   const setExtrudeTool    = useUiStore((s) => s.setExtrudeTool)
   const simActive         = useUiStore((s) => s.simActive)
   const setSimActive      = useUiStore((s) => s.setSimActive)
+  const snapTranslate     = useUiStore((s) => s.snapTranslate)
+  const setSnapTranslate  = useUiStore((s) => s.setSnapTranslate)
+  const snapRotateDeg     = useUiStore((s) => s.snapRotateDeg)
+  const setSnapRotateDeg  = useUiStore((s) => s.setSnapRotateDeg)
+
+  const TRANSLATE_STEPS = [0, 0.5, 1, 2]
+  const ROTATE_STEPS    = [0, 15, 45, 90]
+  const cycle = (arr, cur) => arr[(arr.indexOf(cur) + 1) % arr.length] ?? arr[0]
 
   const handleSurfaceTool = () => {
     if (!surfaceToolActive) { setExtrudeTool(false); patchManager.clearExtrudeHover() }
@@ -50,9 +61,29 @@ export default function Toolbar() {
   const patchCount        = Object.keys(useSurfaceStore((s) => s.patches)).length
   const { snapshot } = useHistory()
 
+  const addCSGObject = useSceneStore((s) => s.addCSGObject)
+  const svgInputRef  = useRef(null)
+
   const handleAddShape = (type) => {
     addObject(type)
     snapshot()
+  }
+
+  const handleSvgFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const geo  = svgTextToGeometry(text)
+      if (!geo) { window.alert('No filled shapes found in that SVG.'); return }
+      const name = file.name.replace(/\.svg$/i, '') || 'SVG'
+      addCSGObject(name, geo.toJSON(), '#22c55e', { x: 0, y: 1, z: 0 })
+      snapshot()
+    } catch (err) {
+      console.error('[SVG import] failed:', err)
+      window.alert('SVG import failed: ' + (err?.message ?? err))
+    }
+    e.target.value = ''
   }
 
   return (
@@ -64,13 +95,23 @@ export default function Toolbar() {
           <button
             key={type}
             onClick={() => handleAddShape(type)}
-            title={`${label} [${key}]`}
+            title={key ? `${label} [${key}]` : label}
             className="w-full flex flex-col items-center justify-center py-1.5 rounded text-lg text-gray-300 hover:bg-amber-600/20 hover:text-amber-100 transition-colors"
           >
             <span>{icon}</span>
             <span className="text-[8px] text-gray-500 leading-none mt-0.5">{label}</span>
           </button>
         ))}
+        {/* SVG import */}
+        <button
+          onClick={() => svgInputRef.current?.click()}
+          title="Import an SVG drawing as an extruded 3D solid"
+          className="w-full flex flex-col items-center justify-center py-1.5 rounded text-lg text-gray-300 hover:bg-amber-600/20 hover:text-amber-100 transition-colors"
+        >
+          <span>✎</span>
+          <span className="text-[8px] text-gray-500 leading-none mt-0.5">SVG</span>
+        </button>
+        <input ref={svgInputRef} type="file" accept=".svg,image/svg+xml" onChange={handleSvgFile} className="hidden" />
       </div>
 
       <div className="w-8 border-t border-gray-700/50" />
@@ -206,6 +247,33 @@ export default function Toolbar() {
           <span className="text-[8px] leading-none mt-0.5 font-medium">
             {simActive ? 'Stop' : 'Simulate'}
           </span>
+        </button>
+      </div>
+
+      <div className="w-8 border-t border-gray-700/50 mt-1" />
+
+      {/* Snap-to-grid */}
+      <div className="w-full px-1 mt-1">
+        <div className="text-[9px] text-blue-500 text-center uppercase tracking-wider mb-1">Snap</div>
+        <button
+          onClick={() => setSnapTranslate(cycle(TRANSLATE_STEPS, snapTranslate))}
+          title="Move snap step (click to cycle: Off / 0.5 / 1 / 2 units)"
+          className={`w-full flex flex-col items-center justify-center py-1.5 rounded text-sm transition-colors ${
+            snapTranslate > 0 ? 'text-blue-300 bg-blue-900/30' : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <span className="text-base">⊹</span>
+          <span className="text-[8px] leading-none mt-0.5">{snapTranslate > 0 ? `${snapTranslate}u` : 'Move'}</span>
+        </button>
+        <button
+          onClick={() => setSnapRotateDeg(cycle(ROTATE_STEPS, snapRotateDeg))}
+          title="Rotation snap (click to cycle: Off / 15° / 45° / 90°)"
+          className={`w-full flex flex-col items-center justify-center py-1.5 rounded text-sm transition-colors ${
+            snapRotateDeg > 0 ? 'text-blue-300 bg-blue-900/30' : 'text-gray-500 hover:text-gray-300'
+          }`}
+        >
+          <span className="text-base">↻</span>
+          <span className="text-[8px] leading-none mt-0.5">{snapRotateDeg > 0 ? `${snapRotateDeg}°` : 'Rot'}</span>
         </button>
       </div>
 
