@@ -1,8 +1,15 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
+<<<<<<< HEAD
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry } from '../utils/geometryFactory.js'
 import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup } from '../utils/electronicsFactory.js'
 import { cloneModel } from '../utils/modelLoader.js'
+=======
+import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
+import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup } from '../utils/electronicsFactory.js'
+import { cloneModel } from '../utils/modelLoader.js'
+import { assemblyMembers } from '../utils/robotAssembly.js'
+>>>>>>> master
 import { wireManager } from './WireManager.js'
 
 // Live geometry registry — holds imported model geometries by object ID.
@@ -39,7 +46,25 @@ function stampFilletKey(geo, obj, radius, segs) {
   geo.userData._filletSegs = segs
 }
 
+<<<<<<< HEAD
 const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
+=======
+// Render a shape as a translucent "hole" (Tinkercad-style) or as a normal solid.
+// Holes are see-through and don't write depth so overlapping solids stay visible.
+function applyHoleStyle(object3d, obj) {
+  const wantHole   = !!obj.isHole
+  const wantTransp = obj.material === 'transparent'
+  object3d.traverse(child => {
+    if (!child.isMesh || !child.material) return
+    child.material.transparent = wantHole || wantTransp
+    child.material.opacity     = wantHole ? 0.28 : (wantTransp ? 0.45 : 1)
+    child.material.depthWrite   = !wantHole
+    child.material.needsUpdate = true
+  })
+}
+
+const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor'])
+>>>>>>> master
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo'])
@@ -81,6 +106,16 @@ class ObjectManager {
       object3d = createLEDGroup(obj.color)
     } else if (obj.type === 'servo') {
       object3d = createServoGroup()
+    } else if (obj.type === 'ir_sensor') {
+      object3d = createIRSensorGroup()
+    } else if (obj.type === 'ultrasonic') {
+      object3d = createUltrasonicGroup()
+    } else if (obj.type === 'buzzer') {
+      object3d = createBuzzerGroup()
+    } else if (obj.type === 'gas_sensor') {
+      object3d = createGasSensorGroup()
+    } else if (obj.type === 'oled') {
+      object3d = createOLEDGroup()
     } else if (obj.type === 'gear') {
       const geo = createSpurGearGeometry({
         teeth: obj.teeth ?? 12, module: obj.module ?? 0.25, faceWidth: obj.faceWidth ?? 0.5,
@@ -91,6 +126,10 @@ class ObjectManager {
       object3d = createBoltGroup(obj.color)
     } else if (obj.type === 'screw') {
       object3d = createScrewGroup(obj.color)
+    } else if (obj.type === 'text') {
+      const geo = createTextGeometry(obj.textContent ?? 'Text', obj.textSize ?? 1, obj.textHeight ?? 0.4)
+      const mat = createMaterial(obj.color, obj.material)
+      object3d = new THREE.Mesh(geo, mat)
     } else if (obj.type === 'csg' && obj.geometryJSON) {
       const geo = new BufferGeometryLoader().parse(obj.geometryJSON)
       const mat = createMaterial(obj.color, obj.material)
@@ -145,6 +184,11 @@ class ObjectManager {
       object3d.traverse(c => { if (c.isMesh && c.material) c.material.userData.matType = obj.material })
     }
 
+<<<<<<< HEAD
+=======
+    if (!ELECTRONICS.has(obj.type)) applyHoleStyle(object3d, obj)
+
+>>>>>>> master
     this._applyTransform(object3d, obj)
     object3d.visible = obj.visible !== false
     this.scene.add(object3d)
@@ -189,6 +233,11 @@ class ObjectManager {
           child.material = newMat
         }
       })
+<<<<<<< HEAD
+=======
+      // Hole vs solid translucency (runs after any material swap above)
+      applyHoleStyle(o, obj)
+>>>>>>> master
     }
 
     // Geometry rebuilds (gear params / fillet / bend) — shapes only, not CSG.
@@ -220,6 +269,17 @@ class ObjectManager {
       }
       if (o.geometry && obj.deform?.bend !== undefined) {
         applyBendDeform(o.geometry, obj.deform.bend ?? 0, obj.deform.bendAxis ?? 'y')
+      }
+      // Text: rebuild geometry when the string / size / depth changes
+      if (obj.type === 'text' && o.geometry) {
+        const str = String(obj.textContent ?? 'Text') || 'Text'
+        const sz  = Math.max(0.05, obj.textSize ?? 1)
+        const th  = Math.max(0.01, obj.textHeight ?? 0.4)
+        const ud  = o.geometry.userData
+        if (ud._txt !== str || ud._tsz !== sz || ud._th !== th) {
+          o.geometry.dispose()
+          o.geometry = createTextGeometry(str, sz, th)
+        }
       }
     }
   }
@@ -372,6 +432,50 @@ class ObjectManager {
     return true
   }
 
+<<<<<<< HEAD
+=======
+  // Write text onto an OLED component's on-screen canvas (rendered in the 3D view).
+  setOledScreen(oledId, text) {
+    this.objects.get(oledId)?.userData?.oledScreen?.update(text)
+  }
+
+  // Distance (scene units) to the nearest obstacle in FRONT of a sensor — within a
+  // cone around the sensor's local +Z (its "face"), so things to the side or behind
+  // are ignored, like a real IR / ultrasonic beam. Aim the sensor with the blue (Z)
+  // gizmo arrow. Only physical SHAPES count (electronics / arena / the sensor's own
+  // bonded assembly are excluded). Returns null if nothing is in the beam.
+  senseDistance(sensorId, maxUnits = 200) {
+    const mesh = this.objects.get(sensorId)
+    if (!mesh || !this.scene) return null
+    mesh.updateMatrixWorld(true)
+    const origin = mesh.getWorldPosition(new THREE.Vector3())
+    const quat   = mesh.getWorldQuaternion(new THREE.Quaternion())
+    const fwd    = new THREE.Vector3(0, 0, 1).applyQuaternion(quat).normalize()
+    const CONE_COS = Math.cos(THREE.MathUtils.degToRad(35))   // 35° half-angle beam
+
+    const exclude = new Set(assemblyMembers(sensorId))   // self + bonded/attached parts
+    const box = new THREE.Box3()
+    const center = new THREE.Vector3()
+    const dir = new THREE.Vector3()
+    let best = Infinity
+    for (const [id, m] of this.objects) {
+      if (exclude.has(id) || m.userData?.isArena || m.userData?.isBattleProxy) continue
+      if (ELECTRONICS.has(m.userData?.type)) continue
+      box.setFromObject(m)
+      if (box.isEmpty()) continue
+      const d = box.distanceToPoint(origin)   // 0 if origin is inside the box
+      if (d >= best) continue
+      if (d > 0.001) {
+        // Reject objects outside the forward cone (direction to the object's centre).
+        dir.copy(box.getCenter(center)).sub(origin).normalize()
+        if (dir.dot(fwd) < CONE_COS) continue
+      }
+      best = d
+    }
+    return (best === Infinity || best > maxUnits) ? null : best
+  }
+
+>>>>>>> master
   // Get the current world-space position of any mesh (attached or not).
   // Returns plain {x,y,z} or null. Used by snapshot helpers so exports
   // capture the post-attachment visual position, not the stale design position.

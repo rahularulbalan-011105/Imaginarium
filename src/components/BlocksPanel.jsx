@@ -161,7 +161,11 @@ export default function BlocksPanel() {
             <button
               onClick={() => setMaximized(m => !m)}
               title={maximized ? 'Restore to panel' : 'Maximize editor'}
+<<<<<<< HEAD
               className="ml-1 text-[11px] text-gray-400 hover:text-slate-900 px-1.5 py-0.5 rounded border border-gray-700/50 hover:border-gray-500 transition-colors leading-none"
+=======
+              className="ml-1 text-[11px] text-gray-400 hover:text-white px-1.5 py-0.5 rounded border border-gray-700/50 hover:border-gray-500 transition-colors leading-none"
+>>>>>>> master
             >
               {maximized ? '🗗 Restore' : '🗖 Maximize'}
             </button>
@@ -192,7 +196,11 @@ export default function BlocksPanel() {
           </div>
           <button
             onClick={() => setStarted(true)}
+<<<<<<< HEAD
             className="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
+=======
+            className="px-4 py-2 rounded bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold transition-colors"
+>>>>>>> master
           >
             Load Block Editor
           </button>

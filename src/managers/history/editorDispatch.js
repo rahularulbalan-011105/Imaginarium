@@ -5,6 +5,10 @@ import { useElectronicsStore } from '../../stores/electronicsStore.js'
 import { useRigidStore } from '../../stores/rigidStore.js'
 import { useSurfaceStore } from '../../stores/surfaceStore.js'
 import { useJointStore } from '../../stores/jointStore.js'
+<<<<<<< HEAD
+=======
+import { useRobotStore } from '../../stores/robotStore.js'
+>>>>>>> master
 
 // The single sanctioned entry point for recording undoable changes. Every
 // operation funnels through here — either as a fine-grained Command (execute) or,
@@ -23,6 +27,10 @@ export function captureCanonical() {
     bonds:       useRigidStore.getState().bonds,
     patches:     useSurfaceStore.getState().patches,
     joints:      useJointStore.getState().joints,
+<<<<<<< HEAD
+=======
+    blueprints:  useRobotStore.getState().blueprints,
+>>>>>>> master
   })
 }
 
@@ -33,6 +41,10 @@ export function restoreCanonical(state) {
   useRigidStore.getState().setBonds(state.bonds ?? {})
   useSurfaceStore.getState().setPatches(state.patches ?? {})
   useJointStore.getState().setJoints(state.joints ?? {})
+<<<<<<< HEAD
+=======
+  useRobotStore.getState().setBlueprints(state.blueprints ?? {})
+>>>>>>> master
 }
 
 // `_baseline` is the committed canonical state that the NEXT snapshot() will diff

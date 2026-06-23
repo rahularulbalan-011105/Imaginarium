@@ -1,6 +1,10 @@
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useJointStore } from '../stores/jointStore.js'
+<<<<<<< HEAD
+=======
+import { useRobotStore } from '../stores/robotStore.js'
+>>>>>>> master
 import { objectManager } from '../managers/ObjectManager.js'
 
 export const r3 = (v) => Math.round(v * 1000) / 1000
@@ -24,6 +28,10 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
   const surfaceState = useSurfaceStore.getState()
   const rigidState   = useRigidStore.getState()
   const jointState   = useJointStore.getState()
+<<<<<<< HEAD
+=======
+  const robotState   = useRobotStore.getState()
+>>>>>>> master
   const attachments  = electronicsState?.attachments ?? {}
 
   // For attached objects (wheels on a motor shaft) we store TWO things:
@@ -43,7 +51,7 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
   return {
     projectId: sceneState.projectId,
     name: sceneState.projectName,
-    version: '1.0',
+    version: '1.1',   // 1.1 adds robots.blueprints; 1.0 files load fine (no robots key)
     created: new Date().toISOString(),
     modified: new Date().toISOString(),
     objects,
@@ -59,5 +67,9 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
     surface: { patches: surfaceState.patches },
     rigid:   { bonds:   rigidState.bonds   },
     joints:  { joints:  jointState.joints  },
+<<<<<<< HEAD
+=======
+    robots:  { blueprints: robotState.blueprints },
+>>>>>>> master
   }
 }

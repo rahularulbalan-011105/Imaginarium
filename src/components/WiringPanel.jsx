@@ -6,7 +6,11 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 
+<<<<<<< HEAD
 const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
+=======
+const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor'])
+>>>>>>> master
 
 const PIN_DEFS = {
   arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2'],
@@ -16,11 +20,24 @@ const PIN_DEFS = {
   motor_dc: ['TERM_A','TERM_B'],
   led:      ['ANODE','CATHODE'],
   servo:    ['SIGNAL','VCC','GND'],
+<<<<<<< HEAD
 }
 
 const WIRE_COLORS = ['#6366f1','#3b82f6','#22c55e','#ef4444','#8b5cf6','#ec4899','#06b6d4','#4F46E5']
 
 const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩' }
+=======
+  ir_sensor:  ['OUT','GND','VCC'],
+  ultrasonic: ['VCC','TRIG','ECHO','GND'],
+  buzzer:     ['SIGNAL','GND'],
+  oled:       ['GND','VCC','SCL','SDA'],
+  gas_sensor: ['VCC','GND','DO','AO'],
+}
+
+const WIRE_COLORS = ['#f59e0b','#3b82f6','#22c55e','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316']
+
+const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩', ir_sensor: '👁', ultrasonic: '📡', buzzer: '🔔', oled: '📺', gas_sensor: '💨' }
+>>>>>>> master
 function compIcon(type) { return COMP_ICONS[type] ?? '📦' }
 
 function routeWire(fromMesh, toMesh) {
@@ -32,7 +49,11 @@ function routeWire(fromMesh, toMesh) {
   return [from, mid1, mid2, to]
 }
 
+<<<<<<< HEAD
 function buildWireLine(points, color = '#6366f1') {
+=======
+function buildWireLine(points, color = '#f59e0b') {
+>>>>>>> master
   const geo = new THREE.BufferGeometry().setFromPoints(points)
   const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 })
   return new THREE.Line(geo, mat)
@@ -46,7 +67,11 @@ function PinButton({ pinId, pin, step, srcPin, dstPin, connectedPins, connForPin
   const isWaiting   = step === 'dest' && pinId !== srcPin && !isConnected
 
   let bg, textColor, border, cursor
+<<<<<<< HEAD
   if (isSelected)  { bg = 'bg-indigo-600/50'; textColor = 'text-indigo-200'; border = 'border-indigo-500/70'; cursor = 'cursor-pointer' }
+=======
+  if (isSelected)  { bg = 'bg-amber-600/50'; textColor = 'text-amber-200'; border = 'border-amber-500/70'; cursor = 'cursor-pointer' }
+>>>>>>> master
   else if (isConnected) { bg = 'bg-green-900/40'; textColor = 'text-green-300'; border = 'border-green-600/50'; cursor = 'cursor-pointer' }
   else if (isWaiting)   { bg = 'bg-blue-900/30'; textColor = 'text-blue-300'; border = 'border-blue-700/40'; cursor = 'cursor-pointer' }
   else { bg = 'bg-gray-700/40'; textColor = 'text-gray-400'; border = 'border-gray-600/30'; cursor = 'cursor-pointer' }
@@ -184,7 +209,11 @@ export default function WiringPanel() {
         </div>
         <button
           onClick={() => disconnect(disconnectConnId)}
+<<<<<<< HEAD
           className="w-full py-2 rounded text-xs font-bold bg-red-900/40 hover:bg-red-700/50 border border-red-700/40 text-red-300 hover:text-slate-900 transition-colors"
+=======
+          className="w-full py-2 rounded text-xs font-bold bg-red-900/40 hover:bg-red-700/50 border border-red-700/40 text-red-300 hover:text-white transition-colors"
+>>>>>>> master
         >
           ✂ Disconnect
         </button>
@@ -228,13 +257,21 @@ export default function WiringPanel() {
           <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: wireColor }} />
+<<<<<<< HEAD
             <span className="text-indigo-300 font-medium">{friendlyPin(dstPin)}</span>
+=======
+            <span className="text-amber-300 font-medium">{friendlyPin(dstPin)}</span>
+>>>>>>> master
           </div>
         </div>
 
         <button
           onClick={connect}
+<<<<<<< HEAD
           className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-300 hover:text-slate-900 transition-colors"
+=======
+          className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-300 hover:text-white transition-colors"
+>>>>>>> master
         >
           ⚡ Connect
         </button>
@@ -255,7 +292,11 @@ export default function WiringPanel() {
       <div className="px-3 py-2 border-b border-gray-700/50 shrink-0">
         {mode === 'idle' ? (
           <>
+<<<<<<< HEAD
             <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold">
+=======
+            <div className="text-[10px] text-amber-400 uppercase tracking-wider font-semibold">
+>>>>>>> master
               ① Pick a pin to start a wire
             </div>
             <div className="text-[9px] text-gray-500 mt-0.5">Pins fan out freely — wire GND/5V to as many parts as you like. Remove wires from the list below.</div>
@@ -266,7 +307,11 @@ export default function WiringPanel() {
               ② Pick destination pin
             </div>
             <div className="flex items-center gap-1 mt-0.5">
+<<<<<<< HEAD
               <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
+=======
+              <div className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+>>>>>>> master
               <span className="text-[10px] text-white">{friendlyPin(srcPin)}</span>
             </div>
             <button onClick={reset} className="text-[9px] text-gray-500 hover:text-gray-300 mt-1 transition-colors">

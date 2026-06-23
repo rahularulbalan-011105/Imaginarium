@@ -90,6 +90,39 @@ class PhysicsManager {
     return body
   }
 
+<<<<<<< HEAD
+=======
+  /**
+   * Create ONE dynamic body with MULTIPLE box colliders — a compound rigid body,
+   * for a welded/bonded assembly that should fall and tumble as a single object.
+   * `parts`: [{ halfExtents:{x,y,z}, offset:{x,y,z}, rotation:{x,y,z,w} }] in body-local.
+   * Rapier derives mass + centre-of-mass from the colliders automatically.
+   */
+  createCompoundBody(id, position, rotation, parts) {
+    if (!this.ready) return null
+    this.removeBody(id)
+    const R    = this._R
+    const desc = R.RigidBodyDesc.dynamic()
+      .setTranslation(position.x, position.y, position.z)
+      .setRotation(rotation)
+      .setLinearDamping(0.12)
+      .setAngularDamping(0.5)   // low enough to tumble to a stable resting face
+      .setCanSleep(false)
+    const body = this.world.createRigidBody(desc)
+    for (const p of parts) {
+      const col = R.ColliderDesc
+        .cuboid(Math.max(0.02, p.halfExtents.x), Math.max(0.02, p.halfExtents.y), Math.max(0.02, p.halfExtents.z))
+        .setTranslation(p.offset.x, p.offset.y, p.offset.z)
+        .setFriction(0.8)
+        .setRestitution(0.04)
+      if (p.rotation) col.setRotation(p.rotation)
+      this.world.createCollider(col, body)
+    }
+    this._bodies.set(id, body)
+    return body
+  }
+
+>>>>>>> master
   createRobotBody(id, position, halfExtents = { x: 0.5, y: 0.25, z: 0.75 }) {
     if (!this.ready) return null
     this.removeBody(id)

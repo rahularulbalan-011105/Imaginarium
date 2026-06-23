@@ -103,7 +103,11 @@ export default function DimensionEditorPanel({ obj }) {
           onClick={() => setMode('center')}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             mode === 'center'
+<<<<<<< HEAD
               ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+=======
+              ? 'bg-amber-700/40 text-amber-300 border border-amber-600/50'
+>>>>>>> master
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
           title="Scale symmetrically from center"
@@ -114,7 +118,11 @@ export default function DimensionEditorPanel({ obj }) {
           onClick={() => setMode('one-sided')}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             mode === 'one-sided'
+<<<<<<< HEAD
               ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+=======
+              ? 'bg-amber-700/40 text-amber-300 border border-amber-600/50'
+>>>>>>> master
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
           title="Move only one face — the opposite face stays fixed"
@@ -165,7 +173,11 @@ export default function DimensionEditorPanel({ obj }) {
                 e.target.select()
               }}
               className={`flex-1 bg-gray-700 text-white text-[11px] px-2 py-1 rounded border focus:outline-none ${
+<<<<<<< HEAD
                 isEditing ? 'border-indigo-500' : 'border-gray-600'
+=======
+                isEditing ? 'border-amber-500' : 'border-gray-600'
+>>>>>>> master
               }`}
             />
             <div className="text-[9px] text-gray-500 w-5">u</div>

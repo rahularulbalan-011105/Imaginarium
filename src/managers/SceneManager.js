@@ -144,6 +144,15 @@ class SceneManager {
     if (this.transformControls) this.transformControls.setMode(mode)
   }
 
+  // Snap-to-grid for the gizmo. step in scene units (0/null = free movement);
+  // rotDeg in degrees (0/null = free rotation).
+  setSnap(step, rotDeg) {
+    if (!this.transformControls) return
+    this.transformControls.setTranslationSnap(step && step > 0 ? step : null)
+    this.transformControls.setScaleSnap?.(step && step > 0 ? step : null)
+    this.transformControls.setRotationSnap(rotDeg && rotDeg > 0 ? (rotDeg * Math.PI) / 180 : null)
+  }
+
   setGridVisible(v) { if (this.grid) this.grid.visible = v }
   setAxesVisible(v) { if (this.axes) this.axes.visible = v }
 

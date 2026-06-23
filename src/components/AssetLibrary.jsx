@@ -46,6 +46,7 @@ const SHAPE_GROUPS = [
   },
 ]
 
+<<<<<<< HEAD
 // Electronics grouped by role. Only components the app actually supports are
 // enabled; the remaining categories are shown as informative "coming soon"
 // placeholders so beginners learn the taxonomy without adding broken parts.
@@ -75,6 +76,20 @@ const ELECTRONICS_SOON = [
   { key: 'sensors', label: 'Sensors',       icon: '📡', note: 'Ultrasonic · IR · temperature · IMU · GPS — coming soon.' },
   { key: 'power',   label: 'Power',         icon: '🔋', note: 'Batteries · supplies · regulators — coming soon.' },
   { key: 'comms',   label: 'Communication', icon: '📶', note: 'WiFi · Bluetooth · RF — coming soon.' },
+=======
+const ELECTRONICS = [
+  { type: 'arduino',  label: 'Arduino',  icon: '🟢' },
+  { type: 'subo',     label: 'SUBO',     icon: '🟣' },
+  { type: 'motor_bo', label: 'Motor BO', icon: '⚙'  },
+  { type: 'motor_dc', label: 'Motor DC', icon: '🔧' },
+  { type: 'led',      label: 'LED',      icon: '💡' },
+  { type: 'servo',    label: 'Servo',    icon: '🔩' },
+  { type: 'ir_sensor',  label: 'IR Sensor',  icon: '👁' },
+  { type: 'ultrasonic', label: 'Ultrasonic', icon: '📡' },
+  { type: 'gas_sensor', label: 'Gas Sensor', icon: '💨' },
+  { type: 'buzzer',     label: 'Buzzer',     icon: '🔔' },
+  { type: 'oled',       label: 'OLED',       icon: '📺' },
+>>>>>>> master
 ]
 
 // Built-in GLB models (preloaded in modelLoader.js). Inserted as `model` objects
@@ -95,10 +110,13 @@ export default function AssetLibrary() {
   const { snapshot } = useHistory()
   const { assets, deleteAsset } = useAssetStore()
 
+<<<<<<< HEAD
   // Which electronics categories are expanded (MCUs + Actuators open by default).
   const [openCats, setOpenCats] = useState({ mcu: true, actuators: true })
   const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
 
+=======
+>>>>>>> master
   const fileRef = useRef(null)
   const [importing, setImporting] = useState(false)
   const [dropOver, setDropOver]   = useState(false)
@@ -205,8 +223,13 @@ export default function AssetLibrary() {
         <div
           className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors select-none ${
             dropOver
+<<<<<<< HEAD
               ? 'border-indigo-400 bg-indigo-900/20 text-indigo-300'
               : 'border-gray-600 hover:border-indigo-600/50 text-gray-400'
+=======
+              ? 'border-amber-400 bg-amber-900/20 text-amber-300'
+              : 'border-gray-600 hover:border-amber-600/50 text-gray-400'
+>>>>>>> master
           }`}
           onClick={() => fileRef.current?.click()}
           onDragOver={(e) => { e.preventDefault(); setDropOver(true) }}
@@ -244,7 +267,11 @@ export default function AssetLibrary() {
                 key={type}
                 onClick={() => addShape(type)}
                 title={label}
+<<<<<<< HEAD
                 className="flex flex-col items-center gap-0.5 py-2 rounded bg-gray-800 hover:bg-indigo-900/30 hover:text-indigo-100 transition-colors"
+=======
+                className="flex flex-col items-center gap-0.5 py-2 rounded bg-gray-800 hover:bg-amber-900/30 hover:text-amber-100 transition-colors"
+>>>>>>> master
               >
                 <span className="text-base leading-none">{icon}</span>
                 <span className="text-[8px] text-gray-500 leading-none">{label}</span>
@@ -254,6 +281,7 @@ export default function AssetLibrary() {
         </div>
       ))}
 
+<<<<<<< HEAD
       {/* ── Electronics (categorized, expandable) ────────────────────────── */}
       <div className="px-2 pt-3">
         <div className="text-[9px] text-green-500 uppercase tracking-wider mb-1.5 font-semibold">Electronics</div>
@@ -318,6 +346,23 @@ export default function AssetLibrary() {
               </div>
             )
           })}
+=======
+      {/* ── Electronics ──────────────────────────────────────────────────── */}
+      <div className="px-2 pt-3">
+        <div className="text-[9px] text-green-600 uppercase tracking-wider mb-1.5 font-semibold">Electronics</div>
+        <div className="grid grid-cols-4 gap-1">
+          {ELECTRONICS.map(({ type, label, icon }) => (
+            <button
+              key={type}
+              onClick={() => addShape(type)}
+              title={label}
+              className="flex flex-col items-center gap-0.5 py-2 rounded bg-gray-800 hover:bg-green-900/30 hover:text-green-100 transition-colors"
+            >
+              <span className="text-base leading-none">{icon}</span>
+              <span className="text-[8px] text-gray-500 leading-none">{label}</span>
+            </button>
+          ))}
+>>>>>>> master
         </div>
       </div>
 
@@ -341,7 +386,11 @@ export default function AssetLibrary() {
 
       {/* ── My Assets ────────────────────────────────────────────────────── */}
       <div className="px-2 pt-3 pb-4">
+<<<<<<< HEAD
         <div className="text-[9px] text-indigo-500 uppercase tracking-wider mb-1.5 font-semibold">My Assets</div>
+=======
+        <div className="text-[9px] text-amber-500 uppercase tracking-wider mb-1.5 font-semibold">My Assets</div>
+>>>>>>> master
         {assets.length === 0 ? (
           <div className="text-[10px] text-gray-600 text-center py-4 leading-relaxed">
             No saved assets.<br />
@@ -354,7 +403,11 @@ export default function AssetLibrary() {
                 <button
                   onClick={() => handleAddSaved(asset)}
                   title={`Add ${asset.name}`}
+<<<<<<< HEAD
                   className="w-full flex flex-col items-center gap-1 py-2 px-1 rounded transition-colors hover:bg-indigo-900/30"
+=======
+                  className="w-full flex flex-col items-center gap-1 py-2 px-1 rounded transition-colors hover:bg-amber-900/30"
+>>>>>>> master
                   style={{ background: `${asset.color}18` }}
                 >
                   <div

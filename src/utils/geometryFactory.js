@@ -1,5 +1,36 @@
 import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three-stdlib'
+<<<<<<< HEAD
+=======
+import { FontLoader } from 'three/addons/loaders/FontLoader.js'
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
+import helvetiker from 'three/examples/fonts/helvetiker_regular.typeface.json'
+
+// Lazily parse the bundled font once — TextGeometry needs a parsed Font instance.
+let _font = null
+function getFont() {
+  if (!_font) _font = new FontLoader().parse(helvetiker)
+  return _font
+}
+
+/**
+ * Build a centred 3D text solid. Stamps userData so updateMesh can detect when
+ * the string / size changed and rebuild only then.
+ */
+export function createTextGeometry(text, size = 1, height = 0.4) {
+  const str = String(text ?? '') || 'Text'
+  const s   = Math.max(0.05, size || 1)
+  const h   = Math.max(0.01, height || 0.4)
+  const geo = new TextGeometry(str, { font: getFont(), size: s, height: h, curveSegments: 6, bevelEnabled: false })
+  geo.computeBoundingBox()
+  geo.center()
+  geo.computeVertexNormals()
+  geo.userData._txt = str
+  geo.userData._tsz = s
+  geo.userData._th  = h
+  return geo
+}
+>>>>>>> master
 
 // Base dimensions of each fillable box type (matches createGeometry below)
 const BOX_DIMS = {

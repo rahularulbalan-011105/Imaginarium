@@ -35,7 +35,11 @@ const OPERATIONS = [
 ]
 
 const COLOR_CLASSES = {
+<<<<<<< HEAD
   blue:   'bg-indigo-800/30 hover:bg-indigo-700/40 border-indigo-600/50 text-indigo-200',
+=======
+  blue:   'bg-amber-800/30 hover:bg-amber-700/40 border-amber-600/50 text-amber-200',
+>>>>>>> master
   orange: 'bg-orange-800/40 hover:bg-orange-700/60 border-orange-600/50 text-orange-200',
   purple: 'bg-purple-800/40 hover:bg-purple-700/60 border-purple-600/50 text-purple-200',
 }
@@ -109,7 +113,11 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
         Boolean Operations
       </div>
       {(aIsElec || bIsElec) && (
+<<<<<<< HEAD
         <div className="text-[10px] text-indigo-400 bg-indigo-900/20 border border-indigo-700/30 rounded p-2">
+=======
+        <div className="text-[10px] text-amber-400 bg-amber-900/20 border border-amber-700/30 rounded p-2">
+>>>>>>> master
           ⚡ Electronics geometry mode — the physical shapes of the components will be used for the boolean operation.
         </div>
       )}

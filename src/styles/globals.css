@@ -9,14 +9,20 @@ body {
   padding: 0;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
+<<<<<<< HEAD
   color: #1E293B;
   background: #F7F9FC;
   background-image: radial-gradient(ellipse 120% 80% at 50% 0%, #EEF2FB 0%, #F7F9FC 60%);
+=======
+  background: #0f0e0c;
+  background-image: radial-gradient(ellipse 120% 80% at 50% 0%, #1a170f 0%, #0f0e0c 60%);
+>>>>>>> master
 }
 
 input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button { opacity: 1; }
 
+<<<<<<< HEAD
 /* Light theme: form fields always use dark text on their light backgrounds,
    regardless of any utility class (fixes white-on-light input text). Buttons
    (<button>) are intentionally excluded so accent labels stay white. */
@@ -39,6 +45,24 @@ input::placeholder, textarea::placeholder { color: #94A3B8; }
 .glow-indigo { box-shadow: 0 1px 3px rgba(15,23,42,0.08), 0 0 0 1px rgba(79,70,229,0.12); }
 .glow-orange { box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
 .glow-green  { box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
+=======
+/* ── Scrollbar ────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #131210; }
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #b45309 0%, #78350f 100%);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: #f59e0b; }
+
+/* ── Focus rings ─────────────────────────────────────────────────────────── */
+:focus-visible { outline: 2px solid #f59e0b; outline-offset: 1px; }
+
+/* ── Glow utilities ──────────────────────────────────────────────────────── */
+.glow-amber  { box-shadow: 0 0 10px rgba(245,158,11,0.4);  }
+.glow-orange { box-shadow: 0 0 10px rgba(249,115,22,0.4);  }
+.glow-green  { box-shadow: 0 0 10px rgba(63,185,80,0.35);  }
+>>>>>>> master
 
 /* ── Resize handle cursor state ──────────────────────────────────────────── */
 .resizing-h { cursor: col-resize !important; user-select: none !important; }

@@ -71,7 +71,11 @@ export default function FilletPanel({ obj }) {
           onClick={() => setSegments(1)}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             segments === 1
+<<<<<<< HEAD
               ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+=======
+              ? 'bg-amber-700/40 text-amber-300 border border-amber-600/50'
+>>>>>>> master
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
         >◧ Chamfer</button>
@@ -79,7 +83,11 @@ export default function FilletPanel({ obj }) {
           onClick={() => setSegments(3)}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             segments >= 2
+<<<<<<< HEAD
               ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+=======
+              ? 'bg-amber-700/40 text-amber-300 border border-amber-600/50'
+>>>>>>> master
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
         >◔ Fillet</button>
@@ -89,13 +97,21 @@ export default function FilletPanel({ obj }) {
       <div>
         <div className="flex items-center justify-between mb-1">
           <div className="text-[9px] text-gray-500 uppercase tracking-wider">Radius</div>
+<<<<<<< HEAD
           <div className="text-[10px] text-indigo-400">{radius.toFixed(2)}</div>
+=======
+          <div className="text-[10px] text-amber-400">{radius.toFixed(2)}</div>
+>>>>>>> master
         </div>
         <input
           type="range" min={0.05} max={2} step={0.05}
           value={radius}
           onChange={e => setRadius(parseFloat(e.target.value))}
+<<<<<<< HEAD
           className="w-full accent-indigo-500"
+=======
+          className="w-full accent-amber-500"
+>>>>>>> master
         />
       </div>
 
@@ -104,13 +120,21 @@ export default function FilletPanel({ obj }) {
         <div>
           <div className="flex items-center justify-between mb-1">
             <div className="text-[9px] text-gray-500 uppercase tracking-wider">Smoothness</div>
+<<<<<<< HEAD
             <div className="text-[10px] text-indigo-400">{segments}</div>
+=======
+            <div className="text-[10px] text-amber-400">{segments}</div>
+>>>>>>> master
           </div>
           <input
             type="range" min={2} max={6} step={1}
             value={segments}
             onChange={e => setSegments(parseInt(e.target.value))}
+<<<<<<< HEAD
             className="w-full accent-indigo-500"
+=======
+            className="w-full accent-amber-500"
+>>>>>>> master
           />
         </div>
       )}
@@ -119,13 +143,21 @@ export default function FilletPanel({ obj }) {
       <div>
         <div className="flex items-center justify-between mb-1">
           <div className="text-[9px] text-gray-500 uppercase tracking-wider">Min Edge Angle</div>
+<<<<<<< HEAD
           <div className="text-[10px] text-indigo-400">{angle}°</div>
+=======
+          <div className="text-[10px] text-amber-400">{angle}°</div>
+>>>>>>> master
         </div>
         <input
           type="range" min={10} max={90} step={5}
           value={angle}
           onChange={e => setAngle(parseInt(e.target.value))}
+<<<<<<< HEAD
           className="w-full accent-indigo-500"
+=======
+          className="w-full accent-amber-500"
+>>>>>>> master
         />
         <div className="text-[9px] text-gray-600">Only sharper edges than this angle are beveled</div>
       </div>
@@ -135,7 +167,11 @@ export default function FilletPanel({ obj }) {
       <button
         onClick={handleApply}
         disabled={busy}
+<<<<<<< HEAD
         className="w-full py-2 rounded text-xs bg-indigo-700/40 hover:bg-indigo-600/50 border border-indigo-600/50 text-indigo-300 font-semibold transition-colors disabled:opacity-50"
+=======
+        className="w-full py-2 rounded text-xs bg-amber-700/40 hover:bg-amber-600/50 border border-amber-600/50 text-amber-300 font-semibold transition-colors disabled:opacity-50"
+>>>>>>> master
       >
         {busy ? '⏳ Applying…' : (segments === 1 ? '◧ Apply Chamfer' : '◔ Apply Fillet')}
       </button>

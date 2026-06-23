@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import * as THREE from 'three'
 import { useSceneStore } from '../stores/sceneStore.js'
+import { getMass } from '../managers/physics/MassCalculator.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
@@ -32,7 +34,11 @@ function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
               step={step}
               onBlur={onBlurSnapshot}
               onChange={handleChange(axis)}
+<<<<<<< HEAD
               className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-indigo-500"
+=======
+              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-amber-500"
+>>>>>>> master
             />
           </div>
         ))}
@@ -147,7 +153,11 @@ export default function PropertiesPanel() {
   const updateObject    = useSceneStore((s) => s.updateObject)
   const removeObject    = useSceneStore((s) => s.removeObject)
   const duplicateObject = useSceneStore((s) => s.duplicateObject)
+  const insertObject    = useSceneStore((s) => s.insertObject)
   const markStandalone  = useSceneStore((s) => s.markStandalone)
+  const toggleHole      = useSceneStore((s) => s.toggleHole)
+  const groupSelected   = useSceneStore((s) => s.groupSelected)
+  const ungroupSelected = useSceneStore((s) => s.ungroupSelected)
   const { snapshot } = useHistory()
 
   const attachments     = useElectronicsStore((s) => s.attachments)
@@ -399,7 +409,11 @@ export default function PropertiesPanel() {
           type="text"
           value={obj.name}
           onChange={(e) => update({ name: e.target.value })}
+<<<<<<< HEAD
           className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500"
+=======
+          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-amber-500"
+>>>>>>> master
         />
       </div>
 
@@ -628,17 +642,30 @@ export default function PropertiesPanel() {
 
       {/* Direct attach: prop selected + shift-click on a motor/servo → one-click attach */}
       {isAttachable && secondaryShaft && (
+<<<<<<< HEAD
         <div className="mb-3 p-2.5 rounded bg-indigo-900/20 border border-indigo-700/50">
           <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold mb-1">
+=======
+        <div className="mb-3 p-2.5 rounded bg-amber-900/20 border border-amber-700/50">
+          <div className="text-[10px] text-amber-400 uppercase tracking-wider font-semibold mb-1">
+>>>>>>> master
             ⚙ Attach to {shaftLabel(secondaryShaft)}
           </div>
           <div className="text-[9px] text-gray-400 mb-2">
             Attach <span className="text-white font-medium">{obj.name}</span> to{' '}
+<<<<<<< HEAD
             <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
           </div>
           <button
             onClick={() => handleAttachToMotor(secondaryShaft.id)}
             className="w-full py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-medium rounded transition-colors"
+=======
+            <span className="text-amber-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
+          </div>
+          <button
+            onClick={() => handleAttachToMotor(secondaryShaft.id)}
+            className="w-full py-2 bg-amber-700 hover:bg-amber-600 text-white text-xs font-medium rounded transition-colors"
+>>>>>>> master
           >
             ✓ Attach to {secondaryShaft.name}
           </button>
@@ -660,8 +687,13 @@ export default function PropertiesPanel() {
                   onClick={() => setAttachPreset(key)}
                   className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
                     attachPreset === key
+<<<<<<< HEAD
                       ? 'bg-indigo-700/60 border-indigo-500 text-white'
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+=======
+                      ? 'bg-amber-700/60 border-amber-500 text-white'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+>>>>>>> master
                   }`}
                 >
                   {label}
@@ -702,7 +734,11 @@ export default function PropertiesPanel() {
           {shaftTargets.length === 1 ? (
             <button
               onClick={() => handleAttachToMotor(shaftTargets[0].id)}
+<<<<<<< HEAD
               className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
+=======
+              className="w-full py-1.5 bg-amber-900/20 hover:bg-amber-700/40 border border-amber-700/40 text-amber-300 hover:text-white text-xs rounded transition-colors"
+>>>>>>> master
             >
               ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
@@ -712,7 +748,11 @@ export default function PropertiesPanel() {
                 <button
                   key={m.id}
                   onClick={() => handleAttachToMotor(m.id)}
+<<<<<<< HEAD
                   className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
+=======
+                  className="w-full py-1.5 bg-amber-900/20 hover:bg-amber-700/40 border border-amber-700/40 text-amber-300 hover:text-white text-xs rounded transition-colors"
+>>>>>>> master
                 >
                   ⚙ Attach to {m.name} ({shaftLabel(m)})
                 </button>
@@ -770,7 +810,11 @@ export default function PropertiesPanel() {
             onChange={(e) => {
               if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) update({ color: e.target.value })
             }}
+<<<<<<< HEAD
             className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500 font-mono"
+=======
+            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-amber-500 font-mono"
+>>>>>>> master
           />
         </div>
       </div>
@@ -785,8 +829,13 @@ export default function PropertiesPanel() {
               onClick={() => update({ material: m })}
               className={`py-1.5 rounded text-xs capitalize transition-colors ${
                 obj.material === m
+<<<<<<< HEAD
                   ? 'bg-indigo-600 text-white'
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-slate-900 border border-gray-600/50'
+=======
+                  ? 'bg-amber-600 text-white'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white border border-gray-600/50'
+>>>>>>> master
               }`}
             >
               {m}
@@ -937,7 +986,11 @@ export default function PropertiesPanel() {
                       ? segs === 1
                         ? 'bg-orange-700/60 border-orange-500 text-white'
                         : 'bg-indigo-700/60 border-indigo-500 text-white'
+<<<<<<< HEAD
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+=======
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+>>>>>>> master
                   }`}
                 >{label}</button>
               ))}
@@ -955,7 +1008,11 @@ export default function PropertiesPanel() {
                   className={`flex-1 py-1 rounded text-[10px] font-semibold border transition-colors ${
                     isPartial === partial
                       ? 'bg-teal-700/60 border-teal-500 text-white'
+<<<<<<< HEAD
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+=======
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+>>>>>>> master
                   }`}
                 >{label}</button>
               ))}
@@ -973,7 +1030,11 @@ export default function PropertiesPanel() {
                       className={`flex-1 py-1 rounded text-[10px] uppercase font-semibold border transition-colors ${
                         axis === a
                           ? 'bg-teal-700/60 border-teal-500 text-white'
+<<<<<<< HEAD
                           : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+=======
+                          : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-white hover:bg-gray-700'
+>>>>>>> master
                       }`}
                     >{a}</button>
                   ))}
@@ -997,11 +1058,19 @@ export default function PropertiesPanel() {
                 <div className="flex gap-1">
                   <button
                     onClick={() => { update({ filletCorners: [true, true, true, true] }); snapshot() }}
+<<<<<<< HEAD
                     className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-slate-900"
                   >All 4</button>
                   <button
                     onClick={() => { update({ filletCorners: [false, false, false, false] }); snapshot() }}
                     className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-slate-900"
+=======
+                    className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-white"
+                  >All 4</button>
+                  <button
+                    onClick={() => { update({ filletCorners: [false, false, false, false] }); snapshot() }}
+                    className="flex-1 py-0.5 text-[9px] rounded bg-gray-800 border border-gray-600/50 text-gray-400 hover:text-white"
+>>>>>>> master
                   >None</button>
                 </div>
                 <div className="text-[9px] text-gray-600 mt-1">
@@ -1149,8 +1218,13 @@ export default function PropertiesPanel() {
       {/* ── Face Extrude ──────────────────────────────────────────────────────── */}
       {!isElectronics && (
         <details className="mb-3 group">
+<<<<<<< HEAD
           <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-400 flex items-center gap-1 select-none">
             <span className="text-gray-600 group-open:text-indigo-400">▶</span>
+=======
+          <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+            <span className="text-gray-600 group-open:text-amber-400">▶</span>
+>>>>>>> master
             Extrude Face
           </summary>
           <div className="mt-2">
@@ -1162,8 +1236,13 @@ export default function PropertiesPanel() {
       {/* ── Fillet / Bevel ────────────────────────────────────────────────────── */}
       {!isElectronics && (
         <details className="mb-3 group">
+<<<<<<< HEAD
           <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-indigo-400 flex items-center gap-1 select-none">
             <span className="text-gray-600 group-open:text-indigo-400">▶</span>
+=======
+          <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+            <span className="text-gray-600 group-open:text-amber-400">▶</span>
+>>>>>>> master
             Fillet / Bevel
           </summary>
           <div className="mt-2">
@@ -1172,6 +1251,55 @@ export default function PropertiesPanel() {
         </details>
       )}
 
+<<<<<<< HEAD
+=======
+      {/* ── Inspect (measure / mass / size) ───────────────────────────────────── */}
+      <InspectSection obj={obj} secondaryObj={objects.find(o => o.id === secondaryId) ?? null} />
+
+      {/* ── Text shape content ────────────────────────────────────────────────── */}
+      {obj.type === 'text' && <TextShapeEditor obj={obj} update={update} snapshot={snapshot} />}
+
+      {/* ── Align (two-object) ────────────────────────────────────────────────── */}
+      <AlignTools obj={obj} secondaryObj={secondaryObj} updateObject={updateObject} snapshot={snapshot} />
+
+      {/* ── Pattern / Mirror ──────────────────────────────────────────────────── */}
+      <PatternTools obj={obj} insertObject={insertObject} snapshot={snapshot} />
+
+      {/* ── Hole / Solid + Group / Ungroup ────────────────────────────────────── */}
+      {!isElectronics && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider">Type</div>
+          <button
+            onClick={() => { toggleHole(obj.id); snapshot() }}
+            title="Holes carve out solids when grouped (Tinkercad-style)"
+            className={`px-3 py-1 rounded text-xs transition-colors border ${
+              obj.isHole
+                ? 'bg-sky-800/40 text-sky-200 border-sky-700/50'
+                : 'bg-gray-700 text-gray-300 border-gray-600/50'
+            }`}
+          >
+            {obj.isHole ? '◌ Hole' : '◼ Solid'}
+          </button>
+        </div>
+      )}
+      {!isElectronics && secondaryObj && (
+        <button
+          onClick={() => { if (groupSelected()) snapshot() }}
+          className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-purple-700 hover:bg-purple-600 text-white transition-colors"
+        >
+          ⊕ Group selected (Ctrl+G)
+        </button>
+      )}
+      {Array.isArray(obj.groupMembers) && obj.groupMembers.length > 0 && (
+        <button
+          onClick={() => { if (ungroupSelected()) snapshot() }}
+          className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100 transition-colors"
+        >
+          ⊟ Ungroup ({obj.groupMembers.length}) (Ctrl+Shift+G)
+        </button>
+      )}
+
+>>>>>>> master
       {/* Visibility */}
       <div className="mb-3 flex items-center justify-between">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider">Visible</div>
@@ -1206,6 +1334,276 @@ export default function PropertiesPanel() {
   )
 }
 
+<<<<<<< HEAD
+=======
+// ── Text shape editor: live string + size + thickness ─────────────────────────
+function TextShapeEditor({ obj, update, snapshot }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Text</div>
+      <input
+        type="text"
+        value={obj.textContent ?? ''}
+        placeholder="Type text…"
+        onChange={(e) => update({ textContent: e.target.value })}
+        onBlur={snapshot}
+        className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 mb-2 focus:outline-none focus:border-amber-500"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-[9px] text-gray-500">
+          Size
+          <input
+            type="number" step={0.1} min={0.1}
+            value={r3(obj.textSize ?? 1)}
+            onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textSize: v }) }}
+            onBlur={snapshot}
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-amber-500"
+          />
+        </label>
+        <label className="text-[9px] text-gray-500">
+          Thickness
+          <input
+            type="number" step={0.1} min={0.05}
+            value={r3(obj.textHeight ?? 0.4)}
+            onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textHeight: v }) }}
+            onBlur={snapshot}
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-amber-500"
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+// ── Align: line up the primary + secondary selection along a world axis ────────
+function AlignTools({ obj, secondaryObj, updateObject, snapshot }) {
+  if (!secondaryObj) return null
+
+  const apply = (axis, mode) => {
+    const ma = objectManager.getMesh(obj.id)
+    const mb = objectManager.getMesh(secondaryObj.id)
+    if (!ma || !mb) return
+    ma.updateMatrixWorld(true); mb.updateMatrixWorld(true)
+    const ba = new THREE.Box3().setFromObject(ma)
+    const bb = new THREE.Box3().setFromObject(mb)
+    if (ba.isEmpty() || bb.isEmpty()) return
+
+    // World-space target coordinate for the chosen reference edge/center.
+    const lo = Math.min(ba.min[axis], bb.min[axis])
+    const hi = Math.max(ba.max[axis], bb.max[axis])
+    const target = mode === 'min' ? lo : mode === 'max' ? hi : (lo + hi) / 2
+
+    ;[[obj, ba], [secondaryObj, bb]].forEach(([ob, box]) => {
+      const cur = mode === 'min' ? box.min[axis] : mode === 'max' ? box.max[axis] : (box.min[axis] + box.max[axis]) / 2
+      const pos = { ...ob.position }
+      pos[axis] += target - cur
+      updateObject(ob.id, { position: pos })
+    })
+    snapshot()
+  }
+
+  const Btn = ({ axis, mode, label }) => (
+    <button
+      onClick={() => apply(axis, mode)}
+      className="flex-1 py-1 rounded text-[10px] bg-gray-700 hover:bg-amber-700 text-gray-200 hover:text-white transition-colors"
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <details className="mb-3 group">
+      <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+        <span className="text-gray-600 group-open:text-amber-400">▶</span>
+        Align (2 objects)
+      </summary>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {['x', 'y', 'z'].map((axis) => (
+          <div key={axis} className="flex items-center gap-1">
+            <span className="w-3 text-[10px] font-bold text-gray-500 uppercase">{axis}</span>
+            <Btn axis={axis} mode="min" label="Min" />
+            <Btn axis={axis} mode="center" label="Center" />
+            <Btn axis={axis} mode="max" label="Max" />
+          </div>
+        ))}
+        <div className="text-[9px] text-gray-600">Lines up the two selected objects along each axis.</div>
+      </div>
+    </details>
+  )
+}
+
+// ── Inspect: read-only mass / size / center, plus distance to a 2nd selection ──
+function InspectRow({ label, value, accent }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-gray-500">{label}</span>
+      <span className={`font-mono ${accent ? 'text-amber-300' : 'text-gray-300'}`}>{value}</span>
+    </div>
+  )
+}
+
+function InspectSection({ obj, secondaryObj }) {
+  let mass = 0
+  try { mass = getMass(obj.type, obj.scale, obj.material) } catch (_) {}
+
+  // World-space bounding box (size + center) from the live mesh.
+  let dims = null, center = null
+  const mesh = objectManager.getMesh(obj.id)
+  if (mesh) {
+    mesh.updateMatrixWorld(true)
+    const box = new THREE.Box3().setFromObject(mesh)
+    if (!box.isEmpty()) {
+      const s = box.getSize(new THREE.Vector3())
+      const c = box.getCenter(new THREE.Vector3())
+      dims   = { x: r3(s.x), y: r3(s.y), z: r3(s.z) }
+      center = { x: r3(c.x), y: r3(c.y), z: r3(c.z) }
+    }
+  }
+
+  // Distance between the two selected objects' centers (basic measure tool).
+  let dist = null
+  if (secondaryObj) {
+    const a = obj.position, b = secondaryObj.position
+    dist = r3(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z))
+  }
+
+  return (
+    <details className="mb-3 group">
+      <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+        <span className="text-gray-600 group-open:text-amber-400">▶</span>
+        Inspect
+      </summary>
+      <div className="mt-2 text-[11px] space-y-1">
+        <InspectRow label="Mass" value={`${mass.toFixed(3)} kg`} />
+        {dims   && <InspectRow label="Size W×H×D" value={`${dims.x} × ${dims.y} × ${dims.z}`} />}
+        {center && <InspectRow label="Center" value={`${center.x}, ${center.y}, ${center.z}`} />}
+        {dist != null
+          ? <InspectRow label="↔ Distance to 2nd" value={`${dist} u`} accent />
+          : <div className="text-[9px] text-gray-600 pt-0.5">Shift-select a second object to measure the distance between them.</div>}
+      </div>
+    </details>
+  )
+}
+
+// ── Pattern / Mirror: clone the selected object in a linear/circular array or
+//    mirror it across a world axis. All clones land in ONE undo step (one snapshot).
+const PAT_AXES = ['x', 'y', 'z']
+
+function PatternTools({ obj, insertObject, snapshot }) {
+  const [tab, setTab]         = useState('linear')   // 'linear' | 'circular' | 'mirror'
+  const [axis, setAxis]       = useState('x')
+  const [count, setCount]     = useState(3)
+  const [spacing, setSpacing] = useState(3)
+  const [angle, setAngle]     = useState(360)
+
+  const cloneWith = (overrides) => ({
+    ...JSON.parse(JSON.stringify(obj)),
+    id: crypto.randomUUID(),
+    name: `${obj.name}_copy`,
+    ...overrides,
+    metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  })
+
+  const N = () => Math.max(2, Math.min(64, Math.round(count) || 2))
+
+  const applyLinear = () => {
+    const n = N()
+    for (let i = 1; i < n; i++) {
+      const p = { ...obj.position }; p[axis] += i * spacing
+      insertObject(cloneWith({ position: p }))
+    }
+    snapshot()
+  }
+
+  const applyCircular = () => {
+    const n = N()
+    const axisVec = axis === 'x' ? new THREE.Vector3(1, 0, 0)
+                  : axis === 'y' ? new THREE.Vector3(0, 1, 0)
+                  : new THREE.Vector3(0, 0, 1)
+    const full  = Math.abs(angle) >= 360
+    const denom = full ? n : Math.max(1, n - 1)   // full circle leaves a gap; arc spans ends
+    for (let i = 1; i < n; i++) {
+      const rad = degToRad(angle) * (i / denom)
+      const pos = new THREE.Vector3(obj.position.x, obj.position.y, obj.position.z).applyAxisAngle(axisVec, rad)
+      const rot = { ...obj.rotation }; rot[axis] += rad
+      insertObject(cloneWith({ position: { x: pos.x, y: pos.y, z: pos.z }, rotation: rot }))
+    }
+    snapshot()
+  }
+
+  const applyMirror = (ax) => {
+    const position = { ...obj.position }; position[ax] = -position[ax]
+    const scale    = { ...obj.scale };    scale[ax]    = -scale[ax]   // true reflection
+    insertObject(cloneWith({ position, scale }))
+    snapshot()
+  }
+
+  const tabBtn = (id, label) => (
+    <button onClick={() => setTab(id)}
+      className={`flex-1 py-1 rounded text-[10px] border transition-colors ${
+        tab === id ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-white'}`}>
+      {label}
+    </button>
+  )
+  const axisBtns = () => (
+    <div className="flex gap-1">
+      {PAT_AXES.map(a => (
+        <button key={a} onClick={() => setAxis(a)}
+          className={`flex-1 py-1 rounded text-[10px] uppercase border transition-colors ${
+            axis === a ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-white'}`}>{a}</button>
+      ))}
+    </div>
+  )
+  const numField = (label, value, set, step = 1) => (
+    <label className="flex-1 text-[9px] text-gray-500">
+      {label}
+      <input type="number" step={step} value={value}
+        onChange={e => set(parseFloat(e.target.value))}
+        className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-[11px] text-white px-1.5 py-1 focus:outline-none focus:border-amber-500" />
+    </label>
+  )
+
+  return (
+    <details className="mb-3 group">
+      <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+        <span className="text-gray-600 group-open:text-amber-400">▶</span>
+        Pattern / Mirror
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        <div className="flex gap-1">{tabBtn('linear', 'Linear')}{tabBtn('circular', 'Circular')}{tabBtn('mirror', 'Mirror')}</div>
+
+        {tab === 'mirror' ? (
+          <>
+            <div className="text-[9px] text-gray-500">Mirror a copy across a world axis</div>
+            <div className="flex gap-1">
+              {PAT_AXES.map(a => (
+                <button key={a} onClick={() => applyMirror(a)}
+                  className="flex-1 py-1.5 rounded text-[10px] uppercase bg-gray-700 hover:bg-amber-700 text-gray-200 hover:text-white transition-colors">↔ {a}</button>
+              ))}
+            </div>
+          </>
+        ) : tab === 'linear' ? (
+          <>
+            {axisBtns()}
+            <div className="flex gap-2">{numField('Count', count, setCount)}{numField('Spacing', spacing, setSpacing, 0.5)}</div>
+            <button onClick={applyLinear}
+              className="w-full py-1.5 rounded text-xs font-semibold bg-amber-700 hover:bg-amber-600 text-white transition-colors">Apply Linear Pattern</button>
+          </>
+        ) : (
+          <>
+            {axisBtns()}
+            <div className="flex gap-2">{numField('Count', count, setCount)}{numField('Total °', angle, setAngle, 15)}</div>
+            <div className="text-[9px] text-gray-600">Rotates copies around the world {axis.toUpperCase()}-axis through the origin.</div>
+            <button onClick={applyCircular}
+              className="w-full py-1.5 rounded text-xs font-semibold bg-amber-700 hover:bg-amber-600 text-white transition-colors">Apply Circular Pattern</button>
+          </>
+        )}
+      </div>
+    </details>
+  )
+}
+
+>>>>>>> master
 function SaveAssetButton({ obj }) {
   const saveAsset = useAssetStore((s) => s.saveAsset)
   const [flash, setFlash] = useState(false)
@@ -1221,8 +1619,13 @@ function SaveAssetButton({ obj }) {
       onClick={handleSave}
       className={`mt-2 w-full py-1.5 text-xs rounded transition-all ${
         flash
+<<<<<<< HEAD
           ? 'bg-indigo-700 text-indigo-100'
           : 'bg-gray-800 hover:bg-indigo-900/40 border border-gray-600/50 hover:border-indigo-700/50 text-gray-400 hover:text-indigo-300'
+=======
+          ? 'bg-amber-700 text-amber-100'
+          : 'bg-gray-800 hover:bg-amber-900/40 border border-gray-600/50 hover:border-amber-700/50 text-gray-400 hover:text-amber-300'
+>>>>>>> master
       }`}
     >
       {flash ? '✓ Saved to Library' : '📦 Save as Asset'}

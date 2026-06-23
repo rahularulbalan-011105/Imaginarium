@@ -89,7 +89,11 @@ export default function ObjectList() {
             onClick={(e) => handleRowClick(e, obj.id)}
             className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-gray-800/50 group transition-colors ${
               isPrimary
+<<<<<<< HEAD
                 ? 'bg-indigo-900/20 border-l-2 border-l-indigo-500'
+=======
+                ? 'bg-amber-900/20 border-l-2 border-l-amber-500'
+>>>>>>> master
                 : isSecondary
                 ? 'bg-orange-900/30 border-l-2 border-l-orange-500'
                 : 'hover:bg-gray-800/50'
