@@ -119,6 +119,10 @@ export default function Toolbar() {
   const setSnapTranslate  = useUiStore((s) => s.setSnapTranslate)
   const snapRotateDeg     = useUiStore((s) => s.snapRotateDeg)
   const setSnapRotateDeg  = useUiStore((s) => s.setSnapRotateDeg)
+  const printBedVisible   = useUiStore((s) => s.printBedVisible)
+  const setPrintBedVisible= useUiStore((s) => s.setPrintBedVisible)
+  const printBedSizeMm    = useUiStore((s) => s.printBedSizeMm)
+  const setPrintBedSizeMm = useUiStore((s) => s.setPrintBedSizeMm)
 
   // Electronics categories default expanded so quick-add (and the tutorial
   // anchors) are always available.
@@ -127,6 +131,7 @@ export default function Toolbar() {
 
   const TRANSLATE_STEPS = [0, 0.5, 1, 2]
   const ROTATE_STEPS    = [0, 15, 45, 90]
+  const BED_SIZES       = [180, 220, 256, 300]
   const cycle = (arr, cur) => arr[(arr.indexOf(cur) + 1) % arr.length] ?? arr[0]
 
   const handleSurfaceTool = () => {
@@ -402,6 +407,33 @@ export default function Toolbar() {
           >
             <span className="text-base leading-none">⊕</span>
             <span className="text-[10px] font-medium leading-tight" style={{ color: axesVisible ? '#4F46E5' : T_SECONDARY }}>Axes</span>
+          </button>
+        </div>
+      </div>
+
+      {divider}
+
+      {/* 3D-print build plate */}
+      <div className="w-full">
+        <SectionLabel>Print</SectionLabel>
+        <div className="flex flex-col gap-0.5">
+          <button
+            onClick={() => setPrintBedVisible(!printBedVisible)}
+            title={`Toggle the 3D-printer build plate (${printBedSizeMm} mm)`}
+            className={`w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 ${
+              printBedVisible ? 'bg-indigo-500/15' : 'hover:bg-gray-700/40'
+            }`}
+          >
+            <span className="text-base leading-none">⊟</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: printBedVisible ? '#4F46E5' : T_SECONDARY }}>Bed</span>
+          </button>
+          <button
+            onClick={() => setPrintBedSizeMm(cycle(BED_SIZES, printBedSizeMm))}
+            title="Build-plate size (click to cycle: 180 / 220 / 256 / 300 mm)"
+            className="w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 hover:bg-gray-700/40"
+          >
+            <span className="text-base leading-none">▦</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: T_SECONDARY }}>{printBedSizeMm}mm</span>
           </button>
         </div>
       </div>

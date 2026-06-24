@@ -56,7 +56,7 @@ class SceneManager {
     this.scene.add(fill)
 
     // Grid
-    this.grid = new THREE.GridHelper(60, 60, 0xaaaaaa, 0xcccccc)
+    this.grid = new THREE.GridHelper(60, 60, 0x4caf50, 0xa5d6a7)
     this.grid.position.y = 0
     this.scene.add(this.grid)
 
@@ -155,6 +155,37 @@ class SceneManager {
 
   setGridVisible(v) { if (this.grid) this.grid.visible = v }
   setAxesVisible(v) { if (this.axes) this.axes.visible = v }
+
+  // Show a 3D-printer build plate centred on the origin. sizeMm = bed width/depth
+  // in millimetres (1 scene unit = 50 mm). Pass visible=false to remove it.
+  setPrintBed(visible, sizeMm = 220) {
+    if (!this.scene) return
+    if (this._printBed) {
+      this.scene.remove(this._printBed)
+      this._printBed.traverse(c => { c.geometry?.dispose?.(); c.material?.dispose?.() })
+      this._printBed = null
+    }
+    if (!visible) return
+    const u = sizeMm / 50
+    const group = new THREE.Group()
+    const plate = new THREE.Mesh(
+      new THREE.PlaneGeometry(u, u),
+      new THREE.MeshBasicMaterial({ color: 0x4f46e5, transparent: true, opacity: 0.08, side: THREE.DoubleSide, depthWrite: false }),
+    )
+    plate.rotation.x = -Math.PI / 2
+    plate.position.y = 0.002
+    group.add(plate)
+    const border = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.PlaneGeometry(u, u)),
+      new THREE.LineBasicMaterial({ color: 0x4f46e5 }),
+    )
+    border.rotation.x = -Math.PI / 2
+    border.position.y = 0.003
+    group.add(border)
+    group.userData.isPrintBed = true
+    this._printBed = group
+    this.scene.add(group)
+  }
 
   resetCamera() {
     this.camera.position.set(12, 10, 12)

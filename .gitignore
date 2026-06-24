@@ -41,3 +41,6 @@ Thumbs.db
 
 # Standalone SUBO library folder (was committed as a broken submodule; not part of the build)
 SuboLibrary*/
+
+# Electron desktop build output
+release/

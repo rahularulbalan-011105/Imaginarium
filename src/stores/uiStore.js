@@ -11,6 +11,10 @@ export const useUiStore = create((set) => ({
   snapTranslate: 0,
   snapRotateDeg: 0,
 
+  // 3D-printer build plate
+  printBedVisible: false,
+  printBedSizeMm: 220,
+
   surfaceToolActive: false,
   simActive: false,
 
@@ -30,4 +34,6 @@ export const useUiStore = create((set) => ({
   setExtrudeState: (s) => set({ extrudeState: s }),
   setSnapTranslate: (v) => set({ snapTranslate: v }),
   setSnapRotateDeg: (v) => set({ snapRotateDeg: v }),
+  setPrintBedVisible: (v) => set({ printBedVisible: v }),
+  setPrintBedSizeMm: (v) => set({ printBedSizeMm: v }),
 }))

@@ -233,15 +233,32 @@ class DriveManager {
       const xSpread = Math.max(...xs) - Math.min(...xs)
       const zSpread = Math.max(...zs) - Math.min(...zs)
 
+      // Split left/right along the SHORTER axis (a vehicle's track is narrower
+      // than its wheelbase), so "forward" runs along the LONGER axis — the way
+      // the chassis actually points. Splitting along the longer axis (the old
+      // behaviour) put forward perpendicular, so a robot longer than it is wide
+      // drove sideways.
+      const splitByX = zSpread >= xSpread   // long axis is Z → separate left/right by X
       const sorted = [...motorWorldPos].sort(
-        xSpread >= zSpread ? (a, b) => a.x - b.x : (a, b) => a.z - b.z
+        splitByX ? (a, b) => a.x - b.x : (a, b) => a.z - b.z
       )
       const half = Math.max(1, Math.floor(sorted.length / 2))
       this._leftIds  = sorted.slice(0, half).map(m => m.id)
       this._rightIds = sorted.slice(-half).map(m => m.id)
 
-      const lPos = motorWorldPos.find(m => m.id === this._leftIds[0])
-      const rPos = motorWorldPos.find(m => m.id === this._rightIds[0])
+      // Use the CENTROID of each side (not a single corner motor) so the axle
+      // vector — and the forward heading derived from it — stays correct even
+      // when the chassis is rotated off-grid or the layout is nearly square.
+      const centroid = (ids) => {
+        const ps = motorWorldPos.filter(m => ids.includes(m.id))
+        if (!ps.length) return null
+        return {
+          x: ps.reduce((s, m) => s + m.x, 0) / ps.length,
+          z: ps.reduce((s, m) => s + m.z, 0) / ps.length,
+        }
+      }
+      const lPos = centroid(this._leftIds)
+      const rPos = centroid(this._rightIds)
 
       if (lPos && rPos) {
         pivotX = (lPos.x + rPos.x) / 2

@@ -81,6 +81,8 @@ function AppEditor() {
   const simActive = useUiStore((s) => s.simActive)
   const snapTranslate = useUiStore((s) => s.snapTranslate)
   const snapRotateDeg = useUiStore((s) => s.snapRotateDeg)
+  const printBedVisible = useUiStore((s) => s.printBedVisible)
+  const printBedSizeMm  = useUiStore((s) => s.printBedSizeMm)
   const { snapshot, undo, redo } = useHistory()
   const clipboard = useRef(null)
   // Smart duplicate-and-repeat chain: { newId, prev:{position,rotation,scale} }
@@ -235,6 +237,9 @@ function AppEditor() {
 
   // Push snap-to-grid settings down to the transform gizmo whenever they change.
   useEffect(() => { sceneManager.setSnap(snapTranslate, snapRotateDeg) }, [snapTranslate, snapRotateDeg])
+
+  // Show/update the 3D-printer build plate.
+  useEffect(() => { sceneManager.setPrintBed(printBedVisible, printBedSizeMm) }, [printBedVisible, printBedSizeMm])
 
   // Keyboard shortcuts
   useEffect(() => {
