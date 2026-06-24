@@ -34,7 +34,7 @@ function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
               step={step}
               onBlur={onBlurSnapshot}
               onChange={handleChange(axis)}
-              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-indigo-500"
             />
           </div>
         ))}
@@ -71,7 +71,7 @@ function PatchDimInput({ label, value, onChange }) {
         onChange={e => setLocal(e.target.value)}
         onBlur={commit}
         onKeyDown={e => e.key === 'Enter' && commit()}
-        className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-cyan-500"
+        className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-cyan-500"
       />
     </div>
   )
@@ -88,8 +88,8 @@ function SurfacePatchPanel({ patches, canAttach, onAttach, onRemove, onUpdatePat
         return (
           <div key={p.id} className="bg-gray-800/60 border border-cyan-700/40 rounded p-2">
             <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[10px] text-cyan-300 font-medium">
-                Patch {i + 1} — <span className="text-white">{obj?.name ?? '?'}</span>
+              <span className="text-[10px] text-cyan-700 font-medium">
+                Patch {i + 1} — <span className="text-slate-800">{obj?.name ?? '?'}</span>
               </span>
               <button
                 onClick={() => onRemove(p.id)}
@@ -405,7 +405,7 @@ export default function PropertiesPanel() {
           type="text"
           value={obj.name}
           onChange={(e) => update({ name: e.target.value })}
-          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500"
+          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-slate-800 px-2 py-1.5 focus:outline-none focus:border-indigo-500"
         />
       </div>
 
@@ -415,7 +415,7 @@ export default function PropertiesPanel() {
           <div className="text-[10px] text-green-400 uppercase tracking-wider font-semibold mb-1">
             Attached to {shaftLabel(attachedMotor)}
           </div>
-          <div className="text-xs text-green-300 truncate mb-2">{attachedMotor.name}</div>
+          <div className="text-xs text-green-700 truncate mb-2">{attachedMotor.name}</div>
 
           {/* Shaft position — quick snap presets */}
           <div className="mb-2">
@@ -427,7 +427,7 @@ export default function PropertiesPanel() {
                   onClick={() => handleShaftSnap(x)}
                   className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
                     Math.abs(shaftPos.x - x) < 0.01 && shaftPos.y === 0 && shaftPos.z === 0
-                      ? 'bg-green-700/50 border-green-500/60 text-green-200'
+                      ? 'bg-green-700/50 border-green-500/60 text-green-700'
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
                   }`}
                 >
@@ -454,7 +454,7 @@ export default function PropertiesPanel() {
                       const v = parseFloat(e.target.value)
                       if (!isNaN(v)) handleShaftPosChange(axis, v)
                     }}
-                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
+                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
                   />
                 </div>
               ))}
@@ -464,7 +464,7 @@ export default function PropertiesPanel() {
 
           <button
             onClick={handleDetach}
-            className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-slate-900 text-xs rounded transition-colors"
+            className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-700 hover:text-slate-900 text-xs rounded transition-colors"
           >
             Detach from {shaftLabel(attachedMotor)}
           </button>
@@ -483,7 +483,7 @@ export default function PropertiesPanel() {
               <span>🔗</span> Surface Bond
               <span className="text-[8px] text-gray-500 normal-case ml-auto">{role}</span>
             </div>
-            <div className="text-xs text-cyan-200 truncate mb-2">
+            <div className="text-xs text-cyan-700 truncate mb-2">
               {otherObj?.name ?? '(deleted)'}
             </div>
 
@@ -506,7 +506,7 @@ export default function PropertiesPanel() {
                             const v = parseFloat(e.target.value)
                             if (!isNaN(v)) update({ position: { ...childObj?.position, [axis]: v } })
                           }}
-                          className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-cyan-500"
+                          className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-cyan-500"
                         />
                       </div>
                     )
@@ -528,7 +528,7 @@ export default function PropertiesPanel() {
                     <button
                       key={deg}
                       onClick={() => handleRotate90OnSurface(bond, deg)}
-                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-200 hover:text-slate-900 text-[10px] font-medium rounded transition-colors"
+                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-700 hover:text-slate-900 text-[10px] font-medium rounded transition-colors"
                     >
                       {label}
                     </button>
@@ -539,7 +539,7 @@ export default function PropertiesPanel() {
 
             <button
               onClick={() => { removeBond(bond.id); snapshot() }}
-              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-slate-900 text-xs rounded transition-colors"
+              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-700 hover:text-slate-900 text-xs rounded transition-colors"
             >
               Detach Bond
             </button>
@@ -577,7 +577,7 @@ export default function PropertiesPanel() {
                 snapshot()
               }}
               title="Round each rotation axis to the nearest 0°/90°/180°/270° so the shape is perfectly grid-aligned"
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-900/40 hover:bg-indigo-700/50 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 transition-colors"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
             >
               <span>⊹</span>
               <span>Snap to Axes</span>
@@ -611,7 +611,7 @@ export default function PropertiesPanel() {
                   updateObject(selectedId, { attachmentOffset: null })
                   objectManager.clearAttachmentMarker(selectedId)
                 }}
-                className="w-full py-1.5 text-[10px] text-orange-300 bg-orange-900/30 hover:bg-orange-700/40 border border-orange-700/40 rounded transition-colors"
+                className="w-full py-1.5 text-[10px] text-orange-700 bg-orange-900/30 hover:bg-orange-700/40 border border-orange-700/40 rounded transition-colors"
               >
                 ✕ Clear Attachment Point
               </button>
@@ -639,8 +639,8 @@ export default function PropertiesPanel() {
             ⚙ Attach to {shaftLabel(secondaryShaft)}
           </div>
           <div className="text-[9px] text-gray-400 mb-2">
-            Attach <span className="text-white font-medium">{obj.name}</span> to{' '}
-            <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
+            Attach <span className="text-slate-800 font-medium">{obj.name}</span> to{' '}
+            <span className="text-indigo-700 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
           </div>
           <button
             onClick={() => handleAttachToMotor(secondaryShaft.id)}
@@ -708,7 +708,7 @@ export default function PropertiesPanel() {
           {shaftTargets.length === 1 ? (
             <button
               onClick={() => handleAttachToMotor(shaftTargets[0].id)}
-              className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
+              className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-700 hover:text-slate-900 text-xs rounded transition-colors"
             >
               ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
@@ -718,7 +718,7 @@ export default function PropertiesPanel() {
                 <button
                   key={m.id}
                   onClick={() => handleAttachToMotor(m.id)}
-                  className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
+                  className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-700 hover:text-slate-900 text-xs rounded transition-colors"
                 >
                   ⚙ Attach to {m.name} ({shaftLabel(m)})
                 </button>
@@ -744,7 +744,7 @@ export default function PropertiesPanel() {
                 onClick={() => handleSetShaft(name)}
                 className={`w-full text-left px-2 py-1 text-[10px] font-mono rounded transition-colors ${
                   currentShaftName === name
-                    ? 'bg-green-700/60 text-green-200 border border-green-600/50'
+                    ? 'bg-green-700/60 text-green-700 border border-green-600/50'
                     : 'text-gray-400 hover:bg-gray-700/60 hover:text-slate-900'
                 }`}
               >
@@ -776,7 +776,7 @@ export default function PropertiesPanel() {
             onChange={(e) => {
               if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) update({ color: e.target.value })
             }}
-            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500 font-mono"
+            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none focus:border-indigo-500 font-mono"
           />
         </div>
       </div>
@@ -828,7 +828,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { teeth: v }); rebuild(v, gearMod, faceWidth, bore) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-6 text-right">{teeth}</span>
+              <span className="text-[10px] text-slate-800 w-6 text-right">{teeth}</span>
             </div>
 
             {/* Module */}
@@ -839,7 +839,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { module: v }); rebuild(teeth, v, faceWidth, bore) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-8 text-right">{gearMod.toFixed(2)}</span>
+              <span className="text-[10px] text-slate-800 w-8 text-right">{gearMod.toFixed(2)}</span>
             </div>
 
             {/* Face width */}
@@ -850,7 +850,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { faceWidth: v }); rebuild(teeth, gearMod, v, bore) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-8 text-right">{faceWidth.toFixed(1)}</span>
+              <span className="text-[10px] text-slate-800 w-8 text-right">{faceWidth.toFixed(1)}</span>
             </div>
 
             {/* Bore hole — 0 = solid (no hole), >0 = shaft hole as fraction of root radius */}
@@ -861,7 +861,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { bore: v }); rebuild(teeth, gearMod, faceWidth, v) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-8 text-right">{bore === 0 ? 'none' : bore.toFixed(2)}</span>
+              <span className="text-[10px] text-slate-800 w-8 text-right">{bore === 0 ? 'none' : bore.toFixed(2)}</span>
             </div>
 
             <div className="text-[9px] text-gray-600 mb-2">
@@ -881,7 +881,7 @@ export default function PropertiesPanel() {
                 <div key={pair.id}
                   className="flex items-center gap-1 mb-1 bg-gray-900/60 rounded px-2 py-1 text-[9px]"
                 >
-                  <span className="text-orange-300 flex-1 truncate">{otherObj?.name ?? 'Deleted'}</span>
+                  <span className="text-orange-700 flex-1 truncate">{otherObj?.name ?? 'Deleted'}</span>
                   <span className="text-gray-500">×{ratio}</span>
                   <button onClick={() => removeMeshPair(pair.id)}
                     className="text-red-500 hover:text-red-400 ml-1 text-[11px] leading-none"
@@ -993,7 +993,7 @@ export default function PropertiesPanel() {
                       onClick={() => toggleCorner(i)}
                       className={`aspect-square rounded border-2 transition-colors flex items-center justify-center text-[14px] ${
                         corners[i]
-                          ? 'bg-teal-600/50 border-teal-400 text-teal-100'
+                          ? 'bg-teal-600/50 border-teal-400 text-teal-700'
                           : 'bg-gray-900 border-gray-600 text-gray-600 hover:border-gray-400'
                       }`}
                       title={corners[i] ? 'Rounded — click to sharpen' : 'Sharp — click to round'}
@@ -1042,7 +1042,7 @@ export default function PropertiesPanel() {
                   if (!isNaN(v)) update({ fillet: Math.max(0, Math.min(maxR, v)) })
                 }}
                 onBlur={snapshot}
-                className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-indigo-500"
+                className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-indigo-500"
               />
               <span className="text-[9px] text-gray-500 shrink-0">r</span>
               {curR > 0 && (
@@ -1120,7 +1120,7 @@ export default function PropertiesPanel() {
                 }
               }}
               onBlur={snapshot}
-              className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-purple-500"
+              className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-purple-500"
             />
             <span className="text-[9px] text-gray-500 shrink-0">°</span>
             {(obj.deform?.bend ?? 0) !== 0 && (
@@ -1199,7 +1199,7 @@ export default function PropertiesPanel() {
             title="Holes carve out solids when grouped (Tinkercad-style)"
             className={`px-3 py-1 rounded text-xs transition-colors border ${
               obj.isHole
-                ? 'bg-sky-800/40 text-sky-200 border-sky-700/50'
+                ? 'bg-sky-800/40 text-sky-700 border-sky-700/50'
                 : 'bg-gray-700 text-gray-300 border-gray-600/50'
             }`}
           >
@@ -1231,7 +1231,7 @@ export default function PropertiesPanel() {
           onClick={() => update({ visible: !obj.visible })}
           className={`px-3 py-1 rounded text-xs transition-colors ${
             obj.visible
-              ? 'bg-green-700/50 text-green-300 border border-green-700/50'
+              ? 'bg-green-700/50 text-green-700 border border-green-700/50'
               : 'bg-gray-700 text-gray-400 border border-gray-600/50'
           }`}
         >
@@ -1248,7 +1248,7 @@ export default function PropertiesPanel() {
         </button>
         <button
           onClick={handleDelete}
-          className="flex-1 bg-red-800/60 hover:bg-red-700 text-red-200 text-xs py-1.5 rounded transition-colors"
+          className="flex-1 bg-red-800/60 hover:bg-red-700 text-red-700 text-xs py-1.5 rounded transition-colors"
         >
           Delete
         </button>
@@ -1269,7 +1269,7 @@ function TextShapeEditor({ obj, update, snapshot }) {
         placeholder="Type text…"
         onChange={(e) => update({ textContent: e.target.value })}
         onBlur={snapshot}
-        className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 mb-2 focus:outline-none focus:border-amber-500"
+        className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 mb-2 focus:outline-none focus:border-amber-500"
       />
       <div className="grid grid-cols-2 gap-2">
         <label className="text-[9px] text-gray-500">
@@ -1279,7 +1279,7 @@ function TextShapeEditor({ obj, update, snapshot }) {
             value={r3(obj.textSize ?? 1)}
             onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textSize: v }) }}
             onBlur={snapshot}
-            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-amber-500"
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-amber-500"
           />
         </label>
         <label className="text-[9px] text-gray-500">
@@ -1289,7 +1289,7 @@ function TextShapeEditor({ obj, update, snapshot }) {
             value={r3(obj.textHeight ?? 0.4)}
             onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textHeight: v }) }}
             onBlur={snapshot}
-            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-amber-500"
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-amber-500"
           />
         </label>
       </div>
@@ -1359,7 +1359,7 @@ function InspectRow({ label, value, accent }) {
   return (
     <div className="flex items-center justify-between gap-2">
       <span className="text-gray-500">{label}</span>
-      <span className={`font-mono ${accent ? 'text-amber-300' : 'text-gray-300'}`}>{value}</span>
+      <span className={`font-mono ${accent ? 'text-amber-700' : 'text-gray-300'}`}>{value}</span>
     </div>
   )
 }
@@ -1463,7 +1463,7 @@ function PatternTools({ obj, insertObject, snapshot }) {
   const tabBtn = (id, label) => (
     <button onClick={() => setTab(id)}
       className={`flex-1 py-1 rounded text-[10px] border transition-colors ${
-        tab === id ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-white'}`}>
+        tab === id ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-slate-800'}`}>
       {label}
     </button>
   )
@@ -1472,7 +1472,7 @@ function PatternTools({ obj, insertObject, snapshot }) {
       {PAT_AXES.map(a => (
         <button key={a} onClick={() => setAxis(a)}
           className={`flex-1 py-1 rounded text-[10px] uppercase border transition-colors ${
-            axis === a ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-white'}`}>{a}</button>
+            axis === a ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-slate-800'}`}>{a}</button>
       ))}
     </div>
   )
@@ -1481,7 +1481,7 @@ function PatternTools({ obj, insertObject, snapshot }) {
       {label}
       <input type="number" step={step} value={value}
         onChange={e => set(parseFloat(e.target.value))}
-        className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-[11px] text-white px-1.5 py-1 focus:outline-none focus:border-amber-500" />
+        className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-[11px] text-slate-800 px-1.5 py-1 focus:outline-none focus:border-amber-500" />
     </label>
   )
 

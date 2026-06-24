@@ -58,26 +58,26 @@ export default function ElectronicsPanel({ selectedId, secondaryId }) {
       <div className="flex items-center gap-2 bg-gray-800/60 rounded p-2 text-xs">
         <span className="text-2xl">🟢</span>
         <div>
-          <div className="text-white font-medium">{arduino.name}</div>
+          <div className="text-slate-800 font-medium">{arduino.name}</div>
           <div className="text-gray-500 text-[10px]">Arduino</div>
         </div>
         <span className="text-gray-500 mx-1">→ Pin 3</span>
         <span className="text-2xl">⚙</span>
         <div>
-          <div className="text-white font-medium">{motor.name}</div>
+          <div className="text-slate-800 font-medium">{motor.name}</div>
           <div className="text-gray-500 text-[10px]">Motor</div>
         </div>
       </div>
 
       {existingConn ? (
         <>
-          <div className="flex items-center gap-2 text-xs text-green-400 bg-green-900/20 border border-green-700/40 rounded p-2">
+          <div className="flex items-center gap-2 text-xs text-green-700 bg-green-900/20 border border-green-700/40 rounded p-2">
             <span>✓</span>
             <span>Connected via Pin 3 (PWM)</span>
           </div>
           <button
             onClick={handleDisconnect}
-            className="w-full py-2 rounded text-xs bg-red-800/50 hover:bg-red-700/60 border border-red-700/40 text-red-300 transition-colors"
+            className="w-full py-2 rounded text-xs bg-red-800/50 hover:bg-red-700/60 border border-red-700/40 text-red-700 transition-colors"
           >
             Disconnect
           </button>
@@ -86,11 +86,11 @@ export default function ElectronicsPanel({ selectedId, secondaryId }) {
         <>
           <div className="text-[10px] text-gray-500 leading-relaxed">
             Connects Motor to Arduino Pin 3 (PWM). Use{' '}
-            <code className="text-green-400">analogWrite(3, 0–255)</code> in your code to control speed.
+            <code className="text-green-700">analogWrite(3, 0–255)</code> in your code to control speed.
           </div>
           <button
             onClick={handleConnect}
-            className="w-full py-2 rounded text-xs bg-green-800/50 hover:bg-green-700/60 border border-green-700/40 text-green-300 transition-colors font-medium"
+            className="w-full py-2 rounded text-xs bg-green-800/50 hover:bg-green-700/60 border border-green-700/40 text-green-700 transition-colors font-medium"
           >
             ⚡ Connect (Pin 3)
           </button>

@@ -98,10 +98,10 @@ export default function ObjectList() {
             <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: obj.color }} />
             <span className="text-sm shrink-0">{TYPE_ICONS[obj.type] ?? '📦'}</span>
             <span className={`flex-1 text-xs truncate ${
-              isPrimary ? 'text-indigo-800' : isSecondary ? 'text-orange-300' : 'text-gray-300'
+              isPrimary ? 'text-indigo-800' : isSecondary ? 'text-orange-700' : 'text-gray-300'
             }`}>
               {obj.name}
-              {isSecondary && <span className="ml-1 text-[9px] text-orange-400 opacity-70">2nd</span>}
+              {isSecondary && <span className="ml-1 text-[9px] text-orange-700 opacity-70">2nd</span>}
             </span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
@@ -134,14 +134,14 @@ export default function ObjectList() {
               key={connId}
               className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-800/40 group hover:bg-gray-800/40 transition-colors"
             >
-              <span className="text-[10px] text-yellow-400/70 font-mono shrink-0">
+              <span className="text-[10px] text-yellow-700 font-mono shrink-0">
                 {componentName(fromPinId, objects)}
               </span>
               <span className="text-[9px] text-gray-500 font-mono bg-gray-800 px-1 rounded shrink-0">
                 {pinLabel(fromPinId)}
               </span>
               <span className="text-gray-600 text-[9px] shrink-0">→</span>
-              <span className="text-[10px] text-yellow-400/70 font-mono shrink-0">
+              <span className="text-[10px] text-yellow-700 font-mono shrink-0">
                 {componentName(toPinId, objects)}
               </span>
               <span className="text-[9px] text-gray-500 font-mono bg-gray-800 px-1 rounded shrink-0">

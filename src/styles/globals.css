@@ -23,6 +23,12 @@ input[type='number']::-webkit-outer-spin-button { opacity: 1; }
 input, textarea, select { color: #1E293B !important; }
 input::placeholder, textarea::placeholder { color: #94A3B8; }
 
+/* The Arduino code editor is a dark terminal-style surface — keep its text a
+   bright green. Without this, the rule above forces dark-on-dark and hides the
+   code. A class selector beats the bare-element rule above. */
+textarea.code-text { color: #86efac !important; caret-color: #86efac; }
+textarea.code-text::placeholder { color: #6b8f6b; }
+
 /* ── Scrollbar (light) ───────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: #EEF2F8; }

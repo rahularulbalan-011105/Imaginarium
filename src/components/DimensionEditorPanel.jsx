@@ -103,7 +103,7 @@ export default function DimensionEditorPanel({ obj }) {
           onClick={() => setMode('center')}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             mode === 'center'
-              ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+              ? 'bg-indigo-700/40 text-indigo-700 border border-indigo-600/50'
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
           title="Scale symmetrically from center"
@@ -114,7 +114,7 @@ export default function DimensionEditorPanel({ obj }) {
           onClick={() => setMode('one-sided')}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             mode === 'one-sided'
-              ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+              ? 'bg-indigo-700/40 text-indigo-700 border border-indigo-600/50'
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
           title="Move only one face — the opposite face stays fixed"
@@ -130,13 +130,13 @@ export default function DimensionEditorPanel({ obj }) {
           <button
             onClick={() => setLockSide('min')}
             className={`flex-1 py-0.5 rounded text-[9px] transition-colors ${
-              lockSide === 'min' ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+              lockSide === 'min' ? 'bg-gray-600 text-slate-800' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
             }`}
           >− face</button>
           <button
             onClick={() => setLockSide('max')}
             className={`flex-1 py-0.5 rounded text-[9px] transition-colors ${
-              lockSide === 'max' ? 'bg-gray-600 text-white' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
+              lockSide === 'max' ? 'bg-gray-600 text-slate-800' : 'bg-gray-800 text-gray-500 hover:text-gray-300'
             }`}
           >+ face</button>
         </div>
@@ -164,7 +164,7 @@ export default function DimensionEditorPanel({ obj }) {
                 setEditing(ev => ({ ...ev, [axis]: String(currentVal) }))
                 e.target.select()
               }}
-              className={`flex-1 bg-gray-700 text-white text-[11px] px-2 py-1 rounded border focus:outline-none ${
+              className={`flex-1 bg-gray-700 text-slate-800 text-[11px] px-2 py-1 rounded border focus:outline-none ${
                 isEditing ? 'border-indigo-500' : 'border-gray-600'
               }`}
             />

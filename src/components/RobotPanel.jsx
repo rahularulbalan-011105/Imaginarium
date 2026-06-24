@@ -102,7 +102,7 @@ export default function RobotPanel() {
               <div className="flex items-center gap-2">
                 <span className="text-base">{LOCO_META[bp.locomotion.type]?.icon ?? '🤖'}</span>
                 <div className="flex-1 min-w-0">
-                  <div className="text-xs font-semibold text-white truncate">{bp.robotName}</div>
+                  <div className="text-xs font-semibold text-slate-900 truncate">{bp.robotName}</div>
                   <div className="text-[9px] text-gray-500">{LOCO_META[bp.locomotion.type]?.label ?? bp.locomotion.type} · {(bp.members?.length ?? 0)} parts</div>
                 </div>
                 <button onClick={() => { removeBlueprint(bp.id); snapshot() }}
@@ -110,14 +110,14 @@ export default function RobotPanel() {
               </div>
               <div className="mt-1 flex flex-wrap gap-1">
                 {moduleLabels(bp).map(m => (
-                  <span key={m} className="text-[8px] px-1.5 py-0.5 rounded bg-cyan-900/40 border border-cyan-800/50 text-cyan-300">{m}</span>
+                  <span key={m} className="text-[8px] px-1.5 py-0.5 rounded bg-cyan-900/40 border border-cyan-800/50 text-cyan-700">{m}</span>
                 ))}
               </div>
               {/* quick locomotion change */}
               <div className="mt-1.5 flex flex-wrap gap-1">
                 {LOCOMOTION_TYPES.map(t => (
                   <button key={t} onClick={() => { updateBlueprint(bp.id, { locomotion: { ...bp.locomotion, type: t } }); snapshot() }}
-                    className={`text-[8px] px-1.5 py-0.5 rounded border ${bp.locomotion.type === t ? 'bg-cyan-700 border-cyan-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-white'}`}>
+                    className={`text-[8px] px-1.5 py-0.5 rounded border ${bp.locomotion.type === t ? 'bg-cyan-700 border-cyan-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-slate-800'}`}>
                     {LOCO_META[t]?.label ?? t}
                   </button>
                 ))}
@@ -138,7 +138,7 @@ export default function RobotPanel() {
             <label className="text-[9px] text-gray-500">
               Assembly
               <select value={rootId} onChange={e => onPickAssembly(e.target.value)}
-                className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none">
+                className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none">
                 {assemblies.map(a => <option key={a.rootId} value={a.rootId}>{a.name} · {a.memberIds.length} parts</option>)}
               </select>
             </label>
@@ -146,14 +146,14 @@ export default function RobotPanel() {
             <label className="text-[9px] text-gray-500">
               Name
               <input value={name} onChange={e => setName(e.target.value)} placeholder={chosen?.name ?? 'Robot'}
-                className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none" />
+                className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none" />
             </label>
 
             <div className="text-[9px] text-gray-500">Robot type</div>
             <div className="grid grid-cols-3 gap-1">
               {LOCOMOTION_TYPES.map(t => (
                 <button key={t} onClick={() => setLoco(t)}
-                  className={`flex flex-col items-center gap-0.5 py-1.5 rounded border text-[9px] transition-colors ${loco === t ? 'bg-cyan-700/70 border-cyan-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-white'}`}>
+                  className={`flex flex-col items-center gap-0.5 py-1.5 rounded border text-[9px] transition-colors ${loco === t ? 'bg-cyan-700/70 border-cyan-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-slate-800'}`}>
                   <span className="text-base leading-none">{LOCO_META[t]?.icon}</span>
                   <span>{LOCO_META[t]?.label ?? t}</span>
                 </button>

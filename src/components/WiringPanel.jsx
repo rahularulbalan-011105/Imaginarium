@@ -51,9 +51,9 @@ function PinButton({ pinId, pin, step, srcPin, dstPin, connectedPins, connForPin
   const isWaiting   = step === 'dest' && pinId !== srcPin && !isConnected
 
   let bg, textColor, border, cursor
-  if (isSelected)  { bg = 'bg-indigo-600/50'; textColor = 'text-indigo-200'; border = 'border-indigo-500/70'; cursor = 'cursor-pointer' }
-  else if (isConnected) { bg = 'bg-green-900/40'; textColor = 'text-green-300'; border = 'border-green-600/50'; cursor = 'cursor-pointer' }
-  else if (isWaiting)   { bg = 'bg-blue-900/30'; textColor = 'text-blue-300'; border = 'border-blue-700/40'; cursor = 'cursor-pointer' }
+  if (isSelected)  { bg = 'bg-indigo-600/50'; textColor = 'text-indigo-700'; border = 'border-indigo-500/70'; cursor = 'cursor-pointer' }
+  else if (isConnected) { bg = 'bg-green-900/40'; textColor = 'text-green-700'; border = 'border-green-600/50'; cursor = 'cursor-pointer' }
+  else if (isWaiting)   { bg = 'bg-blue-900/30'; textColor = 'text-blue-700'; border = 'border-blue-700/40'; cursor = 'cursor-pointer' }
   else { bg = 'bg-gray-700/40'; textColor = 'text-gray-400'; border = 'border-gray-600/30'; cursor = 'cursor-pointer' }
 
   let title = step === 'source'
@@ -179,17 +179,17 @@ export default function WiringPanel() {
         <div className="bg-gray-800/60 border border-red-700/30 rounded-lg p-3">
           <div className="flex items-center gap-2 text-xs mb-1">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: disconnectInfo.color }} />
-            <span className="text-white font-medium">{friendlyPin(disconnectInfo.from)}</span>
+            <span className="text-slate-800 font-medium">{friendlyPin(disconnectInfo.from)}</span>
           </div>
           <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: disconnectInfo.color }} />
-            <span className="text-white font-medium">{friendlyPin(disconnectInfo.to)}</span>
+            <span className="text-slate-800 font-medium">{friendlyPin(disconnectInfo.to)}</span>
           </div>
         </div>
         <button
           onClick={() => disconnect(disconnectConnId)}
-          className="w-full py-2 rounded text-xs font-bold bg-red-900/40 hover:bg-red-700/50 border border-red-700/40 text-red-300 hover:text-slate-900 transition-colors"
+          className="w-full py-2 rounded text-xs font-bold bg-red-900/40 hover:bg-red-700/50 border border-red-700/40 text-red-700 hover:text-slate-900 transition-colors"
         >
           ✂ Disconnect
         </button>
@@ -228,18 +228,18 @@ export default function WiringPanel() {
         <div className="bg-gray-800/60 border border-green-700/30 rounded-lg p-3">
           <div className="flex items-center gap-2 text-xs mb-1">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: wireColor }} />
-            <span className="text-white font-medium">{friendlyPin(srcPin)}</span>
+            <span className="text-slate-800 font-medium">{friendlyPin(srcPin)}</span>
           </div>
           <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: wireColor }} />
-            <span className="text-indigo-300 font-medium">{friendlyPin(dstPin)}</span>
+            <span className="text-indigo-700 font-medium">{friendlyPin(dstPin)}</span>
           </div>
         </div>
 
         <button
           onClick={connect}
-          className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-300 hover:text-slate-900 transition-colors"
+          className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-700 hover:text-slate-900 transition-colors"
         >
           ⚡ Connect
         </button>
@@ -272,7 +272,7 @@ export default function WiringPanel() {
             </div>
             <div className="flex items-center gap-1 mt-0.5">
               <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
-              <span className="text-[10px] text-white">{friendlyPin(srcPin)}</span>
+              <span className="text-[10px] text-slate-800">{friendlyPin(srcPin)}</span>
             </div>
             <button onClick={reset} className="text-[9px] text-gray-500 hover:text-gray-300 mt-1 transition-colors">
               ← Cancel
@@ -307,7 +307,7 @@ export default function WiringPanel() {
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-800/80 border-b border-gray-700/30">
                 <span className="text-base">{compIcon(comp.type)}</span>
                 <div>
-                  <div className="text-xs font-semibold text-white leading-tight">{comp.name}</div>
+                  <div className="text-xs font-semibold text-slate-900 leading-tight">{comp.name}</div>
                   <div className="text-[9px] text-gray-500 capitalize leading-tight">{comp.type}</div>
                 </div>
               </div>

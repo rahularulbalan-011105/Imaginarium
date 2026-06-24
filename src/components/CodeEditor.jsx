@@ -144,7 +144,7 @@ export default function CodeEditor() {
   const hasServoAngles = Object.keys(simulation.servoAngles ?? {}).length > 0
 
   return (
-    <div className="flex flex-col h-full bg-gray-950">
+    <div className="flex flex-col h-full bg-slate-950">
 
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
@@ -194,7 +194,7 @@ export default function CodeEditor() {
         value={code}
         onChange={e => setCode(e.target.value)}
         spellCheck={false}
-        className="flex-1 bg-gray-950 text-green-300 font-mono text-xs p-3 resize-none focus:outline-none border-0 leading-relaxed min-h-0"
+        className="code-text flex-1 bg-slate-950 text-green-300 font-mono text-xs p-3 resize-none focus:outline-none border-0 leading-relaxed min-h-0"
         style={{ fontFamily: "'Fira Code', 'Consolas', monospace", tabSize: 2 }}
       />
 
@@ -282,7 +282,7 @@ export default function CodeEditor() {
           </div>
           <pre
             ref={serialRef}
-            className="bg-gray-900 text-green-400 font-mono text-[10px] p-2 rounded border border-gray-700/40 h-20 overflow-y-auto whitespace-pre-wrap break-words"
+            className="bg-slate-900 text-green-400 font-mono text-[10px] p-2 rounded border border-slate-700/40 h-20 overflow-y-auto whitespace-pre-wrap break-words"
           >
             {serialLog || <span className="text-gray-600 not-italic">No output yet…</span>}
           </pre>

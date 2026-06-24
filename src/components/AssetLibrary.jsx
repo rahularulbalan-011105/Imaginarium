@@ -205,7 +205,7 @@ export default function AssetLibrary() {
         <div
           className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors select-none ${
             dropOver
-              ? 'border-indigo-400 bg-indigo-900/20 text-indigo-300'
+              ? 'border-indigo-400 bg-indigo-900/20 text-indigo-700'
               : 'border-gray-600 hover:border-indigo-600/50 text-gray-400'
           }`}
           onClick={() => fileRef.current?.click()}
@@ -220,7 +220,7 @@ export default function AssetLibrary() {
           <div className="text-[9px] text-gray-600 mt-0.5">GLB · GLTF · STL</div>
         </div>
         {importErr && (
-          <div className="mt-1 text-[10px] text-red-400 px-1">{importErr}</div>
+          <div className="mt-1 text-[10px] text-red-700 px-1">{importErr}</div>
         )}
         <input
           ref={fileRef}
