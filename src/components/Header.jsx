@@ -10,6 +10,7 @@ import { clear as clearHistory } from '../managers/history/editorDispatch.js'
 import { saveJSONToFile, readJSONFile } from '../utils/export.js'
 import { buildProjectSnapshot } from '../utils/helpers.js'
 import HelpMenu from './onboarding/HelpMenu.jsx'
+import { getTheme, toggleTheme } from '../theme/theme.js'
 import { v4 as uuidv4 } from 'uuid'
 
 export default function Header() {
@@ -36,7 +37,10 @@ export default function Header() {
   const [showMenu, setShowMenu]       = useState(false)
   const [showOpenDlg, setShowOpenDlg] = useState(false)
   const [savedProjects, setSavedProjects] = useState([])
+  const [theme, setTheme]             = useState(getTheme)
   const importRef = useRef(null)
+
+  const handleToggleTheme = () => setTheme(toggleTheme())
 
   // ── snapshot helper ───────────────────────────────────────────────────────
   const getSnapshot = useCallback(() =>
@@ -131,12 +135,12 @@ export default function Header() {
   return (
     <>
       <header data-tour="header" className="flex items-center gap-3 px-4 h-12 shrink-0 z-10"
-        style={{ background: 'linear-gradient(90deg,#F7F9FC 0%,#FFFFFF 50%,#F7F9FC 100%)', borderBottom: '1px solid rgba(99,102,241,0.18)' }}>
+        style={{ background: 'linear-gradient(90deg,rgb(var(--g-950)) 0%,rgb(var(--g-900)) 50%,rgb(var(--g-950)) 100%)', borderBottom: '1px solid rgb(var(--a-600) / 0.18)' }}>
         {/* Logo */}
         <div className="flex items-center gap-2 mr-2">
           <span className="text-lg">🧊</span>
           <span className="text-sm font-bold hidden sm:block"
-            style={{ background: 'linear-gradient(90deg,#6366f1,#4F46E5)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             3D Editor
           </span>
         </div>
@@ -147,10 +151,21 @@ export default function Header() {
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
           className="bg-transparent text-sm text-gray-200 px-1 py-0.5 focus:outline-none w-40 min-w-0"
-          style={{ borderBottom: '1px solid rgba(99,102,241,0.35)' }}
+          style={{ borderBottom: '1px solid rgb(var(--a-600) / 0.35)' }}
         />
 
         <div className="flex-1" />
+
+        {/* Theme toggle — light / dark palette switch */}
+        <button
+          onClick={handleToggleTheme}
+          title={theme === 'dark' ? 'Switch to Light mode' : 'Switch to Dark mode'}
+          aria-label="Toggle colour theme"
+          className="px-3 py-1 text-xs text-gray-300 hover:text-gray-50 rounded transition-colors"
+          style={{ background: 'rgb(var(--a-600) / 0.1)', border: '1px solid rgb(var(--a-600) / 0.25)' }}
+        >
+          {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
+        </button>
 
         {/* Help menu — tutorials, product tour, shortcuts, beginner guide */}
         <HelpMenu />
@@ -166,7 +181,7 @@ export default function Header() {
           }`}
           style={saveFlash
             ? { background: 'linear-gradient(90deg,#16a34a,#15803d)', boxShadow: '0 0 8px rgba(63,185,80,0.4)' }
-            : { background: 'linear-gradient(90deg,#6366f1,#4f46e5)', boxShadow: '0 0 8px rgba(99,102,241,0.3)' }}
+            : { background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', boxShadow: '0 0 8px rgb(var(--a-600) / 0.3)' }}
         >
           {saving ? 'Saving…' : saveFlash ? '✓ Saved' : '💾 Save'}
         </button>
@@ -175,8 +190,8 @@ export default function Header() {
         <div className="relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            className="px-3 py-1 text-xs text-gray-300 hover:text-slate-900 rounded transition-colors"
-            style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}
+            className="px-3 py-1 text-xs text-gray-300 hover:text-gray-50 rounded transition-colors"
+            style={{ background: 'rgb(var(--a-600) / 0.1)', border: '1px solid rgb(var(--a-600) / 0.25)' }}
           >
             ☰ File
           </button>
@@ -184,10 +199,10 @@ export default function Header() {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
               <div className="absolute right-0 top-full mt-1 w-48 rounded shadow-2xl z-20 py-1"
-                style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.25)' }}>
+                style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-600) / 0.25)' }}>
                 <MenuItem onClick={handleNewProject}  icon="📄" label="New Project" />
                 <MenuItem onClick={handleOpenDialog}  icon="📂" label="Open Saved…" />
-                <div className="my-1" style={{ borderTop: '1px solid rgba(99,102,241,0.15)' }} />
+                <div className="my-1" style={{ borderTop: '1px solid rgb(var(--a-600) / 0.15)' }} />
                 <MenuItem onClick={handleExportJSON}  icon="⬇" label="Export JSON" />
                 <MenuItem onClick={handleImportClick} icon="⬆" label="Import JSON" />
               </div>
@@ -213,15 +228,15 @@ export default function Header() {
           />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
             <div className="rounded-xl shadow-2xl w-full max-w-md pointer-events-auto"
-              style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.25)' }}>
+              style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-600) / 0.25)' }}>
 
               {/* Dialog header */}
               <div className="flex items-center justify-between px-5 py-3.5"
-                style={{ borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
-                <h2 className="text-sm font-semibold text-white">Open Saved Project</h2>
+                style={{ borderBottom: '1px solid rgb(var(--a-600) / 0.15)' }}>
+                <h2 className="text-sm font-semibold text-gray-50">Open Saved Project</h2>
                 <button
                   onClick={() => setShowOpenDlg(false)}
-                  className="text-gray-500 hover:text-slate-900 text-lg leading-none"
+                  className="text-gray-500 hover:text-gray-50 text-lg leading-none"
                 >
                   ✕
                 </button>
@@ -241,13 +256,13 @@ export default function Header() {
                       key={proj.projectId}
                       onClick={() => handleLoadProject(proj.projectId)}
                       className="flex items-center gap-3 px-5 py-3.5 cursor-pointer last:border-0 group transition-colors"
-                      style={{ borderBottom: '1px solid rgba(99,102,241,0.1)' }}
-                      onMouseEnter={e => e.currentTarget.style.background='rgba(99,102,241,0.07)'}
+                      style={{ borderBottom: '1px solid rgb(var(--a-600) / 0.1)' }}
+                      onMouseEnter={e => e.currentTarget.style.background='rgb(var(--a-600) / 0.07)'}
                       onMouseLeave={e => e.currentTarget.style.background='transparent'}
                     >
                       <span className="text-2xl shrink-0">📁</span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-white truncate group-hover:text-indigo-300 transition-colors">
+                        <div className="text-sm font-medium text-gray-50 truncate group-hover:text-indigo-300 transition-colors">
                           {proj.name || 'Untitled Project'}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
@@ -284,9 +299,9 @@ function MenuItem({ onClick, icon, label }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-slate-900 transition-colors"
+      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-gray-50 transition-colors"
       style={{ background: 'transparent' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'rgba(99,102,241,0.1)'}
+      onMouseEnter={e => e.currentTarget.style.background = 'rgb(var(--a-600) / 0.1)'}
       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
     >
       <span>{icon}</span>

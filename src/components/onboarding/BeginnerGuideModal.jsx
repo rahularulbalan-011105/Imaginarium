@@ -62,8 +62,8 @@ export default function BeginnerGuideModal() {
     <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={close} />
       <div className="relative w-full max-w-xl rounded-2xl shadow-2xl overflow-hidden flex flex-col"
-        style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.3)', maxHeight: '85vh' }}>
-        <div className="flex items-center justify-between px-5 py-3.5 shrink-0" style={{ borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
+        style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500) / 0.3)', maxHeight: '85vh' }}>
+        <div className="flex items-center justify-between px-5 py-3.5 shrink-0" style={{ borderBottom: '1px solid rgb(var(--a-500) / 0.15)' }}>
           <h2 className="text-sm font-semibold text-slate-900">📖 Beginner Guide</h2>
           <button onClick={close} className="text-gray-500 hover:text-slate-900 text-lg leading-none">✕</button>
         </div>
@@ -74,7 +74,7 @@ export default function BeginnerGuideModal() {
             no installs, no account. Here is the whole workflow from empty scene to running robot.
           </p>
           {SECTIONS.map((s) => (
-            <div key={s.title} className="rounded-lg p-3" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(99,102,241,0.10)' }}>
+            <div key={s.title} className="rounded-lg p-3" style={{ background: 'rgb(var(--g-800) / 0.4)', border: '1px solid rgb(var(--a-500) / 0.10)' }}>
               <div className="flex items-center gap-2 mb-1.5">
                 <span className="text-base">{s.icon}</span>
                 <h3 className="text-xs font-bold text-indigo-800">{s.title}</h3>
@@ -90,11 +90,11 @@ export default function BeginnerGuideModal() {
           ))}
         </div>
 
-        <div className="px-5 py-3 shrink-0 flex items-center justify-between gap-3" style={{ borderTop: '1px solid rgba(99,102,241,0.15)' }}>
+        <div className="px-5 py-3 shrink-0 flex items-center justify-between gap-3" style={{ borderTop: '1px solid rgb(var(--a-500) / 0.15)' }}>
           <span className="text-[10px] text-gray-600">Prefer learning by doing?</span>
           <button onClick={() => { close(); startCoach() }}
             className="px-4 py-1.5 rounded-lg text-xs font-semibold text-white transition-all hover:brightness-110"
-            style={{ background: 'linear-gradient(90deg,#6366f1,#4f46e5)' }}>
+            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))' }}>
             🎓 Start guided tutorial
           </button>
         </div>

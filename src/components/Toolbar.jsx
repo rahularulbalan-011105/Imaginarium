@@ -5,10 +5,12 @@ import { useHistory } from '../hooks/useHistory.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { patchManager } from '../managers/PatchManager.js'
 
-// ── Readable text system (per design spec) ───────────────────────────────────
-const T_PRIMARY   = '#1E293B'   // component names — bright, high contrast
-const T_SECONDARY = '#475569'   // headers / labels
-const T_MUTED     = '#64748B'   // counts / least important
+// ── Readable text system — theme-aware (flips with light/dark) ───────────────
+// These resolve to the neutral text channels in globals.css, so labels stay
+// readable on the panel surface in BOTH themes.
+const T_PRIMARY   = 'rgb(var(--g-200))'   // component names — high contrast
+const T_SECONDARY = 'rgb(var(--g-400))'   // headers / labels
+const T_MUTED     = 'rgb(var(--g-500))'   // counts / least important
 
 const SHAPES = [
   { type: 'cylinder',    label: 'Cylinder',     icon: '⬤', key: '1' },
@@ -80,7 +82,7 @@ function ToolButton({ icon, label, onClick, title, active, hueHover = 'indigo', 
       data-tour={dataTour}
       className={`relative w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 ${
         active
-          ? 'bg-indigo-600 shadow-[0_0_12px_rgba(79,70,229,0.18)]'
+          ? 'bg-indigo-600 shadow-[0_0_12px_rgb(var(--a-600)/0.18)]'
           : hoverBg
       }`}
     >
@@ -300,7 +302,7 @@ export default function Toolbar() {
           }`}
         >
           <span className="text-base leading-none">{simActive ? '⏹' : '▶'}</span>
-          <span className="text-[10px] font-semibold leading-tight" style={{ color: simActive ? '#1a1a1a' : '#92400E' }}>
+          <span className="text-[10px] font-semibold leading-tight" style={{ color: simActive ? '#1a1a1a' : '#D97706' }}>
             {simActive ? 'Stop' : 'Simulate'}
           </span>
         </button>
@@ -320,7 +322,7 @@ export default function Toolbar() {
             }`}
           >
             <span className="text-base leading-none">#</span>
-            <span className="text-[10px] font-medium leading-tight" style={{ color: gridVisible ? '#4F46E5' : T_SECONDARY }}>Grid</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: gridVisible ? 'rgb(var(--a-600))' : T_SECONDARY }}>Grid</span>
           </button>
           <button
             onClick={toggleAxes}
@@ -330,7 +332,7 @@ export default function Toolbar() {
             }`}
           >
             <span className="text-base leading-none">⊕</span>
-            <span className="text-[10px] font-medium leading-tight" style={{ color: axesVisible ? '#4F46E5' : T_SECONDARY }}>Axes</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: axesVisible ? 'rgb(var(--a-600))' : T_SECONDARY }}>Axes</span>
           </button>
         </div>
       </div>

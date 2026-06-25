@@ -35,7 +35,7 @@ function JointCard({ joint, objects }) {
       <div className="flex items-center gap-2 px-3 py-2 cursor-pointer hover:bg-gray-700/30" onClick={() => setExpanded(e => !e)}>
         <span className="text-base">{meta.icon}</span>
         <div className="flex-1 min-w-0">
-          <div className="text-xs font-semibold text-white truncate">
+          <div className="text-xs font-semibold text-gray-100 truncate">
             {meta.label} Joint
           </div>
           <div className="text-[10px] text-gray-400 truncate">
@@ -305,7 +305,7 @@ export default function JointPanel() {
           <>
             <div className="text-[10px] text-gray-400">
               Between{' '}
-              <span className="text-white font-medium">
+              <span className="text-gray-100 font-medium">
                 {objects.find(o => o.id === selectedId)?.name ?? '?'}
               </span>
               {' '}→{' '}

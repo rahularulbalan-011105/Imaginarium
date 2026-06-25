@@ -174,12 +174,12 @@ export default function WiringPanel() {
         <div className="bg-gray-800/60 border border-red-700/30 rounded-lg p-3">
           <div className="flex items-center gap-2 text-xs mb-1">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: disconnectInfo.color }} />
-            <span className="text-white font-medium">{friendlyPin(disconnectInfo.from)}</span>
+            <span className="text-gray-100 font-medium">{friendlyPin(disconnectInfo.from)}</span>
           </div>
           <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: disconnectInfo.color }} />
-            <span className="text-white font-medium">{friendlyPin(disconnectInfo.to)}</span>
+            <span className="text-gray-100 font-medium">{friendlyPin(disconnectInfo.to)}</span>
           </div>
         </div>
         <button
@@ -223,7 +223,7 @@ export default function WiringPanel() {
         <div className="bg-gray-800/60 border border-green-700/30 rounded-lg p-3">
           <div className="flex items-center gap-2 text-xs mb-1">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: wireColor }} />
-            <span className="text-white font-medium">{friendlyPin(srcPin)}</span>
+            <span className="text-gray-100 font-medium">{friendlyPin(srcPin)}</span>
           </div>
           <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
           <div className="flex items-center gap-2 text-xs">
@@ -267,7 +267,7 @@ export default function WiringPanel() {
             </div>
             <div className="flex items-center gap-1 mt-0.5">
               <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
-              <span className="text-[10px] text-white">{friendlyPin(srcPin)}</span>
+              <span className="text-[10px] text-gray-100">{friendlyPin(srcPin)}</span>
             </div>
             <button onClick={reset} className="text-[9px] text-gray-500 hover:text-gray-300 mt-1 transition-colors">
               ← Cancel
@@ -302,7 +302,7 @@ export default function WiringPanel() {
               <div className="flex items-center gap-2 px-3 py-2 bg-gray-800/80 border-b border-gray-700/30">
                 <span className="text-base">{compIcon(comp.type)}</span>
                 <div>
-                  <div className="text-xs font-semibold text-white leading-tight">{comp.name}</div>
+                  <div className="text-xs font-semibold text-gray-100 leading-tight">{comp.name}</div>
                   <div className="text-[9px] text-gray-500 capitalize leading-tight">{comp.type}</div>
                 </div>
               </div>

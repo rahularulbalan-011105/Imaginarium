@@ -48,7 +48,7 @@ export default function BattlePanel() {
                 <LiveFront title="P1 nose" slot="p1" accent="#22c55e" />
                 <LiveFront title="P2 nose" slot="p2" accent="#ef4444" />
               </>}
-          <button onClick={exit} className="w-full py-2 rounded-lg text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-white">■ Exit Battle</button>
+          <button onClick={exit} className="w-full py-2 rounded-lg text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100">■ Exit Battle</button>
         </div>
         <div className="fixed inset-0 z-40 pointer-events-none">
           <div className="absolute top-3 left-4"><HPBar side="left"  name={mode === 'online' ? 'Host' : 'P1'} hp={hp.p1} lives={lives.p1} color="#22c55e" you={mode === 'online' && role === 'host'} /></div>

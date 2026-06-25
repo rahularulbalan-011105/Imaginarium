@@ -267,13 +267,13 @@ export default function AssetLibrary() {
                   className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-gray-700/40 transition-colors"
                 >
                   <span className="text-sm">{cat.icon}</span>
-                  <span className="text-[12px] font-semibold" style={{ color: '#1E293B' }}>{cat.label}</span>
-                  <span className="text-[10px]" style={{ color: '#64748B' }}>({cat.items.length})</span>
-                  <span className="ml-auto text-[10px]" style={{ color: '#64748B' }}>{open ? '▾' : '▸'}</span>
+                  <span className="text-[12px] font-semibold" style={{ color: 'rgb(var(--g-200))' }}>{cat.label}</span>
+                  <span className="text-[10px]" style={{ color: 'rgb(var(--g-500))' }}>({cat.items.length})</span>
+                  <span className="ml-auto text-[10px]" style={{ color: 'rgb(var(--g-500))' }}>{open ? '▾' : '▸'}</span>
                 </button>
                 {open && (
                   <div className="px-1.5 pb-1.5">
-                    {cat.blurb && <div className="text-[9px] mb-1 px-1" style={{ color: '#64748B' }}>{cat.blurb}</div>}
+                    {cat.blurb && <div className="text-[9px] mb-1 px-1" style={{ color: 'rgb(var(--g-500))' }}>{cat.blurb}</div>}
                     <div className="flex flex-col gap-1">
                       {cat.items.map(({ type, label, icon, desc, purpose, usage }) => (
                         <button
@@ -284,8 +284,8 @@ export default function AssetLibrary() {
                         >
                           <span className="text-lg leading-none shrink-0">{icon}</span>
                           <span className="min-w-0 flex-1">
-                            <span className="block text-[12px] font-medium leading-tight truncate" style={{ color: '#1E293B' }}>{label}</span>
-                            <span className="block text-[10px] leading-tight truncate" style={{ color: '#475569' }}>{desc}</span>
+                            <span className="block text-[12px] font-medium leading-tight truncate" style={{ color: 'rgb(var(--g-200))' }}>{label}</span>
+                            <span className="block text-[10px] leading-tight truncate" style={{ color: 'rgb(var(--g-400))' }}>{desc}</span>
                           </span>
                           <span className="text-[14px] opacity-0 group-hover:opacity-100 transition-opacity shrink-0" style={{ color: '#86efac' }}>＋</span>
                         </button>

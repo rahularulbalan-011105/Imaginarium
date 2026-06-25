@@ -195,25 +195,25 @@ export default function DrivePanel() {
             <button
               onMouseDown={() => btnDown('fwd')}  onMouseUp={() => btnUp('fwd')}
               onMouseLeave={() => btnUp('fwd')}   onTouchStart={() => btnDown('fwd')} onTouchEnd={() => btnUp('fwd')}
-              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
             >▲</button>
             <div />
             <button
               onMouseDown={() => btnDown('left')} onMouseUp={() => btnUp('left')}
               onMouseLeave={() => btnUp('left')}  onTouchStart={() => btnDown('left')} onTouchEnd={() => btnUp('left')}
-              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
             >◄</button>
             <div className="flex items-center justify-center bg-gray-800/60 rounded text-[9px] text-gray-600">●</div>
             <button
               onMouseDown={() => btnDown('right')} onMouseUp={() => btnUp('right')}
               onMouseLeave={() => btnUp('right')}  onTouchStart={() => btnDown('right')} onTouchEnd={() => btnUp('right')}
-              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
             >►</button>
             <div />
             <button
               onMouseDown={() => btnDown('back')} onMouseUp={() => btnUp('back')}
               onMouseLeave={() => btnUp('back')}  onTouchStart={() => btnDown('back')} onTouchEnd={() => btnUp('back')}
-              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-white text-[14px] select-none cursor-pointer transition-colors"
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
             >▼</button>
             <div />
           </div>

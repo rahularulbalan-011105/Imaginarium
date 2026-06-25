@@ -89,10 +89,10 @@ export default function MissionTracker() {
 
       {/* Checklist card (bottom-right, out of the way) */}
       <div className="fixed bottom-10 right-4 z-[110] w-64 rounded-xl shadow-2xl overflow-hidden"
-        style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.3)' }}>
+        style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500) / 0.3)' }}>
 
         <div className="flex items-center gap-2 px-3 py-2"
-          style={{ background: 'linear-gradient(90deg, rgba(99,102,241,0.15), transparent)' }}>
+          style={{ background: 'linear-gradient(90deg, rgb(var(--a-500) / 0.15), transparent)' }}>
           <span className="text-sm">🎓</span>
           <span className="text-xs font-bold text-indigo-800 flex-1">
             {allDone ? 'Tutorial complete!' : `Mission ${index + 1} of ${MISSIONS.length}`}
@@ -116,13 +116,13 @@ export default function MissionTracker() {
                     className="flex-1 py-1.5 rounded text-xs text-gray-300 bg-gray-700/60 hover:bg-gray-600 transition-colors">↻ Again</button>
                   <button onClick={end}
                     className="flex-1 py-1.5 rounded text-xs font-semibold text-white transition-all hover:brightness-110"
-                    style={{ background: 'linear-gradient(90deg,#6366f1,#4f46e5)' }}>Done ✓</button>
+                    style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))' }}>Done ✓</button>
                 </div>
               </div>
             ) : (
               <>
                 {/* Current mission call-out */}
-                <div className="mb-2 p-2 rounded-lg" style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.18)' }}>
+                <div className="mb-2 p-2 rounded-lg" style={{ background: 'rgb(var(--a-500) / 0.08)', border: '1px solid rgb(var(--a-500) / 0.18)' }}>
                   <div className="text-xs font-semibold text-indigo-800 mb-0.5">{current.label}</div>
                   <div className="text-[10px] text-gray-400 leading-snug">{current.tip}</div>
                 </div>

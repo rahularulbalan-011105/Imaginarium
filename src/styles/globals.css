@@ -2,6 +2,95 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ══════════════════════════════════════════════════════════════════════════
+   THEME TOKENS
+   ──────────────────────────────────────────────────────────────────────────
+   All UI colour comes from these CSS custom properties. Tailwind's `gray` ramp
+   maps to the neutral channels (--g-*) and the accent ramp (formerly indigo)
+   maps to --a-*, so every existing bg-gray-* / text-gray-* / *-indigo-* class
+   flips automatically when `data-theme` changes — no markup edits needed.
+
+   Channels are stored as space-separated RGB so Tailwind's `<alpha-value>`
+   opacity modifiers (e.g. bg-gray-900/50) keep working.
+
+   Shade semantics (inherited from the original inverted ramp):
+     g-950 app background · g-900 panels/header · g-800 cards/inputs
+     g-700 hover/subtle border · g-600 border/disabled
+     g-500 muted text · g-400 secondary · g-300 body · g-200/100 emphasis · g-50 strongest
+   Accent is orange (#F97316) in BOTH themes; only its tint/text shades adapt.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+:root,
+[data-theme='dark'] {
+  /* neutral ramp — DARK (default) */
+  --g-950: 18 18 18;     /* #121212 app background      */
+  --g-900: 30 30 30;     /* #1E1E1E panels / header     */
+  --g-800: 36 36 36;     /* #242424 cards / inputs      */
+  --g-700: 46 46 46;     /* #2E2E2E hover / subtle border */
+  --g-600: 58 58 58;     /* #3A3A3A borders / disabled  */
+  --g-500: 156 163 175;  /* #9CA3AF muted text          */
+  --g-400: 207 207 207;  /* #CFCFCF secondary text      */
+  --g-300: 229 229 229;  /* #E5E5E5 body text           */
+  --g-200: 245 245 245;  /* #F5F5F5 emphasis text       */
+  --g-100: 245 245 245;
+  --g-50:  255 255 255;  /* #FFFFFF strongest text      */
+
+  /* accent ramp — orange; tint(50)/text(300/400/800) shades tuned for dark bg */
+  --a-50:   67 20 7;     /* dark tint surface  */
+  --a-100: 255 237 213;  /* light text on dark accent chips */
+  --a-200: 254 215 170;
+  --a-300: 253 186 116;  /* #FDBA74 accent text on dark */
+  --a-400: 251 146 60;   /* #FB923C accent text / border */
+  --a-500: 251 146 60;   /* #FB923C hover accent (solid) */
+  --a-600: 249 115 22;   /* #F97316 primary accent (solid) */
+  --a-700: 234 88 12;    /* #EA580C selected / solid */
+  --a-800: 253 186 116;  /* accent text (light on dark) */
+  --a-900: 124 45 18;    /* #7C2D12 deep accent chip bg */
+  --a-950:  66 20 4;
+
+  /* page chrome */
+  --page-bg: #121212;
+  --page-grad: radial-gradient(ellipse 120% 80% at 50% 0%, #1A1A1A 0%, #121212 60%);
+  --scroll-track: #1A1A1A;
+  --scroll-thumb: #3A3A3A;
+  --scroll-thumb-hover: #4A4A4A;
+}
+
+[data-theme='light'] {
+  /* neutral ramp — LIGHT */
+  --g-950: 247 247 247;  /* #F7F7F7 app background */
+  --g-900: 255 255 255;  /* #FFFFFF panels / header */
+  --g-800: 241 245 249;  /* #F1F5F9 cards / inputs */
+  --g-700: 226 232 240;  /* #E2E8F0 hover / subtle border */
+  --g-600: 203 213 225;  /* #CBD5E1 borders / disabled */
+  --g-500: 100 116 139;  /* #64748B muted text */
+  --g-400:  71 85 105;   /* #475569 secondary text */
+  --g-300:  51 65 85;    /* #334155 body text */
+  --g-200:  30 41 59;    /* #1E293B emphasis text */
+  --g-100:  30 41 59;
+  --g-50:   15 23 42;    /* #0F172A strongest text */
+
+  /* accent ramp — orange; text shades darkened for light bg readability */
+  --a-50:  255 247 237;  /* light tint surface */
+  --a-100: 255 237 213;
+  --a-200: 254 215 170;
+  --a-300: 234 88 12;    /* #EA580C accent text on white */
+  --a-400: 234 88 12;    /* #EA580C accent text / border */
+  --a-500: 251 146 60;   /* #FB923C hover accent (solid) */
+  --a-600: 249 115 22;   /* #F97316 primary accent (solid) */
+  --a-700: 234 88 12;    /* #EA580C selected / solid */
+  --a-800: 154 52 18;    /* #9A3412 accent text (dark) */
+  --a-900: 124 45 18;    /* #7C2D12 deep accent chip bg */
+  --a-950:  66 20 4;
+
+  /* page chrome */
+  --page-bg: #F7F7F7;
+  --page-grad: radial-gradient(ellipse 120% 80% at 50% 0%, #FFFFFF 0%, #F7F7F7 60%);
+  --scroll-track: #EEF2F8;
+  --scroll-thumb: #CBD5E1;
+  --scroll-thumb-hover: #94A3B8;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -9,36 +98,57 @@ body {
   padding: 0;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
-  color: #1E293B;
-  background: #F7F9FC;
-  background-image: radial-gradient(ellipse 120% 80% at 50% 0%, #EEF2FB 0%, #F7F9FC 60%);
+  color: rgb(var(--g-200));
+  background: var(--page-bg);
+  background-image: var(--page-grad);
 }
 
 input[type='number']::-webkit-inner-spin-button,
 input[type='number']::-webkit-outer-spin-button { opacity: 1; }
 
-/* Light theme: form fields always use dark text on their light backgrounds,
-   regardless of any utility class (fixes white-on-light input text). Buttons
-   (<button>) are intentionally excluded so accent labels stay white. */
-input, textarea, select { color: #1E293B !important; }
-input::placeholder, textarea::placeholder { color: #94A3B8; }
+/* Form fields always use the theme's emphasis text colour on their own
+   surfaces, regardless of any utility class (fixes white-on-light / dark-on-dark
+   input text). Buttons (<button>) are intentionally excluded so accent labels
+   stay white. */
+input, textarea, select { color: rgb(var(--g-200)) !important; }
+input::placeholder, textarea::placeholder { color: rgb(var(--g-500)); }
 
-/* ── Scrollbar (light) ───────────────────────────────────────────────────── */
+/* Native dropdown popup — theme its background + text so options are readable
+   in both modes (otherwise the OS default white popup shows light text). */
+option { background: rgb(var(--g-900)); color: rgb(var(--g-200)); }
+
+/* ── Scrollbar (theme-aware) ─────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #EEF2F8; }
+::-webkit-scrollbar-track { background: var(--scroll-track); }
 ::-webkit-scrollbar-thumb {
-  background: #CBD5E1;
+  background: var(--scroll-thumb);
   border-radius: 5px;
 }
-::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-thumb-hover); }
 
 /* ── Focus rings ─────────────────────────────────────────────────────────── */
-:focus-visible { outline: 2px solid #4F46E5; outline-offset: 1px; }
+:focus-visible { outline: 2px solid rgb(var(--a-600)); outline-offset: 1px; }
 
 /* ── Soft elevation utilities (no heavy glow) ────────────────────────────── */
-.glow-indigo { box-shadow: 0 1px 3px rgba(15,23,42,0.08), 0 0 0 1px rgba(79,70,229,0.12); }
-.glow-orange { box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
-.glow-green  { box-shadow: 0 1px 3px rgba(15,23,42,0.08); }
+.glow-indigo { box-shadow: 0 1px 3px rgba(0,0,0,0.18), 0 0 0 1px rgb(var(--a-600) / 0.18); }
+.glow-orange { box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
+.glow-green  { box-shadow: 0 1px 3px rgba(0,0,0,0.18); }
 
 /* ── Resize handle cursor state ──────────────────────────────────────────── */
 .resizing-h { cursor: col-resize !important; user-select: none !important; }
+
+/* ── Theme switch animation ──────────────────────────────────────────────────
+   Added to <html> for ~240ms around a toggle so colours fade (~200ms) instead
+   of flashing. Scoped to colour properties only — never transform/opacity/size,
+   so layout and interactions are untouched. */
+.theme-anim,
+.theme-anim *,
+.theme-anim *::before,
+.theme-anim *::after {
+  transition: background-color 200ms ease,
+              border-color 200ms ease,
+              color 200ms ease,
+              fill 200ms ease,
+              box-shadow 200ms ease,
+              outline-color 200ms ease !important;
+}

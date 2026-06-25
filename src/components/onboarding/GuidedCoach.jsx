@@ -113,7 +113,7 @@ function Demo({ kind }) {
   const anim  = kind === 'move' ? 'animate-bounce' : kind === 'rotate' ? 'animate-spin' : 'animate-pulse'
   const label = kind === 'move' ? 'slides' : kind === 'rotate' ? 'spins' : 'resizes'
   return (
-    <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-md" style={{ background: 'rgba(255,255,255,0.04)' }}>
+    <div className="flex items-center gap-2 mt-2 px-2 py-1.5 rounded-md" style={{ background: 'rgb(var(--g-800) / 0.5)' }}>
       <span className={`text-lg text-indigo-300 ${anim}`} style={{ animationDuration: kind === 'rotate' ? '2.4s' : undefined }}>{glyph}</span>
       <span className="text-[10px] text-gray-400">The object {label} as you drag.</span>
     </div>
@@ -375,7 +375,7 @@ export default function GuidedCoach() {
               top: rect.top - 6, left: rect.left - 6,
               width: rect.width + 12, height: rect.height + 12,
               boxShadow: '0 0 0 9999px rgba(0,0,0,0.62)',
-              border: '2px solid rgba(99,102,241,0.95)',
+              border: '2px solid rgb(var(--a-500) / 0.95)',
             }}
           />
           {/* pulsing glow ring — opacity pulse only, stays glued to the target
@@ -385,8 +385,8 @@ export default function GuidedCoach() {
             style={{
               top: rect.top - 6, left: rect.left - 6,
               width: rect.width + 12, height: rect.height + 12,
-              border: `2px solid rgba(99,102,241,${stuck ? 0.9 : 0.55})`,
-              boxShadow: '0 0 14px 2px rgba(79,70,229,0.18)',
+              border: `2px solid rgb(var(--a-500) / ${stuck ? 0.9 : 0.55})`,
+              boxShadow: '0 0 14px 2px rgb(var(--a-600) / 0.18)',
             }}
           />
         </>
@@ -400,7 +400,7 @@ export default function GuidedCoach() {
         >
           <span
             className="block text-3xl"
-            style={{ transform: `rotate(${arrow.rot}deg)`, color: '#6366f1', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))' }}
+            style={{ transform: `rotate(${arrow.rot}deg)`, color: 'rgb(var(--a-500))', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.7))' }}
           >
             ➤
           </span>
@@ -411,7 +411,7 @@ export default function GuidedCoach() {
       <div
         ref={cardRef}
         className="absolute rounded-xl shadow-2xl p-4 pointer-events-auto"
-        style={{ ...cardStyle, background: '#FFFFFF', border: `1px solid ${success ? 'rgba(34,197,94,0.5)' : 'rgba(99,102,241,0.35)'}` }}
+        style={{ ...cardStyle, background: 'rgb(var(--g-900))', border: `1px solid ${success ? 'rgba(34,197,94,0.5)' : 'rgb(var(--a-500) / 0.35)'}` }}
       >
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[10px] uppercase tracking-wider text-indigo-500/80 font-semibold">
@@ -448,7 +448,7 @@ export default function GuidedCoach() {
               <h3 className="text-sm font-bold text-slate-900">{step.title}</h3>
               {step.shortcut && (
                 <kbd className="ml-auto text-[10px] font-mono text-indigo-700 px-1.5 py-0.5 rounded"
-                  style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                  style={{ background: 'rgb(var(--a-500) / 0.12)', border: '1px solid rgb(var(--a-500) / 0.25)' }}>
                   {step.shortcut}
                 </kbd>
               )}
@@ -464,7 +464,7 @@ export default function GuidedCoach() {
             <Demo kind={step.demo} />
 
             <div className="mt-3 px-2.5 py-2 rounded-lg text-[11px] font-medium text-indigo-800"
-              style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.22)' }}>
+              style={{ background: 'rgb(var(--a-500) / 0.1)', border: '1px solid rgb(var(--a-500) / 0.22)' }}>
               👉 {step.cta}
             </div>
 
@@ -481,7 +481,7 @@ export default function GuidedCoach() {
                 <button
                   onClick={markSuccess}
                   className="mt-2 w-full py-2 rounded-lg text-xs font-semibold text-white hover:brightness-110 transition-all"
-                  style={{ background: 'linear-gradient(90deg,#6366f1,#4f46e5)' }}
+                  style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))' }}
                 >
                   {step.detect.type === 'ack' ? 'Got it — Continue →' : 'Continue →'}
                 </button>

@@ -57,8 +57,8 @@ export default function KeyboardShortcutsModal() {
     <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={close} />
       <div className="relative w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden"
-        style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.3)' }}>
-        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgba(99,102,241,0.15)' }}>
+        style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500) / 0.3)' }}>
+        <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid rgb(var(--a-500) / 0.15)' }}>
           <h2 className="text-sm font-semibold text-slate-900">⌨ Keyboard Shortcuts</h2>
           <button onClick={close} className="text-gray-500 hover:text-slate-900 text-lg leading-none">✕</button>
         </div>
@@ -72,7 +72,7 @@ export default function KeyboardShortcutsModal() {
                   <div key={key} className="flex items-center justify-between gap-3">
                     <span className="text-[11px] text-gray-400">{desc}</span>
                     <kbd className="shrink-0 text-[10px] font-mono text-indigo-700 px-1.5 py-0.5 rounded"
-                      style={{ background: 'rgba(99,102,241,0.12)', border: '1px solid rgba(99,102,241,0.25)' }}>
+                      style={{ background: 'rgb(var(--a-500) / 0.12)', border: '1px solid rgb(var(--a-500) / 0.25)' }}>
                       {key}
                     </kbd>
                   </div>

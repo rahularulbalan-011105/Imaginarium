@@ -40,7 +40,7 @@ export default function ViewGizmo() {
         className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-gray-900/85 border border-gray-600/60 shadow-lg backdrop-blur-sm hover:border-indigo-500/70 transition-colors pointer-events-auto"
       >
         <span className="text-indigo-400 text-xs">◳</span>
-        <span className="text-[11px] font-semibold text-white tracking-wide">{label}</span>
+        <span className="text-[11px] font-semibold text-gray-100 tracking-wide">{label}</span>
         <span className="text-gray-500 text-[9px]">{open ? '▲' : '▼'}</span>
       </button>
 

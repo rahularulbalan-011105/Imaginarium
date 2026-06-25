@@ -38,7 +38,7 @@ export default function HelpMenu() {
         onClick={() => setOpen((v) => !v)}
         title="Help, tutorials & shortcuts"
         className="w-7 h-7 flex items-center justify-center text-sm text-indigo-300/80 hover:text-slate-900 rounded-full transition-colors"
-        style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.25)' }}
+        style={{ background: 'rgb(var(--a-500) / 0.1)', border: '1px solid rgb(var(--a-500) / 0.25)' }}
       >
         ?
       </button>
@@ -46,7 +46,7 @@ export default function HelpMenu() {
       {open && (
         <div
           className="absolute right-0 top-full mt-1 w-60 rounded-lg shadow-2xl z-30 py-1 overflow-hidden"
-          style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.25)' }}
+          style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500) / 0.25)' }}
         >
           <div className="px-3 py-1.5 text-[9px] uppercase tracking-wider text-gray-500">Learn</div>
           <Item icon="🎓" label="Start Tutorial"    sub="Guided, hands-on — it teaches as you go" onClick={startCoach} />

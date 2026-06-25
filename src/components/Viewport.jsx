@@ -767,13 +767,15 @@ export default function Viewport() {
       {objects.length === 0 && !simActive && !surfaceToolActive && !extrudeToolActive && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
           <div className="flex flex-col items-center text-center max-w-xs px-6">
+            {/* Drawn on the always-white 3D canvas → fixed colours (not the
+                theme ramp) so they stay readable in both light and dark mode. */}
             <div className="text-5xl mb-3 opacity-70">🧊</div>
-            <div className="text-base font-semibold text-slate-800">Your scene is empty</div>
-            <div className="text-sm text-gray-500 mt-1.5 leading-relaxed">
+            <div className="text-base font-semibold text-[#1E293B]">Your scene is empty</div>
+            <div className="text-sm text-[#64748B] mt-1.5 leading-relaxed">
               Pick a shape from the <span className="text-indigo-600 font-medium">left toolbar</span> to begin —
-              or press keys <span className="font-mono text-slate-700">1</span>–<span className="font-mono text-slate-700">0</span>.
+              or press keys <span className="font-mono text-[#475569]">1</span>–<span className="font-mono text-[#475569]">0</span>.
             </div>
-            <div className="text-xs text-gray-400 mt-2">Need a hand? Tap the “?” in the top bar.</div>
+            <div className="text-xs text-[#94A3B8] mt-2">Need a hand? Tap the “?” in the top bar.</div>
           </div>
         </div>
       )}
@@ -788,7 +790,7 @@ export default function Viewport() {
       {simActive && <DrivePanel />}
 
       {!simActive && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-gray-500 pointer-events-none select-none bg-white/60 px-2 py-0.5 rounded-full">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-[#64748B] pointer-events-none select-none bg-white/60 px-2 py-0.5 rounded-full">
           Click to select · Shift+click 2nd object for booleans · Scroll to zoom · Middle-drag to orbit
         </div>
       )}

@@ -34,14 +34,14 @@ export default function WelcomeOverlay() {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={close} />
 
       <div className="relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden"
-        style={{ background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.3)' }}>
+        style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500) / 0.3)' }}>
 
         {/* Header */}
         <div className="px-6 pt-6 pb-4 text-center"
-          style={{ background: 'linear-gradient(180deg, rgba(99,102,241,0.12), transparent)' }}>
+          style={{ background: 'linear-gradient(180deg, rgb(var(--a-500) / 0.12), transparent)' }}>
           <div className="text-3xl mb-2">🧊🤖</div>
           <h1 className="text-lg font-bold"
-            style={{ background: 'linear-gradient(90deg,#6366f1,#4F46E5)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             Welcome to the Robotics Builder
           </h1>
           <p className="text-xs text-gray-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
@@ -54,9 +54,9 @@ export default function WelcomeOverlay() {
         <div className="px-6 py-2 grid sm:grid-cols-2 gap-2.5">
           {STEPS.map((s, i) => (
             <div key={i} className="flex items-start gap-3 rounded-lg p-2.5"
-              style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(99,102,241,0.10)' }}>
+              style={{ background: 'rgb(var(--g-800) / 0.4)', border: '1px solid rgb(var(--a-500) / 0.10)' }}>
               <div className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-sm"
-                style={{ background: 'rgba(99,102,241,0.12)' }}>
+                style={{ background: 'rgb(var(--a-500) / 0.12)' }}>
                 {s.icon}
               </div>
               <div className="min-w-0">
@@ -74,21 +74,21 @@ export default function WelcomeOverlay() {
           <button
             onClick={startCoach}
             className="px-3 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:brightness-110 text-center"
-            style={{ background: 'linear-gradient(90deg,#6366f1,#4f46e5)', boxShadow: '0 0 10px rgba(99,102,241,0.3)' }}
+            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', boxShadow: '0 0 10px rgb(var(--a-500) / 0.3)' }}
           >
             🎓 Teach me<br /><span className="text-[10px] font-normal opacity-90">guided, step by step</span>
           </button>
           <button
             onClick={startTour}
             className="px-3 py-2.5 rounded-lg text-sm font-semibold text-indigo-800 transition-colors hover:bg-indigo-500/10 text-center"
-            style={{ background: 'rgba(99,102,241,0.06)', border: '1px solid rgba(99,102,241,0.25)' }}
+            style={{ background: 'rgb(var(--a-500) / 0.06)', border: '1px solid rgb(var(--a-500) / 0.25)' }}
           >
             🧭 Tour<br /><span className="text-[10px] font-normal opacity-80">show me around</span>
           </button>
           <button
             onClick={close}
             className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700/40 text-center"
-            style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}
+            style={{ background: 'rgb(var(--g-800) / 0.4)', border: '1px solid rgb(var(--g-600) / 0.4)' }}
           >
             🚀 Explore<br /><span className="text-[10px] font-normal opacity-70">on my own</span>
           </button>

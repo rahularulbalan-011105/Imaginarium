@@ -6,6 +6,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Design 3D objects, wire up electronics, program them with Arduino code or blocks, and simulate robots — all in your browser." />
     <title>Robotics Builder — 3D Design &amp; Simulation</title>
+    <!-- Theme: restore the saved palette before first paint so there is no flash.
+         Default is dark. The full token set lives in src/styles/globals.css. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('app-theme');
+          if (t !== 'dark' && t !== 'light') t = 'dark';
+          document.documentElement.dataset.theme = t;
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
+    <style>
+      html[data-theme='dark']  { background: #121212; }
+      html[data-theme='light'] { background: #F7F7F7; }
+    </style>
   </head>
   <body>
     <div id="root"></div>

@@ -105,7 +105,7 @@ export default function ExtrudePanel() {
                 e.stopPropagation()
                 if (e.key === 'Enter') applyDepth(e.target.value)
               }}
-              className="w-16 bg-gray-800 text-white text-xs rounded px-1 py-0.5 border border-gray-600 text-center"
+              className="w-16 bg-gray-800 text-gray-100 text-xs rounded px-1 py-0.5 border border-gray-600 text-center"
             />
             <span className="text-gray-500">units</span>
           </div>

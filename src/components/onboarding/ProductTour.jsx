@@ -97,7 +97,7 @@ export default function ProductTour() {
             top: rect.top - 6, left: rect.left - 6,
             width: rect.width + 12, height: rect.height + 12,
             boxShadow: '0 0 0 9999px rgba(0,0,0,0.66)',
-            border: '2px solid rgba(99,102,241,0.9)',
+            border: '2px solid rgb(var(--a-500) / 0.9)',
           }}
         />
       ) : (
@@ -107,7 +107,7 @@ export default function ProductTour() {
       {/* Explanation card */}
       <div
         className="absolute rounded-xl shadow-2xl p-4"
-        style={{ ...cardStyle, background: '#FFFFFF', border: '1px solid rgba(99,102,241,0.3)' }}
+        style={{ ...cardStyle, background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500) / 0.3)' }}
       >
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[10px] uppercase tracking-wider text-indigo-500/80 font-semibold">
@@ -143,7 +143,7 @@ export default function ProductTour() {
           <button
             onClick={() => (isLast ? end() : next())}
             className="px-4 py-1.5 rounded text-xs font-semibold text-white transition-all hover:brightness-110"
-            style={{ background: 'linear-gradient(90deg,#6366f1,#4f46e5)' }}
+            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))' }}
           >
             {isLast ? 'Finish ✓' : 'Next →'}
           </button>

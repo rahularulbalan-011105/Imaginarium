@@ -87,7 +87,7 @@ function SurfacePatchPanel({ patches, canAttach, onAttach, onRemove, onUpdatePat
           <div key={p.id} className="bg-gray-800/60 border border-cyan-700/40 rounded p-2">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[10px] text-cyan-300 font-medium">
-                Patch {i + 1} — <span className="text-white">{obj?.name ?? '?'}</span>
+                Patch {i + 1} — <span className="text-gray-100">{obj?.name ?? '?'}</span>
               </span>
               <button
                 onClick={() => onRemove(p.id)}
@@ -633,7 +633,7 @@ export default function PropertiesPanel() {
             ⚙ Attach to {shaftLabel(secondaryShaft)}
           </div>
           <div className="text-[9px] text-gray-400 mb-2">
-            Attach <span className="text-white font-medium">{obj.name}</span> to{' '}
+            Attach <span className="text-gray-100 font-medium">{obj.name}</span> to{' '}
             <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
           </div>
           <button
@@ -822,7 +822,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { teeth: v }); rebuild(v, gearMod, faceWidth, bore) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-6 text-right">{teeth}</span>
+              <span className="text-[10px] text-gray-100 w-6 text-right">{teeth}</span>
             </div>
 
             {/* Module */}
@@ -833,7 +833,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { module: v }); rebuild(teeth, v, faceWidth, bore) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-8 text-right">{gearMod.toFixed(2)}</span>
+              <span className="text-[10px] text-gray-100 w-8 text-right">{gearMod.toFixed(2)}</span>
             </div>
 
             {/* Face width */}
@@ -844,7 +844,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { faceWidth: v }); rebuild(teeth, gearMod, v, bore) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-8 text-right">{faceWidth.toFixed(1)}</span>
+              <span className="text-[10px] text-gray-100 w-8 text-right">{faceWidth.toFixed(1)}</span>
             </div>
 
             {/* Bore hole — 0 = solid (no hole), >0 = shaft hole as fraction of root radius */}
@@ -855,7 +855,7 @@ export default function PropertiesPanel() {
                 onChange={e => { const v = +e.target.value; updateObject(selectedId, { bore: v }); rebuild(teeth, gearMod, faceWidth, v) }}
                 className="flex-1 accent-orange-500"
               />
-              <span className="text-[10px] text-white w-8 text-right">{bore === 0 ? 'none' : bore.toFixed(2)}</span>
+              <span className="text-[10px] text-gray-100 w-8 text-right">{bore === 0 ? 'none' : bore.toFixed(2)}</span>
             </div>
 
             <div className="text-[9px] text-gray-600 mb-2">

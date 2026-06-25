@@ -58,13 +58,13 @@ export default function ElectronicsPanel({ selectedId, secondaryId }) {
       <div className="flex items-center gap-2 bg-gray-800/60 rounded p-2 text-xs">
         <span className="text-2xl">🟢</span>
         <div>
-          <div className="text-white font-medium">{arduino.name}</div>
+          <div className="text-gray-100 font-medium">{arduino.name}</div>
           <div className="text-gray-500 text-[10px]">Arduino</div>
         </div>
         <span className="text-gray-500 mx-1">→ Pin 3</span>
         <span className="text-2xl">⚙</span>
         <div>
-          <div className="text-white font-medium">{motor.name}</div>
+          <div className="text-gray-100 font-medium">{motor.name}</div>
           <div className="text-gray-500 text-[10px]">Motor</div>
         </div>
       </div>

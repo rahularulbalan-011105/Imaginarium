@@ -25,7 +25,7 @@ export default function PanelHint({ panelId }) {
 
   return (
     <div className="flex items-start gap-2 mx-2 mt-2 px-2.5 py-2 rounded-lg"
-      style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
+      style={{ background: 'rgb(var(--a-500) / 0.08)', border: '1px solid rgb(var(--a-500) / 0.2)' }}>
       <span className="text-sm mt-0.5 shrink-0">{hint.icon}</span>
       <span className="text-[10px] text-indigo-800 leading-snug flex-1">{hint.text}</span>
       <button

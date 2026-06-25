@@ -117,7 +117,7 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
       {/* Object pair summary */}
       <div className="flex items-center gap-2 bg-gray-800/60 rounded p-2 text-xs">
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: objA.color }} />
-        <span className="text-white truncate flex-1">{objA.name}</span>
+        <span className="text-gray-100 truncate flex-1">{objA.name}</span>
         <span className="text-gray-500 shrink-0">+</span>
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: objB.color }} />
         <span className="text-orange-300 truncate flex-1">{objB.name}</span>
