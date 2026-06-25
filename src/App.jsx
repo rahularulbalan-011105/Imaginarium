@@ -19,6 +19,7 @@ import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
 import PanelHint from './components/onboarding/PanelHint.jsx'
+import RobotPanel from './components/RobotPanel.jsx'
 import { useSceneStore } from './stores/sceneStore.js'
 import { useUiStore } from './stores/uiStore.js'
 import { useElectronicsStore } from './stores/electronicsStore.js'
@@ -78,8 +79,14 @@ function AppEditor() {
   const activePanel = useUiStore((s) => s.activePanel)
   const setActivePanel = useUiStore((s) => s.setActivePanel)
   const simActive = useUiStore((s) => s.simActive)
+  const snapTranslate = useUiStore((s) => s.snapTranslate)
+  const snapRotateDeg = useUiStore((s) => s.snapRotateDeg)
+  const printBedVisible = useUiStore((s) => s.printBedVisible)
+  const printBedSizeMm  = useUiStore((s) => s.printBedSizeMm)
   const { snapshot, undo, redo } = useHistory()
   const clipboard = useRef(null)
+  // Smart duplicate-and-repeat chain: { newId, prev:{position,rotation,scale} }
+  const dupChain = useRef(null)
 
   // ── Resizable sidebars ────────────────────────────────────────────────────
   const [leftWidth,  setLeftWidth]  = useState(104)  // readable categorized toolbar
@@ -228,8 +235,54 @@ function AppEditor() {
 
   useEffect(() => { resetBaseline() }, [])
 
+  // Push snap-to-grid settings down to the transform gizmo whenever they change.
+  useEffect(() => { sceneManager.setSnap(snapTranslate, snapRotateDeg) }, [snapTranslate, snapRotateDeg])
+
+  // Show/update the 3D-printer build plate.
+  useEffect(() => { sceneManager.setPrintBed(printBedVisible, printBedSizeMm) }, [printBedVisible, printBedSizeMm])
+
   // Keyboard shortcuts
   useEffect(() => {
+    // Tinkercad-style smart duplicate: the FIRST Ctrl+D offsets a copy; once you
+    // move/rotate/scale that copy, each subsequent Ctrl+D repeats the same delta,
+    // building a linear or radial array from a single demonstrated step.
+    const smartDuplicate = () => {
+      const st  = useSceneStore.getState()
+      const src = st.objects.find(o => o.id === st.selectedId)
+      if (!src) return
+      const chain = dupChain.current
+      if (chain && chain.newId === src.id) {
+        const p = chain.prev
+        const dPos = { x: src.position.x - p.position.x, y: src.position.y - p.position.y, z: src.position.z - p.position.z }
+        const dRot = { x: src.rotation.x - p.rotation.x, y: src.rotation.y - p.rotation.y, z: src.rotation.z - p.rotation.z }
+        const dScl = { x: src.scale.x / (p.scale.x || 1), y: src.scale.y / (p.scale.y || 1), z: src.scale.z / (p.scale.z || 1) }
+        const moved = Math.abs(dPos.x) + Math.abs(dPos.y) + Math.abs(dPos.z) +
+                      Math.abs(dRot.x) + Math.abs(dRot.y) + Math.abs(dRot.z) +
+                      Math.abs(dScl.x - 1) + Math.abs(dScl.y - 1) + Math.abs(dScl.z - 1) > 1e-6
+        if (moved) {
+          const clone = {
+            ...JSON.parse(JSON.stringify(src)),
+            id: crypto.randomUUID(),
+            name: src.name.replace(/_copy.*$/, '') + '_copy',
+            position: { x: src.position.x + dPos.x, y: src.position.y + dPos.y, z: src.position.z + dPos.z },
+            rotation: { x: src.rotation.x + dRot.x, y: src.rotation.y + dRot.y, z: src.rotation.z + dRot.z },
+            scale:    { x: src.scale.x * dScl.x,    y: src.scale.y * dScl.y,    z: src.scale.z * dScl.z },
+            metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          }
+          insertObject(clone)
+          dupChain.current = { newId: clone.id, prev: { position: { ...src.position }, rotation: { ...src.rotation }, scale: { ...src.scale } } }
+          snapshot()
+          return
+        }
+      }
+      // First duplicate (or chain broken): plain offset copy, then start a new chain.
+      const dupe = duplicateObject(src.id)
+      if (dupe) {
+        dupChain.current = { newId: dupe.id, prev: { position: { ...src.position }, rotation: { ...src.rotation }, scale: { ...src.scale } } }
+        snapshot()
+      }
+    }
+
     const handleKeyDown = (e) => {
       const tag = e.target.tagName.toLowerCase()
       const isTyping = tag === 'input' || tag === 'textarea'
@@ -265,6 +318,15 @@ function AppEditor() {
         return
       }
 
+      // Ctrl+G — group selected pair (CSG combine, holes subtract); Ctrl+Shift+G — ungroup
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault()
+        const st = useSceneStore.getState()
+        if (e.shiftKey) { if (st.ungroupSelected()) snapshot() }
+        else            { if (st.groupSelected())   snapshot() }
+        return
+      }
+
       if (isTyping) return
       if (SHAPE_KEYS[e.key]) { addObject(SHAPE_KEYS[e.key]); snapshot(); return }
 
@@ -282,8 +344,31 @@ function AppEditor() {
           break
         }
         case 'd': case 'D':
-          if (e.ctrlKey || e.metaKey) { e.preventDefault(); if (selectedId) { duplicateObject(selectedId); snapshot() } }
+          if (e.ctrlKey || e.metaKey) { e.preventDefault(); smartDuplicate(); }
           break
+        case 'ArrowUp': case 'ArrowDown': case 'ArrowLeft': case 'ArrowRight': {
+          // Nudge the selected object by the snap step (or 1 unit). Shift = vertical (Y).
+          // Skipped during simulation so arrows still drive legged robots.
+          if (useUiStore.getState().simActive || !selectedId) break
+          const st = useSceneStore.getState()
+          const sel = st.objects.find(o => o.id === selectedId)
+          if (!sel) break
+          e.preventDefault()
+          const step = (useUiStore.getState().snapTranslate || 1)
+          const p = { ...sel.position }
+          if (e.shiftKey) { if (e.key === 'ArrowUp') p.y += step; if (e.key === 'ArrowDown') p.y -= step }
+          else {
+            if (e.key === 'ArrowLeft')  p.x -= step
+            if (e.key === 'ArrowRight') p.x += step
+            if (e.key === 'ArrowUp')    p.z -= step
+            if (e.key === 'ArrowDown')  p.z += step
+          }
+          st.updateObject(selectedId, { position: p })
+          const mesh = objectManager.getMesh(selectedId)
+          if (mesh) mesh.position.set(p.x, p.y, p.z)
+          snapshot()
+          break
+        }
         case 'g': case 'G': toggleGrid(); break
         case 'a': case 'A': toggleAxes(); break
         case 'f': case 'F':
@@ -320,14 +405,15 @@ function AppEditor() {
 
   // ── Right sidebar logic ───────────────────────────────────────────────────
   const TABS = [
-    { id: 'properties', label: 'Properties', hint: 'Edit the selected object — size, color, position, material and more' },
-    { id: 'objects',    label: 'Objects',    hint: 'List of everything in your scene — click to select, toggle visibility' },
-    { id: 'wiring',     label: '⚡ Wiring',  hint: 'Connect electronics — click two pins to run a wire between them' },
-    { id: 'joints',     label: '⚙ Joints',  hint: 'Link two parts with a hinge, slider, or pivot so they move together' },
-    { id: 'blocks',     label: '🧩 Blocks',  hint: 'Program with drag-and-drop blocks (no typing needed)' },
-    { id: 'code',       label: '{ } Code',  hint: 'Program with Arduino C++ code, with templates and a serial monitor' },
-    { id: 'battle',     label: '⚔ Battle',  hint: 'Drive your robot in a head-to-head robo-sumo match' },
-    { id: 'library',    label: '📦 Library', hint: 'Add more shapes, import 3D models, and reuse saved parts' },
+    { id: 'properties', label: 'Props' },
+    { id: 'objects',    label: 'Objects' },
+    { id: 'wiring',     label: '⚡ Wiring' },
+    { id: 'joints',     label: '⚙ Joints' },
+    { id: 'robot',      label: '🤖 Robot' },
+    { id: 'blocks',     label: '🧩 Blocks' },
+    { id: 'code',       label: '{ } Code' },
+    { id: 'battle',     label: '⚔ Battle' },
+    { id: 'library',    label: '📦 Library' },
   ]
 
   const renderRightPanel = () => {
@@ -373,6 +459,7 @@ function AppEditor() {
             : panel === 'objects'  ? <ObjectList />
             : panel === 'wiring'   ? <WiringPanel />
             : panel === 'joints'   ? <JointPanel />
+            : panel === 'robot'    ? <RobotPanel />
             : panel === 'blocks'   ? <PanelErrorBoundary label="Blocks"><BlocksPanel /></PanelErrorBoundary>
             : panel === 'battle'   ? <PanelErrorBoundary label="Battle"><BattlePanel /></PanelErrorBoundary>
             : panel === 'library'  ? <AssetLibrary />

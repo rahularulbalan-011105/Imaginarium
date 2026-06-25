@@ -1,0 +1,19 @@
+# Netlify hosting for the sureshv1 branch.
+# In the Netlify UI: connect this repo and set "Production branch" (or a
+# Branch Deploy) to sureshv1 — you'll get a URL like sureshv1--<site>.netlify.app.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  # Serve at the domain root (overrides the /Imaginarium/ base used by GH Pages).
+  VITE_BASE = "/"
+  # three-bvh-csg has a peer-dep conflict; allow the install to proceed.
+  NPM_FLAGS = "--legacy-peer-deps"
+
+# Single-page app fallback so deep links / refreshes resolve to index.html.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

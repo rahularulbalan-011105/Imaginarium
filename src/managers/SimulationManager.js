@@ -1,4 +1,5 @@
-import { buildPinToComponentMap } from '../stores/electronicsStore.js'
+import { buildPinToComponentMap, buildSensorInputMap, useElectronicsStore } from '../stores/electronicsStore.js'
+import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
@@ -18,6 +19,11 @@ const BUILTIN_NAMES = new Set([
   'IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12',
   'IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21',
   'SUBO_BUZZER_PIN','SUBO_LED_PIN','SUBO_LED_NUM','SUBO_BUTTONR','SUBO_BUTTONL',
+  // Sensors / outputs API + constants
+  'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
+  'A0','A1','A2','A3','A4','A5','A6','A7','INPUT_PULLUP','LED_BUILTIN',
+  'WHITE','BLACK','SSD1306_WHITE','SSD1306_BLACK','SSD1306_INVERSE',
+  'SSD1306_SWITCHCAPVCC','SSD1306_EXTERNALVCC','SCREEN_WIDTH','SCREEN_HEIGHT',
 ])
 
 class SimulationManager {
@@ -29,6 +35,10 @@ class SimulationManager {
     this._onServoAngle    = null
     this._onRuntimeError  = null
     this._onSerialOut     = null
+    this._onOled          = null
+    this._onBuzzer        = null
+    this._audio           = null
+    this._stopOsc         = null
     this._connections     = {}
     this._objects         = []
     this.motorSpeeds      = {}   // motorId → signed speed −255…+255
@@ -37,7 +47,7 @@ class SimulationManager {
     this.servoAngles      = {}   // servoId → angle 0–180°
   }
 
-  configure(connections, objects, onMotorSpeed, onRuntimeError, onSerialOut, onLedBrightness, onServoAngle) {
+  configure(connections, objects, onMotorSpeed, onRuntimeError, onSerialOut, onLedBrightness, onServoAngle, onOled, onBuzzer) {
     this._connections     = connections
     this._objects         = objects
     this._onMotorSpeed    = onMotorSpeed    ?? null
@@ -45,14 +55,17 @@ class SimulationManager {
     this._onSerialOut     = onSerialOut     ?? null
     this._onLedBrightness = onLedBrightness ?? null
     this._onServoAngle    = onServoAngle    ?? null
+    this._onOled          = onOled          ?? null
+    this._onBuzzer        = onBuzzer        ?? null
   }
 
   start(code) {
     this.stop()
     this._running = true
 
-    const pinMap = buildPinToComponentMap(this._connections, this._objects)
-    const self   = this
+    const pinMap    = buildPinToComponentMap(this._connections, this._objects)
+    const sensorMap = buildSensorInputMap(this._connections, this._objects)
+    const self      = this
 
     // ── Arduino API ───────────────────────────────────────────────────────────
 
@@ -105,6 +118,10 @@ class SimulationManager {
           const angle = Math.round((value / 255) * 180)
           self.servoAngles[comp.id] = angle
           if (self._onServoAngle) self._onServoAngle(comp.id, angle)
+        } else if (comp.type === 'buzzer') {
+          // Passive buzzer driven on/off via digitalWrite: HIGH → ~2 kHz, LOW → silent.
+          if (value > 0) _beep(2000, 0); else _silence()
+          if (self._onBuzzer) self._onBuzzer(comp.id, value > 0 ? 2000 : 0)
         }
       }
     }
@@ -112,8 +129,103 @@ class SimulationManager {
     const analogWrite  = (pin, val) => _write(pin, val, false)
     const digitalWrite = (pin, val) => _write(pin, val, true)
     const pinMode      = () => {}
-    const digitalRead  = () => 0
-    const analogRead   = () => 0
+
+    // ── Sensor inputs (sensor → controller) ───────────────────────────────────
+    // In AUTO mode the value is measured live from the scene (distance to the
+    // nearest shape); in MANUAL mode it comes from the Sensor panel. Auto readings
+    // are mirrored back to the store so the panels show them. Works regardless of
+    // which Run button launched the sim (Code tab or Simulate bar).
+    const _store  = () => useElectronicsStore.getState()
+    const _report = (id, v) => { const st = _store(); if (st.sensorValues[id] !== v) st.setSensorValue(id, v) }
+    // Reading in display units: ultrasonic → cm, ir → 0|1, gas → 0-1023.
+    const _read = (s) => {
+      const st = _store()
+      if (s.type === 'gas_sensor') return st.sensorValues[s.id] ?? 0   // gas: always manual
+      if (st.autoSense) {
+        const d  = objectManager.senseDistance(s.id)        // scene units, or null
+        const cm = d == null ? null : Math.round(d * 5)     // 1 scene unit = 5 cm
+        if (s.type === 'ultrasonic') { const v = cm == null ? 400 : Math.min(400, cm); _report(s.id, v); return v }
+        if (s.type === 'ir_sensor')  { const v = (cm != null && cm <= 30) ? 1 : 0;     _report(s.id, v); return v }
+      }
+      return st.sensorValues[s.id] ?? (s.type === 'ultrasonic' ? 100 : 0)
+    }
+    const digitalRead = (pin) => {
+      const s = sensorMap[pin]
+      if (!s) return 0
+      if (s.type === 'ir_sensor')  return _read(s) ? 1 : 0
+      if (s.type === 'gas_sensor') return (_read(s) > 512) ? 1 : 0    // DO threshold
+      return 0
+    }
+    const analogRead = (pin) => {
+      const s = sensorMap[pin]
+      if (!s) return 0
+      const v = _read(s)
+      if (s.type === 'ir_sensor') return v ? 1023 : 0
+      return Math.max(0, Math.min(1023, Math.round(v)))   // gas / generic analog
+    }
+    // HC-SR04: returns echo pulse width (µs). distance_cm = pulseIn(echo)/58.
+    const pulseIn = (pin) => {
+      const s = sensorMap[pin]
+      if (!s || s.type !== 'ultrasonic') return 0
+      return Math.round(_read(s) * 58)
+    }
+    const delayMicroseconds = () => {}   // sub-millisecond — effectively instant here
+
+    // ── Buzzer (Web Audio) ────────────────────────────────────────────────────
+    const _beep = (freq, durSec) => {
+      try {
+        if (!self._audio) self._audio = new (window.AudioContext || window.webkitAudioContext)()
+        const ctx = self._audio
+        if (ctx.state === 'suspended') ctx.resume()
+        if (self._stopOsc) self._stopOsc()
+        const osc = ctx.createOscillator(), gain = ctx.createGain()
+        osc.type = 'square'
+        osc.frequency.value = Math.max(20, Math.min(8000, Number(freq) || 440))
+        gain.gain.value = 0.04
+        osc.connect(gain); gain.connect(ctx.destination); osc.start()
+        self._stopOsc = () => { try { osc.stop() } catch (_) {} self._stopOsc = null }
+        if (durSec > 0) setTimeout(() => { if (self._stopOsc) self._stopOsc() }, durSec * 1000)
+      } catch (_) { /* audio unavailable */ }
+    }
+    const _silence = () => { if (self._stopOsc) self._stopOsc() }
+    const tone = (pin, freq, dur) => {
+      _beep(freq, dur ? Number(dur) / 1000 : 0)
+      if (self._onSerialOut) self._onSerialOut(`♪ ${Math.round(Number(freq) || 0)}Hz\n`)
+      for (const c of (pinMap[pin] || [])) if (c.type === 'buzzer' && self._onBuzzer) self._onBuzzer(c.id, Number(freq) || 0)
+    }
+    const noTone = (pin) => {
+      _silence()
+      for (const c of (pinMap[pin] || [])) if (c.type === 'buzzer' && self._onBuzzer) self._onBuzzer(c.id, 0)
+    }
+
+    // ── OLED + I2C ────────────────────────────────────────────────────────────
+    // Render onto every OLED's 3D screen (works whether launched from the Code tab
+    // or the Simulate bar), and also forward to any panel HUD via onOled.
+    const _oledSet = (text) => {
+      for (const o of self._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, text)
+      if (self._onOled) self._onOled(text)
+    }
+    class Adafruit_SSD1306 {
+      constructor() { this._lines = []; this._cur = '' }
+      begin() { _oledSet(''); return true }
+      clearDisplay() { this._lines = []; this._cur = '' }
+      setCursor() {} setTextSize() {} setTextColor() {} setRotation() {} cp437() {} dim() {}
+      print(t)   { this._cur += String(t ?? '') }
+      write(t)   { this._cur += String(t ?? '') }
+      println(t) { this._lines.push(this._cur + String(t ?? '')); this._cur = '' }
+      drawPixel() {} drawLine() {} drawRect() {} fillRect() {} drawCircle() {} fillCircle() {} fillScreen() {} drawBitmap() {} startscrollright() {} stopscroll() {}
+      display() {
+        const out = [...this._lines]; if (this._cur) out.push(this._cur)
+        _oledSet(out.join('\n'))
+      }
+      width()  { return 128 }
+      height() { return 64 }
+    }
+    const Wire = {
+      begin() {}, beginTransmission() {}, write() {}, endTransmission() { return 0 },
+      requestFrom() { return 0 }, read() { return 0 }, available() { return 0 },
+    }
+
     const HIGH = 1, LOW = 0, OUTPUT = 1, INPUT = 0
     const millis     = () => performance.now()
     const micros     = () => performance.now() * 1000
@@ -201,12 +313,16 @@ class SimulationManager {
 
     // SUBO constants (IOn → GPIO, onboard pins) — prepended to the script so the
     // user's library-style code (digitalWrite(IO3,...) etc.) resolves them.
-    const SUBO_CONSTS = `const IO1=4,IO2=39,IO3=13,IO4=38,IO5=14,IO6=48,IO7=42,IO8=5,IO9=41,IO10=40,IO11=6,IO12=7,IO13=15,IO14=16,IO15=17,IO16=18,IO17=8,IO18=11,IO19=10,IO20=9,IO21=3,SUBO_BUZZER_PIN=2,SUBO_LED_PIN=12,SUBO_LED_NUM=48,SUBO_BUTTONR=47,SUBO_BUTTONL=1;`
+    const SUBO_CONSTS = `const IO1=4,IO2=39,IO3=13,IO4=38,IO5=14,IO6=48,IO7=42,IO8=5,IO9=41,IO10=40,IO11=6,IO12=7,IO13=15,IO14=16,IO15=17,IO16=18,IO17=8,IO18=11,IO19=10,IO20=9,IO21=3,SUBO_BUZZER_PIN=2,SUBO_LED_PIN=12,SUBO_LED_NUM=48,SUBO_BUTTONR=47,SUBO_BUTTONL=1,A0=14,A1=15,A2=16,A3=17,A4=18,A5=19,A6=20,A7=21,INPUT_PULLUP=2,LED_BUILTIN=13,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;`
 
     // ── Parse + transpile ─────────────────────────────────────────────────────
 
     for (const [pin, comps] of Object.entries(pinMap))
       console.log(`[Sim] pin ${pin}:`, comps.map(c => `${c.type} T${c.terminal}`).join(', '))
+    for (const [pin, s] of Object.entries(sensorMap))
+      console.log(`[Sim] sensor on pin ${pin}: ${s.type} (${s.pin})`)
+    if (Object.keys(sensorMap).length === 0)
+      console.log('[Sim] no sensors wired to a controller pin — digitalRead/analogRead/pulseIn will read 0')
     const { code: jsCode, error: parseErr } = parseAndTranspile(code, BUILTIN_NAMES)
     if (parseErr) {
       this._running = false
@@ -233,6 +349,7 @@ while (true) {
         'sin','cos','tan','random','randomSeed','Serial','onRuntimeError','Servo','__yield',
         'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
         'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
+        'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
         `"use strict";
          return (async () => {
            try { ${script} }
@@ -252,7 +369,8 @@ while (true) {
         abs, min, max, sq, sqrt, pow, floor, ceil, round, log, exp,
         sin, cos, tan, random, randomSeed, Serial, onRuntimeError, Servo, __yield,
         SuboMatrixInit, setAllLED, setSingleLED, playLEDSeq, stripclear,
-        playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor
+        playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor,
+        delayMicroseconds, pulseIn, tone, noTone, Wire, Adafruit_SSD1306
       ).then(() => { self._running = false })
 
     } catch (e) {
@@ -265,6 +383,9 @@ while (true) {
 
   stop() {
     this._running = false
+    if (this._stopOsc) this._stopOsc()        // silence the buzzer
+    for (const o of this._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, '')   // blank OLED screens
+    if (this._onOled) this._onOled('')         // blank the panel HUD
     for (const [id] of Object.entries(this.ledBrightness)) {
       if (this._onLedBrightness) this._onLedBrightness(id, 0)
     }

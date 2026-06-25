@@ -103,7 +103,7 @@ export default function DimensionEditorPanel({ obj }) {
           onClick={() => setMode('center')}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             mode === 'center'
-              ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+              ? 'bg-indigo-700/40 text-indigo-700 border border-indigo-600/50'
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
           title="Scale symmetrically from center"
@@ -114,7 +114,7 @@ export default function DimensionEditorPanel({ obj }) {
           onClick={() => setMode('one-sided')}
           className={`flex-1 py-1 rounded text-[10px] font-medium transition-colors ${
             mode === 'one-sided'
-              ? 'bg-indigo-700/40 text-indigo-300 border border-indigo-600/50'
+              ? 'bg-indigo-700/40 text-indigo-700 border border-indigo-600/50'
               : 'bg-gray-700/40 text-gray-500 hover:text-gray-300'
           }`}
           title="Move only one face — the opposite face stays fixed"

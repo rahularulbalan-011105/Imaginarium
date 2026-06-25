@@ -3,7 +3,7 @@ import { simulationManager } from '../managers/SimulationManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
-import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { useElectronicsStore, SENSOR_TYPES } from '../stores/electronicsStore.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import { driveManager } from '../managers/DriveManager.js'
 import { ENVIRONMENTS } from '../managers/physics/EnvironmentConfig.js'
@@ -19,6 +19,10 @@ export default function DrivePanel() {
   const startSim      = useElectronicsStore(s => s.startSimulation)
   const stopSim       = useElectronicsStore(s => s.stopSimulation)
   const setMotorSpeed = useElectronicsStore(s => s.setMotorSpeed)
+  const sensorValues  = useElectronicsStore(s => s.sensorValues)
+  const setSensorValue = useElectronicsStore(s => s.setSensorValue)
+  const autoSense     = useElectronicsStore(s => s.autoSense)
+  const setAutoSense  = useElectronicsStore(s => s.setAutoSense)
 
   const environment     = usePhysicsStore(s => s.environment)
   const setEnvironment  = usePhysicsStore(s => s.setEnvironment)
@@ -32,6 +36,8 @@ export default function DrivePanel() {
   const [error,     setError]     = useState(null)
   const [serialLog, setSerialLog] = useState('')
   const [robotMass, setRobotMass] = useState(null)
+  const [oledText,  setOledText]  = useState('')
+  const [buzzFreq,  setBuzzFreq]  = useState(0)
 
   const keysHeld   = useRef(new Set())
   const btnsHeld   = useRef(new Set())   // button IDs held via mouse
@@ -48,6 +54,7 @@ export default function DrivePanel() {
     }, 500)
     return () => clearInterval(id)
   }, [])
+
 
   // ── Legged robot: arrow key controls ────────────────────────────────────────
   const applyLeggedControl = useCallback(() => {
@@ -92,6 +99,8 @@ export default function DrivePanel() {
   const handleRun = useCallback(() => {
     setError(null)
     setSerialLog('')
+    setOledText('')
+    setBuzzFreq(0)
     simulationManager.configure(
       connections,
       objects,
@@ -102,6 +111,9 @@ export default function DrivePanel() {
         return next.length > 2000 ? next.slice(next.length - 2000) : next
       }),
       (ledId, brightness) => objectManager.animateLed(ledId, brightness),
+      undefined,                              // onServoAngle (servoAngles read in the render loop)
+      (text) => setOledText(text),            // onOled  → OLED screen readout
+      (id, freq) => setBuzzFreq(freq),        // onBuzzer → buzzer indicator
     )
     const err = simulationManager.start(code)
     if (err) setError(err.error)
@@ -113,6 +125,8 @@ export default function DrivePanel() {
     objectManager.resetAllLeds?.()
     stopSim()
     setError(null)
+    setOledText('')
+    setBuzzFreq(0)
   }, [stopSim])
 
   const handleExit = useCallback(() => {
@@ -127,6 +141,11 @@ export default function DrivePanel() {
   // Legged robot info from driveManager
   const legCount  = isLeggedRobot ? (driveManager._leggedSystem?.numLegs ?? 0)  : 0
   const gaitLabel = isLeggedRobot ? (driveManager._leggedSystem?.gaitType ?? '') : ''
+
+  // Peripherals present in the scene
+  const sensors   = objects.filter(o => SENSOR_TYPES.has(o.type))
+  const hasOled   = objects.some(o => o.type === 'oled')
+  const hasBuzzer = objects.some(o => o.type === 'buzzer')
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/97 border-t border-yellow-700/40 shadow-2xl">
@@ -185,6 +204,34 @@ export default function DrivePanel() {
           </div>
         )}
       </div>
+
+      {/* ── Peripherals: live sensor inputs + OLED + buzzer ───────────────────── */}
+      {(sensors.length > 0 || hasOled || hasBuzzer) && (
+        <div className="flex flex-wrap items-end gap-4 px-4 py-2 bg-gray-950/60 border-b border-gray-800/60">
+          {sensors.some(s => s.type === 'ir_sensor' || s.type === 'ultrasonic') && (
+            <div className="flex flex-col">
+              <div className="text-[9px] text-gray-500 mb-0.5">Detection</div>
+              <button onClick={() => setAutoSense(a => !a)}
+                title="Auto = sensors detect shapes you bring near them in the scene. Manual = set values by hand."
+                className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${autoSense ? 'bg-cyan-700 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+                {autoSense ? '🎯 Auto (scene)' : '✋ Manual'}
+              </button>
+            </div>
+          )}
+          {sensors.map(s => (
+            <SensorControl key={s.id} obj={s} value={sensorValues[s.id]} auto={autoSense} onChange={v => setSensorValue(s.id, v)} />
+          ))}
+          {hasOled && <OledScreen text={oledText} />}
+          {hasBuzzer && (
+            <div className="flex flex-col">
+              <div className="text-[9px] text-gray-500 mb-0.5">🔔 Buzzer</div>
+              <div className={`px-2 py-1 rounded text-[10px] font-mono ${buzzFreq > 0 ? 'bg-amber-700 text-white animate-pulse' : 'bg-gray-800 text-gray-500'}`}>
+                {buzzFreq > 0 ? `♪ ${Math.round(buzzFreq)} Hz` : 'silent'}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Legged controls ─────────────────────────────────────────────────── */}
       {isLeggedRobot ? (
@@ -301,6 +348,62 @@ export default function DrivePanel() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// Live input control for a sensor — drives what digitalRead/analogRead/pulseIn return.
+// In Auto mode IR/ultrasonic are read-only (driven by scene raycast); gas is always manual.
+function SensorControl({ obj, value, onChange, auto }) {
+  if (obj.type === 'ir_sensor') {
+    const on = !!value
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">👁 {obj.name}</div>
+        {auto ? (
+          <div className={`px-2 py-1 rounded text-[10px] font-semibold ${on ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-500'}`}>
+            {on ? 'Object detected' : 'Clear'}
+          </div>
+        ) : (
+          <button onClick={() => onChange(on ? 0 : 1)}
+            className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${on ? 'bg-green-700 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+            {on ? 'Object detected' : 'Clear (no object)'}
+          </button>
+        )}
+      </div>
+    )
+  }
+  if (obj.type === 'ultrasonic') {
+    const cm = value ?? 100
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">📡 {obj.name} · <span className="text-teal-300 font-mono">{cm} cm</span></div>
+        {auto ? (
+          <div className="px-2 py-1 rounded text-[10px] font-mono bg-gray-800 text-teal-300 min-w-[80px]">{cm >= 400 ? 'no echo' : `${cm} cm`}</div>
+        ) : (
+          <input type="range" min="2" max="400" value={cm} onChange={e => onChange(+e.target.value)} className="w-36 accent-teal-500" />
+        )}
+      </div>
+    )
+  }
+  if (obj.type === 'gas_sensor') {
+    const g = value ?? 100
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">💨 {obj.name} · <span className="text-orange-300 font-mono">{g}</span></div>
+        <input type="range" min="0" max="1023" value={g} onChange={e => onChange(+e.target.value)} className="w-36 accent-orange-500" />
+      </div>
+    )
+  }
+  return null
+}
+
+// OLED screen readout — mirrors what display.print/println + display() pushed.
+function OledScreen({ text }) {
+  return (
+    <div className="flex flex-col">
+      <div className="text-[9px] text-gray-500 mb-0.5">📺 OLED</div>
+      <pre className="bg-black text-cyan-300 font-mono text-[9px] leading-tight rounded px-2 py-1 border border-cyan-900/60 min-w-[150px] min-h-[46px] max-h-[60px] whitespace-pre-wrap overflow-hidden">{text || ''}</pre>
     </div>
   )
 }

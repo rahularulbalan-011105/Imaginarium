@@ -35,9 +35,9 @@ const OPERATIONS = [
 ]
 
 const COLOR_CLASSES = {
-  blue:   'bg-indigo-800/30 hover:bg-indigo-700/40 border-indigo-600/50 text-indigo-200',
-  orange: 'bg-orange-800/40 hover:bg-orange-700/60 border-orange-600/50 text-orange-200',
-  purple: 'bg-purple-800/40 hover:bg-purple-700/60 border-purple-600/50 text-purple-200',
+  blue:   'bg-indigo-800/30 hover:bg-indigo-700/40 border-indigo-600/50 text-indigo-700',
+  orange: 'bg-orange-800/40 hover:bg-orange-700/60 border-orange-600/50 text-orange-700',
+  purple: 'bg-purple-800/40 hover:bg-purple-700/60 border-purple-600/50 text-purple-700',
 }
 
 const OP_NAMES = { union: 'Union', subtract: 'Subtract', subtractB: 'Subtract', intersect: 'Intersect' }
@@ -109,7 +109,7 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
         Boolean Operations
       </div>
       {(aIsElec || bIsElec) && (
-        <div className="text-[10px] text-indigo-400 bg-indigo-900/20 border border-indigo-700/30 rounded p-2">
+        <div className="text-[10px] text-indigo-700 bg-indigo-900/20 border border-indigo-700/30 rounded p-2">
           ⚡ Electronics geometry mode — the physical shapes of the components will be used for the boolean operation.
         </div>
       )}
@@ -120,7 +120,7 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
         <span className="text-gray-100 truncate flex-1">{objA.name}</span>
         <span className="text-gray-500 shrink-0">+</span>
         <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: objB.color }} />
-        <span className="text-orange-300 truncate flex-1">{objB.name}</span>
+        <span className="text-orange-700 truncate flex-1">{objB.name}</span>
       </div>
 
       <div className="text-[10px] text-gray-500 leading-relaxed">
@@ -150,7 +150,7 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
       )}
 
       {error && (
-        <div className="text-xs text-red-400 bg-red-900/20 border border-red-800/40 rounded p-2">
+        <div className="text-xs text-red-700 bg-red-900/20 border border-red-800/40 rounded p-2">
           {error}
         </div>
       )}

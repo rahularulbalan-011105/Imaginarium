@@ -1,10 +1,13 @@
-import { useRef, useState, useCallback } from 'react'
+import { useRef, useState, useCallback, useEffect } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { buildShareUrl, readShareFromHash, clearShareHash } from '../utils/share.js'
+import { exportSTL, analyzePrintability } from '../utils/printExport.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useJointStore } from '../stores/jointStore.js'
+import { useRobotStore } from '../stores/robotStore.js'
 import { storageManager } from '../managers/StorageManager.js'
 import { clear as clearHistory } from '../managers/history/editorDispatch.js'
 import { saveJSONToFile, readJSONFile } from '../utils/export.js'
@@ -31,6 +34,7 @@ export default function Header() {
   const setPatches       = useSurfaceStore((s) => s.setPatches)
   const setBonds         = useRigidStore((s) => s.setBonds)
   const setJoints        = useJointStore((s) => s.setJoints)
+  const setBlueprints    = useRobotStore((s) => s.setBlueprints)
 
   const [saving, setSaving]           = useState(false)
   const [saveFlash, setSaveFlash]     = useState(false)
@@ -38,6 +42,7 @@ export default function Header() {
   const [showOpenDlg, setShowOpenDlg] = useState(false)
   const [savedProjects, setSavedProjects] = useState([])
   const [theme, setTheme]             = useState(getTheme)
+  const [shareMsg, setShareMsg] = useState(null)
   const importRef = useRef(null)
 
   const handleToggleTheme = () => setTheme(toggleTheme())
@@ -61,8 +66,16 @@ export default function Header() {
     if (data.surface?.patches !== undefined) setPatches(data.surface.patches)
     if (data.rigid?.bonds     !== undefined) setBonds(data.rigid.bonds)
     if (data.joints?.joints   !== undefined) setJoints(data.joints.joints)
+    setBlueprints(data.robots?.blueprints ?? {})   // absent in 1.0 files → cleared
     clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
-  }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments, setPatches, setBonds, setJoints])
+  }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments, setPatches, setBonds, setJoints, setBlueprints])
+
+  // ── open a project shared via #share=… link (once, on mount) ──────────────
+  useEffect(() => {
+    readShareFromHash().then((data) => {
+      if (data) { applyProjectData(data); clearShareHash() }
+    })
+  }, [applyProjectData])
 
   // ── save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
@@ -113,6 +126,41 @@ export default function Header() {
   const handleExportJSON = async () => {
     setShowMenu(false)
     await saveJSONToFile(getSnapshot(), `${projectName || 'project'}.json`)
+  }
+
+  // ── share link (full project packed into the URL hash) ────────────────────
+  const handleShareLink = async () => {
+    setShowMenu(false)
+    try {
+      const { url } = await buildShareUrl(getSnapshot())
+      try { await navigator.clipboard.writeText(url) } catch { /* clipboard may be blocked */ }
+      history.replaceState(null, '', url)   // reflect the shareable URL in the address bar
+      setShareMsg(url.length > 12000
+        ? `Link copied (~${Math.round(url.length / 1024)} KB). It's long — for big projects, Export JSON is more reliable.`
+        : 'Share link copied to clipboard!')
+      setTimeout(() => setShareMsg(null), 4500)
+    } catch (e) {
+      console.error('[share]', e)
+      alert('Could not create a share link: ' + (e?.message ?? e))
+    }
+  }
+
+  // ── export STL with a printability pre-check ──────────────────────────────
+  const handleExportSTL = () => {
+    setShowMenu(false)
+    const objs = useSceneStore.getState().objects
+    const report = analyzePrintability(objs, useUiStore.getState().printBedSizeMm)
+    if (report.empty) { alert('Nothing to export yet — add some shapes first.'); return }
+    const lines = report.items.map((i) => {
+      const wt  = i.watertight === null ? '' : (i.watertight ? '  ✓ watertight' : `  ⚠ ${i.boundaryEdges} open edges`)
+      const fit = i.fits ? '' : '  ⚠ exceeds bed'
+      return `• ${i.name}: ${i.sizeMm.x}×${i.sizeMm.y}×${i.sizeMm.z} mm${wt}${fit}`
+    }).join('\n')
+    const verdict = (report.anyOpen || !report.allFit)
+      ? '\n\n⚠ Some objects may not print cleanly (non-watertight, or larger than the build plate).'
+      : '\n\n✓ All objects look print-ready.'
+    if (!confirm(`Printability check (build plate ${report.bedMm} mm):\n\n${lines}${verdict}\n\nExport STL now?`)) return
+    exportSTL(objs, `${projectName || 'model'}.stl`)
   }
 
   const handleImportClick = () => {
@@ -205,6 +253,9 @@ export default function Header() {
                 <div className="my-1" style={{ borderTop: '1px solid rgb(var(--a-600) / 0.15)' }} />
                 <MenuItem onClick={handleExportJSON}  icon="⬇" label="Export JSON" />
                 <MenuItem onClick={handleImportClick} icon="⬆" label="Import JSON" />
+                <div className="my-1" style={{ borderTop: '1px solid rgba(99,102,241,0.15)' }} />
+                <MenuItem onClick={handleShareLink}   icon="🔗" label="Copy Share Link" />
+                <MenuItem onClick={handleExportSTL}   icon="🖨" label="Export STL (3D print)" />
               </div>
             </>
           )}
@@ -218,6 +269,14 @@ export default function Header() {
           onChange={handleImportFile}
         />
       </header>
+
+      {/* Share-link confirmation toast */}
+      {shareMsg && (
+        <div className="fixed top-14 right-4 z-50 max-w-xs px-4 py-2.5 rounded-lg shadow-xl text-xs text-white"
+          style={{ background: 'linear-gradient(90deg,#4f46e5,#6366f1)' }}>
+          🔗 {shareMsg}
+        </div>
+      )}
 
       {/* ── Open Saved Projects dialog ─────────────────────────────────────── */}
       {showOpenDlg && (

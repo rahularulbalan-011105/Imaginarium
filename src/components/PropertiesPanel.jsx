@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
+import * as THREE from 'three'
 import { useSceneStore } from '../stores/sceneStore.js'
+import { getMass } from '../managers/physics/MassCalculator.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
@@ -32,7 +34,7 @@ function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
               step={step}
               onBlur={onBlurSnapshot}
               onChange={handleChange(axis)}
-              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-indigo-500"
+              className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-indigo-500"
             />
           </div>
         ))}
@@ -69,7 +71,7 @@ function PatchDimInput({ label, value, onChange }) {
         onChange={e => setLocal(e.target.value)}
         onBlur={commit}
         onKeyDown={e => e.key === 'Enter' && commit()}
-        className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-cyan-500"
+        className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-cyan-500"
       />
     </div>
   )
@@ -147,7 +149,11 @@ export default function PropertiesPanel() {
   const updateObject    = useSceneStore((s) => s.updateObject)
   const removeObject    = useSceneStore((s) => s.removeObject)
   const duplicateObject = useSceneStore((s) => s.duplicateObject)
+  const insertObject    = useSceneStore((s) => s.insertObject)
   const markStandalone  = useSceneStore((s) => s.markStandalone)
+  const toggleHole      = useSceneStore((s) => s.toggleHole)
+  const groupSelected   = useSceneStore((s) => s.groupSelected)
+  const ungroupSelected = useSceneStore((s) => s.ungroupSelected)
   const { snapshot } = useHistory()
 
   const attachments     = useElectronicsStore((s) => s.attachments)
@@ -399,7 +405,7 @@ export default function PropertiesPanel() {
           type="text"
           value={obj.name}
           onChange={(e) => update({ name: e.target.value })}
-          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500"
+          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-slate-800 px-2 py-1.5 focus:outline-none focus:border-indigo-500"
         />
       </div>
 
@@ -409,7 +415,7 @@ export default function PropertiesPanel() {
           <div className="text-[10px] text-green-400 uppercase tracking-wider font-semibold mb-1">
             Attached to {shaftLabel(attachedMotor)}
           </div>
-          <div className="text-xs text-green-300 truncate mb-2">{attachedMotor.name}</div>
+          <div className="text-xs text-green-700 truncate mb-2">{attachedMotor.name}</div>
 
           {/* Shaft position — quick snap presets */}
           <div className="mb-2">
@@ -421,7 +427,7 @@ export default function PropertiesPanel() {
                   onClick={() => handleShaftSnap(x)}
                   className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
                     Math.abs(shaftPos.x - x) < 0.01 && shaftPos.y === 0 && shaftPos.z === 0
-                      ? 'bg-green-700/50 border-green-500/60 text-green-200'
+                      ? 'bg-green-700/50 border-green-500/60 text-green-700'
                       : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
                   }`}
                 >
@@ -448,7 +454,7 @@ export default function PropertiesPanel() {
                       const v = parseFloat(e.target.value)
                       if (!isNaN(v)) handleShaftPosChange(axis, v)
                     }}
-                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
+                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
                   />
                 </div>
               ))}
@@ -458,7 +464,7 @@ export default function PropertiesPanel() {
 
           <button
             onClick={handleDetach}
-            className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-slate-900 text-xs rounded transition-colors"
+            className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-700 hover:text-slate-900 text-xs rounded transition-colors"
           >
             Detach from {shaftLabel(attachedMotor)}
           </button>
@@ -477,7 +483,7 @@ export default function PropertiesPanel() {
               <span>🔗</span> Surface Bond
               <span className="text-[8px] text-gray-500 normal-case ml-auto">{role}</span>
             </div>
-            <div className="text-xs text-cyan-200 truncate mb-2">
+            <div className="text-xs text-cyan-700 truncate mb-2">
               {otherObj?.name ?? '(deleted)'}
             </div>
 
@@ -500,7 +506,7 @@ export default function PropertiesPanel() {
                             const v = parseFloat(e.target.value)
                             if (!isNaN(v)) update({ position: { ...childObj?.position, [axis]: v } })
                           }}
-                          className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white pl-4 pr-1 py-1.5 focus:outline-none focus:border-cyan-500"
+                          className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-cyan-500"
                         />
                       </div>
                     )
@@ -522,7 +528,7 @@ export default function PropertiesPanel() {
                     <button
                       key={deg}
                       onClick={() => handleRotate90OnSurface(bond, deg)}
-                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-200 hover:text-slate-900 text-[10px] font-medium rounded transition-colors"
+                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-700 hover:text-slate-900 text-[10px] font-medium rounded transition-colors"
                     >
                       {label}
                     </button>
@@ -533,7 +539,7 @@ export default function PropertiesPanel() {
 
             <button
               onClick={() => { removeBond(bond.id); snapshot() }}
-              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-300 hover:text-slate-900 text-xs rounded transition-colors"
+              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-700 hover:text-slate-900 text-xs rounded transition-colors"
             >
               Detach Bond
             </button>
@@ -571,7 +577,7 @@ export default function PropertiesPanel() {
                 snapshot()
               }}
               title="Round each rotation axis to the nearest 0°/90°/180°/270° so the shape is perfectly grid-aligned"
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-900/40 hover:bg-indigo-700/50 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 transition-colors"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
             >
               <span>⊹</span>
               <span>Snap to Axes</span>
@@ -605,7 +611,7 @@ export default function PropertiesPanel() {
                   updateObject(selectedId, { attachmentOffset: null })
                   objectManager.clearAttachmentMarker(selectedId)
                 }}
-                className="w-full py-1.5 text-[10px] text-orange-300 bg-orange-900/30 hover:bg-orange-700/40 border border-orange-700/40 rounded transition-colors"
+                className="w-full py-1.5 text-[10px] text-orange-700 bg-orange-900/30 hover:bg-orange-700/40 border border-orange-700/40 rounded transition-colors"
               >
                 ✕ Clear Attachment Point
               </button>
@@ -702,7 +708,7 @@ export default function PropertiesPanel() {
           {shaftTargets.length === 1 ? (
             <button
               onClick={() => handleAttachToMotor(shaftTargets[0].id)}
-              className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
+              className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-700 hover:text-slate-900 text-xs rounded transition-colors"
             >
               ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
@@ -712,7 +718,7 @@ export default function PropertiesPanel() {
                 <button
                   key={m.id}
                   onClick={() => handleAttachToMotor(m.id)}
-                  className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-300 hover:text-slate-900 text-xs rounded transition-colors"
+                  className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-700 hover:text-slate-900 text-xs rounded transition-colors"
                 >
                   ⚙ Attach to {m.name} ({shaftLabel(m)})
                 </button>
@@ -738,7 +744,7 @@ export default function PropertiesPanel() {
                 onClick={() => handleSetShaft(name)}
                 className={`w-full text-left px-2 py-1 text-[10px] font-mono rounded transition-colors ${
                   currentShaftName === name
-                    ? 'bg-green-700/60 text-green-200 border border-green-600/50'
+                    ? 'bg-green-700/60 text-green-700 border border-green-600/50'
                     : 'text-gray-400 hover:bg-gray-700/60 hover:text-slate-900'
                 }`}
               >
@@ -770,7 +776,7 @@ export default function PropertiesPanel() {
             onChange={(e) => {
               if (/^#[0-9a-fA-F]{6}$/.test(e.target.value)) update({ color: e.target.value })
             }}
-            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500 font-mono"
+            className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none focus:border-indigo-500 font-mono"
           />
         </div>
       </div>
@@ -875,7 +881,7 @@ export default function PropertiesPanel() {
                 <div key={pair.id}
                   className="flex items-center gap-1 mb-1 bg-gray-900/60 rounded px-2 py-1 text-[9px]"
                 >
-                  <span className="text-orange-300 flex-1 truncate">{otherObj?.name ?? 'Deleted'}</span>
+                  <span className="text-orange-700 flex-1 truncate">{otherObj?.name ?? 'Deleted'}</span>
                   <span className="text-gray-500">×{ratio}</span>
                   <button onClick={() => removeMeshPair(pair.id)}
                     className="text-red-500 hover:text-red-400 ml-1 text-[11px] leading-none"
@@ -987,7 +993,7 @@ export default function PropertiesPanel() {
                       onClick={() => toggleCorner(i)}
                       className={`aspect-square rounded border-2 transition-colors flex items-center justify-center text-[14px] ${
                         corners[i]
-                          ? 'bg-teal-600/50 border-teal-400 text-teal-100'
+                          ? 'bg-teal-600/50 border-teal-400 text-teal-700'
                           : 'bg-gray-900 border-gray-600 text-gray-600 hover:border-gray-400'
                       }`}
                       title={corners[i] ? 'Rounded — click to sharpen' : 'Sharp — click to round'}
@@ -1036,7 +1042,7 @@ export default function PropertiesPanel() {
                   if (!isNaN(v)) update({ fillet: Math.max(0, Math.min(maxR, v)) })
                 }}
                 onBlur={snapshot}
-                className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-indigo-500"
+                className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-indigo-500"
               />
               <span className="text-[9px] text-gray-500 shrink-0">r</span>
               {curR > 0 && (
@@ -1114,7 +1120,7 @@ export default function PropertiesPanel() {
                 }
               }}
               onBlur={snapshot}
-              className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1 focus:outline-none focus:border-purple-500"
+              className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-purple-500"
             />
             <span className="text-[9px] text-gray-500 shrink-0">°</span>
             {(obj.deform?.bend ?? 0) !== 0 && (
@@ -1172,6 +1178,52 @@ export default function PropertiesPanel() {
         </details>
       )}
 
+      {/* ── Inspect (measure / mass / size) ───────────────────────────────────── */}
+      <InspectSection obj={obj} secondaryObj={objects.find(o => o.id === secondaryId) ?? null} />
+
+      {/* ── Text shape content ────────────────────────────────────────────────── */}
+      {obj.type === 'text' && <TextShapeEditor obj={obj} update={update} snapshot={snapshot} />}
+
+      {/* ── Align (two-object) ────────────────────────────────────────────────── */}
+      <AlignTools obj={obj} secondaryObj={secondaryObj} updateObject={updateObject} snapshot={snapshot} />
+
+      {/* ── Pattern / Mirror ──────────────────────────────────────────────────── */}
+      <PatternTools obj={obj} insertObject={insertObject} snapshot={snapshot} />
+
+      {/* ── Hole / Solid + Group / Ungroup ────────────────────────────────────── */}
+      {!isElectronics && (
+        <div className="mb-2 flex items-center justify-between">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider">Type</div>
+          <button
+            onClick={() => { toggleHole(obj.id); snapshot() }}
+            title="Holes carve out solids when grouped (Tinkercad-style)"
+            className={`px-3 py-1 rounded text-xs transition-colors border ${
+              obj.isHole
+                ? 'bg-sky-800/40 text-sky-700 border-sky-700/50'
+                : 'bg-gray-700 text-gray-300 border-gray-600/50'
+            }`}
+          >
+            {obj.isHole ? '◌ Hole' : '◼ Solid'}
+          </button>
+        </div>
+      )}
+      {!isElectronics && secondaryObj && (
+        <button
+          onClick={() => { if (groupSelected()) snapshot() }}
+          className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-purple-700 hover:bg-purple-600 text-white transition-colors"
+        >
+          ⊕ Group selected (Ctrl+G)
+        </button>
+      )}
+      {Array.isArray(obj.groupMembers) && obj.groupMembers.length > 0 && (
+        <button
+          onClick={() => { if (ungroupSelected()) snapshot() }}
+          className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100 transition-colors"
+        >
+          ⊟ Ungroup ({obj.groupMembers.length}) (Ctrl+Shift+G)
+        </button>
+      )}
+
       {/* Visibility */}
       <div className="mb-3 flex items-center justify-between">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider">Visible</div>
@@ -1179,7 +1231,7 @@ export default function PropertiesPanel() {
           onClick={() => update({ visible: !obj.visible })}
           className={`px-3 py-1 rounded text-xs transition-colors ${
             obj.visible
-              ? 'bg-green-700/50 text-green-300 border border-green-700/50'
+              ? 'bg-green-700/50 text-green-700 border border-green-700/50'
               : 'bg-gray-700 text-gray-400 border border-gray-600/50'
           }`}
         >
@@ -1196,13 +1248,280 @@ export default function PropertiesPanel() {
         </button>
         <button
           onClick={handleDelete}
-          className="flex-1 bg-red-800/60 hover:bg-red-700 text-red-200 text-xs py-1.5 rounded transition-colors"
+          className="flex-1 bg-red-800/60 hover:bg-red-700 text-red-700 text-xs py-1.5 rounded transition-colors"
         >
           Delete
         </button>
       </div>
       {!isElectronics && <SaveAssetButton obj={obj} />}
     </div>
+  )
+}
+
+// ── Text shape editor: live string + size + thickness ─────────────────────────
+function TextShapeEditor({ obj, update, snapshot }) {
+  return (
+    <div className="mb-3">
+      <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Text</div>
+      <input
+        type="text"
+        value={obj.textContent ?? ''}
+        placeholder="Type text…"
+        onChange={(e) => update({ textContent: e.target.value })}
+        onBlur={snapshot}
+        className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 mb-2 focus:outline-none focus:border-amber-500"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <label className="text-[9px] text-gray-500">
+          Size
+          <input
+            type="number" step={0.1} min={0.1}
+            value={r3(obj.textSize ?? 1)}
+            onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textSize: v }) }}
+            onBlur={snapshot}
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-amber-500"
+          />
+        </label>
+        <label className="text-[9px] text-gray-500">
+          Thickness
+          <input
+            type="number" step={0.1} min={0.05}
+            value={r3(obj.textHeight ?? 0.4)}
+            onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) update({ textHeight: v }) }}
+            onBlur={snapshot}
+            className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1 focus:outline-none focus:border-amber-500"
+          />
+        </label>
+      </div>
+    </div>
+  )
+}
+
+// ── Align: line up the primary + secondary selection along a world axis ────────
+function AlignTools({ obj, secondaryObj, updateObject, snapshot }) {
+  if (!secondaryObj) return null
+
+  const apply = (axis, mode) => {
+    const ma = objectManager.getMesh(obj.id)
+    const mb = objectManager.getMesh(secondaryObj.id)
+    if (!ma || !mb) return
+    ma.updateMatrixWorld(true); mb.updateMatrixWorld(true)
+    const ba = new THREE.Box3().setFromObject(ma)
+    const bb = new THREE.Box3().setFromObject(mb)
+    if (ba.isEmpty() || bb.isEmpty()) return
+
+    // World-space target coordinate for the chosen reference edge/center.
+    const lo = Math.min(ba.min[axis], bb.min[axis])
+    const hi = Math.max(ba.max[axis], bb.max[axis])
+    const target = mode === 'min' ? lo : mode === 'max' ? hi : (lo + hi) / 2
+
+    ;[[obj, ba], [secondaryObj, bb]].forEach(([ob, box]) => {
+      const cur = mode === 'min' ? box.min[axis] : mode === 'max' ? box.max[axis] : (box.min[axis] + box.max[axis]) / 2
+      const pos = { ...ob.position }
+      pos[axis] += target - cur
+      updateObject(ob.id, { position: pos })
+    })
+    snapshot()
+  }
+
+  const Btn = ({ axis, mode, label }) => (
+    <button
+      onClick={() => apply(axis, mode)}
+      className="flex-1 py-1 rounded text-[10px] bg-gray-700 hover:bg-amber-700 text-gray-200 hover:text-white transition-colors"
+    >
+      {label}
+    </button>
+  )
+
+  return (
+    <details className="mb-3 group">
+      <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+        <span className="text-gray-600 group-open:text-amber-400">▶</span>
+        Align (2 objects)
+      </summary>
+      <div className="mt-2 flex flex-col gap-1.5">
+        {['x', 'y', 'z'].map((axis) => (
+          <div key={axis} className="flex items-center gap-1">
+            <span className="w-3 text-[10px] font-bold text-gray-500 uppercase">{axis}</span>
+            <Btn axis={axis} mode="min" label="Min" />
+            <Btn axis={axis} mode="center" label="Center" />
+            <Btn axis={axis} mode="max" label="Max" />
+          </div>
+        ))}
+        <div className="text-[9px] text-gray-600">Lines up the two selected objects along each axis.</div>
+      </div>
+    </details>
+  )
+}
+
+// ── Inspect: read-only mass / size / center, plus distance to a 2nd selection ──
+function InspectRow({ label, value, accent }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-gray-500">{label}</span>
+      <span className={`font-mono ${accent ? 'text-amber-700' : 'text-gray-300'}`}>{value}</span>
+    </div>
+  )
+}
+
+function InspectSection({ obj, secondaryObj }) {
+  let mass = 0
+  try { mass = getMass(obj.type, obj.scale, obj.material) } catch (_) {}
+
+  // World-space bounding box (size + center) from the live mesh.
+  let dims = null, center = null
+  const mesh = objectManager.getMesh(obj.id)
+  if (mesh) {
+    mesh.updateMatrixWorld(true)
+    const box = new THREE.Box3().setFromObject(mesh)
+    if (!box.isEmpty()) {
+      const s = box.getSize(new THREE.Vector3())
+      const c = box.getCenter(new THREE.Vector3())
+      dims   = { x: r3(s.x), y: r3(s.y), z: r3(s.z) }
+      center = { x: r3(c.x), y: r3(c.y), z: r3(c.z) }
+    }
+  }
+
+  // Distance between the two selected objects' centers (basic measure tool).
+  let dist = null
+  if (secondaryObj) {
+    const a = obj.position, b = secondaryObj.position
+    dist = r3(Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z))
+  }
+
+  return (
+    <details className="mb-3 group">
+      <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+        <span className="text-gray-600 group-open:text-amber-400">▶</span>
+        Inspect
+      </summary>
+      <div className="mt-2 text-[11px] space-y-1">
+        <InspectRow label="Mass" value={`${mass.toFixed(3)} kg`} />
+        {dims   && <InspectRow label="Size W×H×D" value={`${dims.x} × ${dims.y} × ${dims.z}`} />}
+        {center && <InspectRow label="Center" value={`${center.x}, ${center.y}, ${center.z}`} />}
+        {dist != null
+          ? <InspectRow label="↔ Distance to 2nd" value={`${dist} u`} accent />
+          : <div className="text-[9px] text-gray-600 pt-0.5">Shift-select a second object to measure the distance between them.</div>}
+      </div>
+    </details>
+  )
+}
+
+// ── Pattern / Mirror: clone the selected object in a linear/circular array or
+//    mirror it across a world axis. All clones land in ONE undo step (one snapshot).
+const PAT_AXES = ['x', 'y', 'z']
+
+function PatternTools({ obj, insertObject, snapshot }) {
+  const [tab, setTab]         = useState('linear')   // 'linear' | 'circular' | 'mirror'
+  const [axis, setAxis]       = useState('x')
+  const [count, setCount]     = useState(3)
+  const [spacing, setSpacing] = useState(3)
+  const [angle, setAngle]     = useState(360)
+
+  const cloneWith = (overrides) => ({
+    ...JSON.parse(JSON.stringify(obj)),
+    id: crypto.randomUUID(),
+    name: `${obj.name}_copy`,
+    ...overrides,
+    metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  })
+
+  const N = () => Math.max(2, Math.min(64, Math.round(count) || 2))
+
+  const applyLinear = () => {
+    const n = N()
+    for (let i = 1; i < n; i++) {
+      const p = { ...obj.position }; p[axis] += i * spacing
+      insertObject(cloneWith({ position: p }))
+    }
+    snapshot()
+  }
+
+  const applyCircular = () => {
+    const n = N()
+    const axisVec = axis === 'x' ? new THREE.Vector3(1, 0, 0)
+                  : axis === 'y' ? new THREE.Vector3(0, 1, 0)
+                  : new THREE.Vector3(0, 0, 1)
+    const full  = Math.abs(angle) >= 360
+    const denom = full ? n : Math.max(1, n - 1)   // full circle leaves a gap; arc spans ends
+    for (let i = 1; i < n; i++) {
+      const rad = degToRad(angle) * (i / denom)
+      const pos = new THREE.Vector3(obj.position.x, obj.position.y, obj.position.z).applyAxisAngle(axisVec, rad)
+      const rot = { ...obj.rotation }; rot[axis] += rad
+      insertObject(cloneWith({ position: { x: pos.x, y: pos.y, z: pos.z }, rotation: rot }))
+    }
+    snapshot()
+  }
+
+  const applyMirror = (ax) => {
+    const position = { ...obj.position }; position[ax] = -position[ax]
+    const scale    = { ...obj.scale };    scale[ax]    = -scale[ax]   // true reflection
+    insertObject(cloneWith({ position, scale }))
+    snapshot()
+  }
+
+  const tabBtn = (id, label) => (
+    <button onClick={() => setTab(id)}
+      className={`flex-1 py-1 rounded text-[10px] border transition-colors ${
+        tab === id ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-slate-800'}`}>
+      {label}
+    </button>
+  )
+  const axisBtns = () => (
+    <div className="flex gap-1">
+      {PAT_AXES.map(a => (
+        <button key={a} onClick={() => setAxis(a)}
+          className={`flex-1 py-1 rounded text-[10px] uppercase border transition-colors ${
+            axis === a ? 'bg-amber-600/70 border-amber-500 text-white' : 'bg-gray-800 border-gray-600/40 text-gray-400 hover:text-slate-800'}`}>{a}</button>
+      ))}
+    </div>
+  )
+  const numField = (label, value, set, step = 1) => (
+    <label className="flex-1 text-[9px] text-gray-500">
+      {label}
+      <input type="number" step={step} value={value}
+        onChange={e => set(parseFloat(e.target.value))}
+        className="w-full mt-0.5 bg-gray-800 border border-gray-600/50 rounded text-[11px] text-slate-800 px-1.5 py-1 focus:outline-none focus:border-amber-500" />
+    </label>
+  )
+
+  return (
+    <details className="mb-3 group">
+      <summary className="text-[10px] text-gray-400 uppercase tracking-wider cursor-pointer hover:text-amber-400 flex items-center gap-1 select-none">
+        <span className="text-gray-600 group-open:text-amber-400">▶</span>
+        Pattern / Mirror
+      </summary>
+      <div className="mt-2 flex flex-col gap-2">
+        <div className="flex gap-1">{tabBtn('linear', 'Linear')}{tabBtn('circular', 'Circular')}{tabBtn('mirror', 'Mirror')}</div>
+
+        {tab === 'mirror' ? (
+          <>
+            <div className="text-[9px] text-gray-500">Mirror a copy across a world axis</div>
+            <div className="flex gap-1">
+              {PAT_AXES.map(a => (
+                <button key={a} onClick={() => applyMirror(a)}
+                  className="flex-1 py-1.5 rounded text-[10px] uppercase bg-gray-700 hover:bg-amber-700 text-gray-200 hover:text-white transition-colors">↔ {a}</button>
+              ))}
+            </div>
+          </>
+        ) : tab === 'linear' ? (
+          <>
+            {axisBtns()}
+            <div className="flex gap-2">{numField('Count', count, setCount)}{numField('Spacing', spacing, setSpacing, 0.5)}</div>
+            <button onClick={applyLinear}
+              className="w-full py-1.5 rounded text-xs font-semibold bg-amber-700 hover:bg-amber-600 text-white transition-colors">Apply Linear Pattern</button>
+          </>
+        ) : (
+          <>
+            {axisBtns()}
+            <div className="flex gap-2">{numField('Count', count, setCount)}{numField('Total °', angle, setAngle, 15)}</div>
+            <div className="text-[9px] text-gray-600">Rotates copies around the world {axis.toUpperCase()}-axis through the origin.</div>
+            <button onClick={applyCircular}
+              className="w-full py-1.5 rounded text-xs font-semibold bg-amber-700 hover:bg-amber-600 text-white transition-colors">Apply Circular Pattern</button>
+          </>
+        )}
+      </div>
+    </details>
   )
 }
 

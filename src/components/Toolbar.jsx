@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { patchManager } from '../managers/PatchManager.js'
+import { svgTextToGeometry } from '../utils/svgImport.js'
 
 // ── Readable text system — theme-aware (flips with light/dark) ───────────────
 // These resolve to the neutral text channels in globals.css, so labels stay
@@ -23,6 +24,7 @@ const SHAPES = [
   { type: 'octahedron',  label: 'Octahedron',   icon: '◈',  key: '8' },
   { type: 'dodecahedron',label: 'Dodecahedron', icon: '⬡',  key: '9' },
   { type: 'rectprism',   label: 'Rect Prism',   icon: '▭',  key: '0' },
+  { type: 'text',        label: 'Text',         icon: '🅣' },
 ]
 
 const TRANSFORM_MODES = [
@@ -115,11 +117,24 @@ export default function Toolbar() {
   const setExtrudeTool    = useUiStore((s) => s.setExtrudeTool)
   const simActive         = useUiStore((s) => s.simActive)
   const setSimActive      = useUiStore((s) => s.setSimActive)
+  const snapTranslate     = useUiStore((s) => s.snapTranslate)
+  const setSnapTranslate  = useUiStore((s) => s.setSnapTranslate)
+  const snapRotateDeg     = useUiStore((s) => s.snapRotateDeg)
+  const setSnapRotateDeg  = useUiStore((s) => s.setSnapRotateDeg)
+  const printBedVisible   = useUiStore((s) => s.printBedVisible)
+  const setPrintBedVisible= useUiStore((s) => s.setPrintBedVisible)
+  const printBedSizeMm    = useUiStore((s) => s.printBedSizeMm)
+  const setPrintBedSizeMm = useUiStore((s) => s.setPrintBedSizeMm)
 
   // Electronics categories default expanded so quick-add (and the tutorial
   // anchors) are always available.
   const [openElec, setOpenElec] = useState({ mcu: true, actuators: true })
   const toggleElec = (k) => setOpenElec((o) => ({ ...o, [k]: !o[k] }))
+
+  const TRANSLATE_STEPS = [0, 0.5, 1, 2]
+  const ROTATE_STEPS    = [0, 15, 45, 90]
+  const BED_SIZES       = [180, 220, 256, 300]
+  const cycle = (arr, cur) => arr[(arr.indexOf(cur) + 1) % arr.length] ?? arr[0]
 
   const handleSurfaceTool = () => {
     if (!surfaceToolActive) { setExtrudeTool(false); patchManager.clearExtrudeHover() }
@@ -133,9 +148,29 @@ export default function Toolbar() {
   const patchCount        = Object.keys(useSurfaceStore((s) => s.patches)).length
   const { snapshot } = useHistory()
 
+  const addCSGObject = useSceneStore((s) => s.addCSGObject)
+  const svgInputRef  = useRef(null)
+
   const handleAddShape = (type) => {
     addObject(type)
     snapshot()
+  }
+
+  const handleSvgFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    try {
+      const text = await file.text()
+      const geo  = svgTextToGeometry(text)
+      if (!geo) { window.alert('No filled shapes found in that SVG.'); return }
+      const name = file.name.replace(/\.svg$/i, '') || 'SVG'
+      addCSGObject(name, geo.toJSON(), '#22c55e', { x: 0, y: 1, z: 0 })
+      snapshot()
+    } catch (err) {
+      console.error('[SVG import] failed:', err)
+      window.alert('SVG import failed: ' + (err?.message ?? err))
+    }
+    e.target.value = ''
   }
 
   const divider = <div className="w-10 border-t border-gray-700/40 my-2.5 self-center" />
@@ -154,9 +189,17 @@ export default function Toolbar() {
               label={label}
               shortcut={key}
               onClick={() => handleAddShape(type)}
-              title={`${label}  ·  shortcut [${key}]`}
+              title={key ? `${label}  ·  shortcut [${key}]` : label}
             />
           ))}
+          {/* SVG import */}
+          <ToolButton
+            icon="✎"
+            label="SVG"
+            onClick={() => svgInputRef.current?.click()}
+            title="Import an SVG drawing as an extruded 3D solid"
+          />
+          <input ref={svgInputRef} type="file" accept=".svg,image/svg+xml" onChange={handleSvgFile} className="hidden" />
         </div>
       </div>
 
@@ -310,6 +353,39 @@ export default function Toolbar() {
 
       {divider}
 
+      {/* Snap-to-grid */}
+      <div className="w-full">
+        <SectionLabel>Snap</SectionLabel>
+        <div className="flex flex-col gap-0.5">
+          <button
+            onClick={() => setSnapTranslate(cycle(TRANSLATE_STEPS, snapTranslate))}
+            title="Move snap step (click to cycle: Off / 0.5 / 1 / 2 units)"
+            className={`w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 ${
+              snapTranslate > 0 ? 'bg-indigo-500/15' : 'hover:bg-gray-700/40'
+            }`}
+          >
+            <span className="text-base leading-none">⊹</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: snapTranslate > 0 ? '#4F46E5' : T_SECONDARY }}>
+              {snapTranslate > 0 ? `${snapTranslate}u` : 'Move'}
+            </span>
+          </button>
+          <button
+            onClick={() => setSnapRotateDeg(cycle(ROTATE_STEPS, snapRotateDeg))}
+            title="Rotation snap (click to cycle: Off / 15° / 45° / 90°)"
+            className={`w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 ${
+              snapRotateDeg > 0 ? 'bg-indigo-500/15' : 'hover:bg-gray-700/40'
+            }`}
+          >
+            <span className="text-base leading-none">↻</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: snapRotateDeg > 0 ? '#4F46E5' : T_SECONDARY }}>
+              {snapRotateDeg > 0 ? `${snapRotateDeg}°` : 'Rot'}
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {divider}
+
       {/* View toggles */}
       <div className="w-full">
         <SectionLabel>View</SectionLabel>
@@ -333,6 +409,33 @@ export default function Toolbar() {
           >
             <span className="text-base leading-none">⊕</span>
             <span className="text-[10px] font-medium leading-tight" style={{ color: axesVisible ? 'rgb(var(--a-600))' : T_SECONDARY }}>Axes</span>
+          </button>
+        </div>
+      </div>
+
+      {divider}
+
+      {/* 3D-print build plate */}
+      <div className="w-full">
+        <SectionLabel>Print</SectionLabel>
+        <div className="flex flex-col gap-0.5">
+          <button
+            onClick={() => setPrintBedVisible(!printBedVisible)}
+            title={`Toggle the 3D-printer build plate (${printBedSizeMm} mm)`}
+            className={`w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 ${
+              printBedVisible ? 'bg-indigo-500/15' : 'hover:bg-gray-700/40'
+            }`}
+          >
+            <span className="text-base leading-none">⊟</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: printBedVisible ? '#4F46E5' : T_SECONDARY }}>Bed</span>
+          </button>
+          <button
+            onClick={() => setPrintBedSizeMm(cycle(BED_SIZES, printBedSizeMm))}
+            title="Build-plate size (click to cycle: 180 / 220 / 256 / 300 mm)"
+            className="w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 hover:bg-gray-700/40"
+          >
+            <span className="text-base leading-none">▦</span>
+            <span className="text-[10px] font-medium leading-tight" style={{ color: T_SECONDARY }}>{printBedSizeMm}mm</span>
           </button>
         </div>
       </div>

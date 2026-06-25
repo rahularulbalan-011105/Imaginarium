@@ -94,6 +94,7 @@ export default function CodeEditor() {
     return () => document.removeEventListener('mousedown', handler)
   }, [showTemplates])
 
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor']
   const hasConnections  = Object.keys(connections).length > 0
   const hasMotors       = objects.some(o => ['motor', 'motor_bo', 'motor_dc'].includes(o.type))
   const hasLeds         = objects.some(o => o.type === 'led')
@@ -143,7 +144,7 @@ export default function CodeEditor() {
   const hasServoAngles = Object.keys(simulation.servoAngles ?? {}).length > 0
 
   return (
-    <div className="flex flex-col h-full bg-gray-950">
+    <div className="flex flex-col h-full bg-slate-950">
 
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
@@ -181,7 +182,7 @@ export default function CodeEditor() {
       {(noArduino || noComponent || noConnection) && (
         <div className="px-3 py-2 space-y-1 shrink-0 border-b border-gray-700/30">
           {noArduino   && <Hint icon="⚠" text="Add an Arduino or SUBO board to the scene" />}
-          {noComponent && <Hint icon="⚠" text="Add a Motor, Servo or LED to the scene" />}
+          {noComponent && <Hint icon="⚠" text="Add an electronics component (motor, servo, LED, sensor, buzzer, OLED…)" />}
           {!noArduino && !noComponent && noConnection && (
             <Hint icon="⚠" text="Draw a wire from an Arduino pin to the component" />
           )}
@@ -193,7 +194,7 @@ export default function CodeEditor() {
         value={code}
         onChange={e => setCode(e.target.value)}
         spellCheck={false}
-        className="flex-1 bg-gray-950 text-green-300 font-mono text-xs p-3 resize-none focus:outline-none border-0 leading-relaxed min-h-0"
+        className="code-text flex-1 bg-slate-950 text-green-300 font-mono text-xs p-3 resize-none focus:outline-none border-0 leading-relaxed min-h-0"
         style={{ fontFamily: "'Fira Code', 'Consolas', monospace", tabSize: 2 }}
       />
 
@@ -281,7 +282,7 @@ export default function CodeEditor() {
           </div>
           <pre
             ref={serialRef}
-            className="bg-gray-900 text-green-400 font-mono text-[10px] p-2 rounded border border-gray-700/40 h-20 overflow-y-auto whitespace-pre-wrap break-words"
+            className="bg-slate-900 text-green-400 font-mono text-[10px] p-2 rounded border border-slate-700/40 h-20 overflow-y-auto whitespace-pre-wrap break-words"
           >
             {serialLog || <span className="text-gray-600 not-italic">No output yet…</span>}
           </pre>

@@ -39,6 +39,37 @@ export const SERVO_PINS = {
   GND:     { x: -2.2, y: 0.4, z: -0.4, color: 0x222222, type: 'gnd',   label: 'GND' },
 }
 
+// ─── Sensors & extra outputs ──────────────────────────────────────────────────
+// Static pin layouts (used since these GLBs don't auto-compute dynamic pins).
+// Pins sit in a small fanned row near the model so they're easy to click + wire.
+export const IR_PINS = {
+  OUT: { x:  0.7, y: -0.1, z: 1.2, color: 0xffcc00, type: 'digital', label: 'OUT' },
+  GND: { x:  0.0, y: -0.1, z: 1.2, color: 0x333333, type: 'gnd',     label: 'GND' },
+  VCC: { x: -0.7, y: -0.1, z: 1.2, color: 0xff2222, type: 'power',   label: 'VCC' },
+}
+export const ULTRASONIC_PINS = {
+  VCC:  { x: -1.2, y: -0.2, z: 1.3, color: 0xff2222, type: 'power',   label: 'VCC'  },
+  TRIG: { x: -0.4, y: -0.2, z: 1.3, color: 0xff8800, type: 'pwm',     label: 'TRIG' },
+  ECHO: { x:  0.4, y: -0.2, z: 1.3, color: 0xffcc00, type: 'digital', label: 'ECHO' },
+  GND:  { x:  1.2, y: -0.2, z: 1.3, color: 0x333333, type: 'gnd',     label: 'GND'  },
+}
+export const BUZZER_PINS = {
+  SIGNAL: { x:  0.4, y: -0.1, z: 0.9, color: 0xff8800, type: 'pwm', label: 'I/O' },
+  GND:    { x: -0.4, y: -0.1, z: 0.9, color: 0x333333, type: 'gnd', label: 'GND' },
+}
+export const OLED_PINS = {
+  GND: { x: -1.2, y: -0.1, z: 1.1, color: 0x333333, type: 'gnd',     label: 'GND' },
+  VCC: { x: -0.4, y: -0.1, z: 1.1, color: 0xff2222, type: 'power',   label: 'VCC' },
+  SCL: { x:  0.4, y: -0.1, z: 1.1, color: 0x66aaff, type: 'digital', label: 'SCL' },
+  SDA: { x:  1.2, y: -0.1, z: 1.1, color: 0x66aaff, type: 'digital', label: 'SDA' },
+}
+export const GAS_PINS = {
+  VCC: { x: -1.2, y: -0.1, z: 1.2, color: 0xff2222, type: 'power',   label: 'VCC' },
+  GND: { x: -0.4, y: -0.1, z: 1.2, color: 0x333333, type: 'gnd',     label: 'GND' },
+  DO:  { x:  0.4, y: -0.1, z: 1.2, color: 0xffcc00, type: 'digital', label: 'DO'  },
+  AO:  { x:  1.2, y: -0.1, z: 1.2, color: 0x22cc88, type: 'analog',  label: 'AO'  },
+}
+
 // SUBO board (custom ESP32-S3). Pins use the real silk labels IO1..IO21 from the
 // Subo Arduino library; the simulator resolves IOn → GPIO via pinNameToNumber.
 const SUBO_ADC = new Set(['IO1', 'IO5', 'IO8', 'IO11', 'IO12', 'IO17', 'IO19', 'IO20', 'IO21'])
@@ -69,6 +100,11 @@ export const PIN_DEFS = {
   motor_dc: MOTOR_PINS,
   led:      LED_PINS,
   servo:    SERVO_PINS,
+  ir_sensor:  IR_PINS,
+  ultrasonic: ULTRASONIC_PINS,
+  buzzer:     BUZZER_PINS,
+  oled:       OLED_PINS,
+  gas_sensor: GAS_PINS,
 }
 
 const PIN_SPHERE_R = 0.17
@@ -817,4 +853,81 @@ export function updateWireLine(line, from, to) {
   pos.setXYZ(0, from.x, from.y, from.z)
   pos.setXYZ(1, to.x, to.y, to.z)
   pos.needsUpdate = true
+}
+
+// ─── Sensors & extra outputs (GLB-based) ──────────────────────────────────────
+// All five use a preloaded GLB; pins come from the static PIN_DEFS above (added
+// by wireManager.registerComponent → addPinSpheresToGroup). A simple box is used
+// only if the GLB failed to load.
+function buildModelComponent(name) {
+  const root = new THREE.Group()
+  const glb = cloneModel(name)
+  if (glb) {
+    root.add(glb)
+  } else {
+    root.add(new THREE.Mesh(new THREE.BoxGeometry(2, 1, 1.4), mat(0x3a3a44)))
+  }
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
+}
+
+export function createIRSensorGroup()   { return buildModelComponent('ir_sensor') }
+export function createUltrasonicGroup() { return buildModelComponent('ultrasonic') }
+export function createBuzzerGroup()     { return buildModelComponent('buzzer') }
+export function createGasSensorGroup()  { return buildModelComponent('gas_sensor') }
+// Draw the OLED text buffer onto its canvas (black screen, cyan monospace text).
+function drawOledCanvas(ctx, canvas, text) {
+  const W = canvas.width, H = canvas.height
+  ctx.fillStyle = '#03060a'
+  ctx.fillRect(0, 0, W, H)
+  ctx.fillStyle = '#7ff0ff'
+  ctx.textBaseline = 'top'
+  ctx.font = 'bold 18px "Courier New", monospace'
+  const lines = String(text ?? '').split('\n')
+  let y = 8
+  for (const ln of lines) { ctx.fillText(ln, 8, y, W - 14); y += 22; if (y > H) break }
+}
+
+// Add a glowing canvas "screen" plane over the OLED model's largest face and store
+// an update(text) hook on userData.oledScreen so the simulation can write to it.
+function attachOledScreen(root) {
+  root.updateMatrixWorld(true)
+  const box = new THREE.Box3().setFromObject(root)
+  if (box.isEmpty()) return
+  const size   = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const thin   = [['x', size.x], ['y', size.y], ['z', size.z]].sort((a, b) => a[1] - b[1])[0][0]
+
+  const canvas = document.createElement('canvas')
+  canvas.width = 256; canvas.height = 128
+  const ctx = canvas.getContext('2d')
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.anisotropy = 4
+  const planeMat = new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false })
+  const eps = 0.06
+  let plane
+  if (thin === 'z') {
+    plane = new THREE.Mesh(new THREE.PlaneGeometry(size.x * 0.84, size.y * 0.84), planeMat)
+    plane.position.set(center.x, center.y, center.z + size.z / 2 + eps)
+  } else if (thin === 'x') {
+    plane = new THREE.Mesh(new THREE.PlaneGeometry(size.z * 0.84, size.y * 0.84), planeMat)
+    plane.rotation.y = Math.PI / 2
+    plane.position.set(center.x + size.x / 2 + eps, center.y, center.z)
+  } else {
+    plane = new THREE.Mesh(new THREE.PlaneGeometry(size.x * 0.84, size.z * 0.84), planeMat)
+    plane.rotation.x = -Math.PI / 2
+    plane.position.set(center.x, center.y + size.y / 2 + eps, center.z)
+  }
+  plane.userData.isOledScreen = true
+  root.add(plane)
+  drawOledCanvas(ctx, canvas, '')
+  tex.needsUpdate = true
+  root.userData.oledScreen = { update: (t) => { drawOledCanvas(ctx, canvas, t); tex.needsUpdate = true } }
+}
+
+export function createOLEDGroup() {
+  const r = buildModelComponent('oled')
+  r.userData.isOled = true
+  attachOledScreen(r)
+  return r
 }

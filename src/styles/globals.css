@@ -117,6 +117,12 @@ input::placeholder, textarea::placeholder { color: rgb(var(--g-500)); }
    in both modes (otherwise the OS default white popup shows light text). */
 option { background: rgb(var(--g-900)); color: rgb(var(--g-200)); }
 
+/* The Arduino code editor is a dark terminal-style surface — keep its text a
+   bright green. Without this, the `select/textarea` rule above forces
+   dark-on-dark and hides the code. A class selector beats the bare-element rule. */
+textarea.code-text { color: #86efac !important; caret-color: #86efac; }
+textarea.code-text::placeholder { color: #6b8f6b; }
+
 /* ── Scrollbar (theme-aware) ─────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: var(--scroll-track); }

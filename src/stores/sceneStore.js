@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
+import { runBoolean } from '../utils/csg.js'
 
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
 let paletteIdx = 0
@@ -35,11 +36,13 @@ export const useSceneStore = create((set, get) => ({
       : PALETTE[paletteIdx++ % PALETTE.length]
     const displayCount = count + 1
     const gearDefaults = type === 'gear' ? { teeth: 12, module: 0.25, faceWidth: 0.5, bore: 0 } : {}
+    const textDefaults = type === 'text' ? { textContent: 'Text', textSize: 1, textHeight: 0.4 } : {}
     const obj = {
       id: uuidv4(),
       name: `${type.charAt(0).toUpperCase() + type.slice(1)}_${displayCount}`,
       type,
       ...gearDefaults,
+      ...textDefaults,
       position: { ...pos },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
@@ -120,6 +123,72 @@ export const useSceneStore = create((set, get) => ({
   // Insert a fully-formed object (used by paste)
   insertObject: (obj) => {
     set((state) => ({ objects: [...state.objects, obj], selectedId: obj.id }))
+  },
+
+  // Toggle a shape between solid and "hole" (Tinkercad-style). Holes subtract from
+  // solids when grouped, and render translucent so you can see through them.
+  toggleHole: (id) =>
+    set((state) => ({
+      objects: state.objects.map((o) =>
+        o.id === id ? { ...o, isHole: !o.isHole, metadata: { ...o.metadata, updatedAt: new Date().toISOString() } } : o
+      ),
+    })),
+
+  // Group the two selected objects into one solid (Tinkercad "Group"):
+  //  • two solids        → union
+  //  • solid + hole       → solid minus the hole
+  //  • two holes          → union, result stays a hole
+  // The originals are stored on the result so Ungroup can restore them.
+  groupSelected: () => {
+    const { selectedId, secondaryId, objects } = get()
+    const a = objects.find((o) => o.id === selectedId)
+    const b = objects.find((o) => o.id === secondaryId)
+    if (!a || !b || a.id === b.id) return null
+    const aHole = !!a.isHole, bHole = !!b.isHole
+    const op = aHole === bHole ? 'union' : (!aHole && bHole ? 'subtract' : 'subtractB')
+    const res = runBoolean(a.id, b.id, op)
+    if (!res) return null
+    const members = [JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b))]
+    const groupCount = objects.filter((o) => Array.isArray(o.groupMembers)).length + 1
+    const newObj = {
+      id: uuidv4(),
+      name: `Group_${groupCount}`,
+      type: 'csg',
+      position: res.position ?? { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      color: res.color ?? '#3b82f6',
+      material: 'standard',
+      visible: true,
+      geometryJSON: res.geometryJSON,
+      isHole: aHole && bHole,
+      groupMembers: members,
+      metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    }
+    set((state) => ({
+      objects: [...state.objects.filter((o) => o.id !== a.id && o.id !== b.id), newObj],
+      selectedId: newObj.id,
+      secondaryId: null,
+    }))
+    return newObj
+  },
+
+  // Ungroup: replace a grouped object with fresh copies of its stored members.
+  ungroupSelected: () => {
+    const { selectedId, objects } = get()
+    const o = objects.find((x) => x.id === selectedId)
+    if (!o || !Array.isArray(o.groupMembers) || o.groupMembers.length === 0) return null
+    const restored = o.groupMembers.map((m) => ({
+      ...JSON.parse(JSON.stringify(m)),
+      id: uuidv4(),
+      metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+    }))
+    set((state) => ({
+      objects: [...state.objects.filter((x) => x.id !== o.id), ...restored],
+      selectedId: restored[0]?.id ?? null,
+      secondaryId: null,
+    }))
+    return restored
   },
 
   clearScene: () => set({ objects: [], selectedId: null, secondaryId: null, standaloneIds: [] }),

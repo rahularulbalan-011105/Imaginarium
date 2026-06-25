@@ -112,7 +112,7 @@ export default function BattlePanel() {
                 className="w-full py-2 rounded-lg text-xs font-bold bg-indigo-700 hover:bg-indigo-600 text-white">🏠 Host a Game</button>
               <div className="flex gap-1">
                 <input value={joinCode} onChange={e => setJoinCode(e.target.value.toUpperCase())} placeholder="ROOM CODE"
-                  className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 font-mono tracking-widest text-center focus:outline-none" />
+                  className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 font-mono tracking-widest text-center focus:outline-none" />
                 <button onClick={() => { useGameStore.getState().resetMatch(); battleManager.connectJoin(joinCode) }}
                   disabled={joinCode.length < 4}
                   className="px-3 py-1.5 rounded text-xs font-bold bg-emerald-700 hover:bg-emerald-600 disabled:opacity-40 text-white">Join</button>
@@ -251,7 +251,7 @@ function PlayerPick({ label, value, onChange, candidates, accent }) {
     <div>
       <div className="text-[10px] uppercase tracking-wider mb-1" style={{ color: accent }}>{label}</div>
       <select value={value ?? ''} onChange={e => onChange(e.target.value || null)}
-        className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-white px-2 py-1.5 focus:outline-none"
+        className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none"
         style={{ borderColor: value ? accent : undefined }}>
         <option value="">— select robot —</option>
         {candidates.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}

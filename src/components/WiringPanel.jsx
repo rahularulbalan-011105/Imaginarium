@@ -6,7 +6,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 
-const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
+const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor'])
 
 const PIN_DEFS = {
   arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2'],
@@ -16,11 +16,16 @@ const PIN_DEFS = {
   motor_dc: ['TERM_A','TERM_B'],
   led:      ['ANODE','CATHODE'],
   servo:    ['SIGNAL','VCC','GND'],
+  ir_sensor:  ['OUT','GND','VCC'],
+  ultrasonic: ['VCC','TRIG','ECHO','GND'],
+  buzzer:     ['SIGNAL','GND'],
+  oled:       ['GND','VCC','SCL','SDA'],
+  gas_sensor: ['VCC','GND','DO','AO'],
 }
 
-const WIRE_COLORS = ['#6366f1','#3b82f6','#22c55e','#ef4444','#8b5cf6','#ec4899','#06b6d4','#4F46E5']
+const WIRE_COLORS = ['#f59e0b','#3b82f6','#22c55e','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316']
 
-const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩' }
+const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩', ir_sensor: '👁', ultrasonic: '📡', buzzer: '🔔', oled: '📺', gas_sensor: '💨' }
 function compIcon(type) { return COMP_ICONS[type] ?? '📦' }
 
 function routeWire(fromMesh, toMesh) {
@@ -46,9 +51,9 @@ function PinButton({ pinId, pin, step, srcPin, dstPin, connectedPins, connForPin
   const isWaiting   = step === 'dest' && pinId !== srcPin && !isConnected
 
   let bg, textColor, border, cursor
-  if (isSelected)  { bg = 'bg-indigo-600/50'; textColor = 'text-indigo-200'; border = 'border-indigo-500/70'; cursor = 'cursor-pointer' }
-  else if (isConnected) { bg = 'bg-green-900/40'; textColor = 'text-green-300'; border = 'border-green-600/50'; cursor = 'cursor-pointer' }
-  else if (isWaiting)   { bg = 'bg-blue-900/30'; textColor = 'text-blue-300'; border = 'border-blue-700/40'; cursor = 'cursor-pointer' }
+  if (isSelected)  { bg = 'bg-indigo-600/50'; textColor = 'text-indigo-700'; border = 'border-indigo-500/70'; cursor = 'cursor-pointer' }
+  else if (isConnected) { bg = 'bg-green-900/40'; textColor = 'text-green-700'; border = 'border-green-600/50'; cursor = 'cursor-pointer' }
+  else if (isWaiting)   { bg = 'bg-blue-900/30'; textColor = 'text-blue-700'; border = 'border-blue-700/40'; cursor = 'cursor-pointer' }
   else { bg = 'bg-gray-700/40'; textColor = 'text-gray-400'; border = 'border-gray-600/30'; cursor = 'cursor-pointer' }
 
   let title = step === 'source'
@@ -184,7 +189,7 @@ export default function WiringPanel() {
         </div>
         <button
           onClick={() => disconnect(disconnectConnId)}
-          className="w-full py-2 rounded text-xs font-bold bg-red-900/40 hover:bg-red-700/50 border border-red-700/40 text-red-300 hover:text-slate-900 transition-colors"
+          className="w-full py-2 rounded text-xs font-bold bg-red-900/40 hover:bg-red-700/50 border border-red-700/40 text-red-700 hover:text-slate-900 transition-colors"
         >
           ✂ Disconnect
         </button>
@@ -228,13 +233,13 @@ export default function WiringPanel() {
           <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
           <div className="flex items-center gap-2 text-xs">
             <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: wireColor }} />
-            <span className="text-indigo-300 font-medium">{friendlyPin(dstPin)}</span>
+            <span className="text-indigo-700 font-medium">{friendlyPin(dstPin)}</span>
           </div>
         </div>
 
         <button
           onClick={connect}
-          className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-300 hover:text-slate-900 transition-colors"
+          className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-700 hover:text-slate-900 transition-colors"
         >
           ⚡ Connect
         </button>

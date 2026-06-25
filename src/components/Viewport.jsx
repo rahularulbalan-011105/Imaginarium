@@ -152,11 +152,44 @@ export default function Viewport() {
       // Propagate rigid bonds — when moving the parent, drag the child with it.
       // Do NOT reverse-propagate when a bond-child is dragged directly; its
       // relativeMatrix is updated in onDraggingChanged after the drag ends.
+      // Rigid bonds move as ONE welded unit — grabbing either part moves both.
       const allBonds = useRigidStore.getState().getBonds()
+
+      // Forward: dragging a parent drags its children (and their children).
       for (const bond of allBonds) {
         if (bond.parentId !== id) continue
         const result = objectManager.propagateBond(id, bond.relativeMatrix, true, bond.childId)
         if (result) updateObject(bond.childId, result)
+      }
+
+      // Reverse: dragging a child drags its parent up the chain, so the whole
+      // bonded group follows. parentWorld = childWorld · relativeMatrix⁻¹.
+      mesh.updateMatrixWorld(true)
+      let curId = id
+      let curWorld = mesh.matrixWorld.clone()
+      const seen = new Set([id])
+      for (let i = 0; i < 32; i++) {
+        const cb = allBonds.find(b => b.childId === curId && !seen.has(b.parentId))
+        if (!cb) break
+        const parentMesh = objectManager.getMesh(cb.parentId)
+        if (!parentMesh) break
+        const relInv = new THREE.Matrix4().fromArray(cb.relativeMatrix).invert()
+        const parentWorld = curWorld.clone().multiply(relInv)
+        const pPos = new THREE.Vector3(), pQuat = new THREE.Quaternion(), pScl = new THREE.Vector3()
+        parentWorld.decompose(pPos, pQuat, pScl)
+        const pe = new THREE.Euler().setFromQuaternion(pQuat)
+        updateObject(cb.parentId, { position: { x: pPos.x, y: pPos.y, z: pPos.z }, rotation: { x: pe.x, y: pe.y, z: pe.z } })
+        parentMesh.position.copy(pPos); parentMesh.quaternion.copy(pQuat); parentMesh.updateMatrixWorld(true)
+        // Forward-propagate from this parent to ITS other children (the dragged
+        // child's siblings) so they move too, this same frame.
+        for (const sib of allBonds) {
+          if (sib.parentId !== cb.parentId || sib.childId === curId) continue
+          const r = objectManager.propagateBond(cb.parentId, sib.relativeMatrix, true, sib.childId)
+          if (r) updateObject(sib.childId, r)
+        }
+        seen.add(cb.parentId)
+        curId = cb.parentId
+        curWorld = parentWorld
       }
     }
 

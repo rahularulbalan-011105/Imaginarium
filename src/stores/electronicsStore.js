@@ -44,6 +44,18 @@ export const useElectronicsStore = create((set, get) => ({
   // objectId → motorId  (geometry objects physically attached to a motor's rotor shaft)
   attachments: {},
 
+  // Live sensor input values, set by the Sensor panel during simulation and read
+  // by digitalRead / analogRead / pulseIn. Meaning depends on component type:
+  //   ir_sensor → 0|1 (object detected) · gas_sensor → 0-1023 (analog) · ultrasonic → distance (cm)
+  sensorValues: {},
+  setSensorValue: (id, value) =>
+    set(s => ({ sensorValues: { ...s.sensorValues, [id]: value } })),
+
+  // Auto = IR/ultrasonic read the live distance to the nearest scene shape.
+  // Manual = values come from the Sensor panel sliders/toggles.
+  autoSense: true,
+  setAutoSense: (v) => set({ autoSense: v }),
+
   // ── connections ──────────────────────────────────────────────────────────
   addWireConnection: (fromPinId, toPinId, connId) => {
     set(s => ({
@@ -175,6 +187,31 @@ export function buildPinToComponentMap(connections, objects) {
       if (!map[pinNum]) map[pinNum] = []
       if (!map[pinNum].some(c => c.id === bComp && c.terminal === terminal))
         map[pinNum].push({ id: bComp, type: bObj.type, terminal })
+    }
+  }
+  return map
+}
+
+// Sensor components whose output pins feed a value back to the controller.
+export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor'])
+const SENSOR_OUTPUT_PINS = ['OUT', 'DO', 'AO', 'ECHO', 'SIGNAL']
+
+// pinNum → { id, type, pin } for any MCU pin wired to a SENSOR's output pin, so
+// digitalRead/analogRead/pulseIn(pin) can return that sensor's live value.
+export function buildSensorInputMap(connections, objects) {
+  const byId = {}
+  for (const o of objects) byId[o.id] = o
+  const map = {}
+  for (const { fromPinId, toPinId } of Object.values(connections)) {
+    for (const [a, b] of [[fromPinId, toPinId], [toPinId, fromPinId]]) {
+      const [, aPin] = a.split(':')
+      const [bComp, bPin] = b.split(':')
+      const pinNum = pinNameToNumber(aPin)
+      if (pinNum === null) continue
+      const bObj = byId[bComp]
+      if (!bObj || !SENSOR_TYPES.has(bObj.type)) continue
+      if (!SENSOR_OUTPUT_PINS.includes(bPin)) continue
+      map[pinNum] = { id: bComp, type: bObj.type, pin: bPin }
     }
   }
   return map

@@ -1,0 +1,6 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "build": { "env": { "VITE_BASE": "/" } },
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+}
