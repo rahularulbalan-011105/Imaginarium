@@ -18,11 +18,12 @@ export const ROBOT_CATEGORIES = ['robot', 'vehicle', 'drone', 'marine', 'arm', '
 // sim never breaks while their physics modules are being built.
 export const LOCOMOTION_EXEC = {
   wheels: 'wheeled',
-  tracks: 'wheeled',     // until TrackPhysics lands
+  tracks: 'wheeled',     // skid-steer via TrackPhysics
   legs:   'legged',
-  rotors: 'freefall',    // until RotorPhysics lands
-  marine: 'freefall',    // until BuoyancyPhysics lands
+  rotors: 'freefall',    // until RotorPhysics lands (Stage 6.5)
+  marine: 'freefall',    // until BuoyancyPhysics lands (Stage 6.5)
   hybrid: 'wheeled',
+  none:   'freefall',    // passive object (no actuators) → just physics / drop
 }
 
 export const BLUEPRINT_VERSION = 2

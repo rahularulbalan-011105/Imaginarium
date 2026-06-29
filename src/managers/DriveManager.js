@@ -13,6 +13,8 @@ import { robotRuntime } from '../robot/RobotRuntime.js'
 import { buildAssemblies } from '../utils/robotAssembly.js'
 import { ModuleHost } from '../robot/ModuleHost.js'
 import { aiRuntime } from '../robot/ai/AIRuntime.js'
+import { execPathFor } from '../robot/RobotBlueprint.js'
+import { autoBlueprintForObjects } from '../robot/autoBlueprint.js'
 
 const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc'])
 const DRIVE_BODY_ID  = 'robot_drive'
@@ -212,15 +214,18 @@ class DriveManager {
     // the execution path ('wheeled' | 'legged' | 'freefall') — geometry is NOT
     // inspected to decide. No blueprint → forcedPath is null → legacy auto-detect
     // (so every existing project keeps working unchanged).
-    const forcedPath = robotRuntime.execPathForObjects(topLevel.map(o => o.id))
-    if (forcedPath) console.log('[Drive] blueprint locomotion → path:', forcedPath)
-
-    // Stage 4: remember the blueprint (if any) so the wheeled step can run its
-    // locomotion through the executable ModuleHost. Reset host state each enter.
-    this._blueprint  = robotRuntime.blueprintForObjects(topLevel.map(o => o.id))
+    // Stage 8: the blueprint is the UNIVERSAL source of truth. Use the explicit
+    // blueprint if one exists, otherwise AUTO-BUILD an ephemeral one from the
+    // scene (same locomotion heuristic, now expressed as a blueprint). So the
+    // execution path is ALWAYS chosen by blueprint locomotion — geometry only
+    // supplies mechanical parameters (motor positions), never the type decision.
+    const ids = topLevel.map(o => o.id)
+    this._blueprint  = robotRuntime.blueprintForObjects(ids) ?? autoBlueprintForObjects(topLevel)
+    const forcedPath = execPathFor(this._blueprint)
     this._forcedPath = forcedPath
     this._hostTried  = false
     if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
+    console.log('[Drive] locomotion →', forcedPath, this._blueprint?.metadata?.auto ? '(auto-blueprint)' : '(blueprint)')
 
     // Bonded (surface-welded) parts fall as ONE rigid body — a Rapier COMPOUND
     // body (a collider per part) so the weld tumbles and lands on a real face,
@@ -376,7 +381,10 @@ class DriveManager {
     // ready yet (first ~1 s of app startup).
     // Robots with ≥1 motor always use the rootGroup path so the wheel and
     // chassis stay as one unified rigid body (no Rapier contact explosions).
-    if ((forcedPath === 'freefall' || (forcedPath == null && motors.length === 0 && !this._isLegged)) && physicsManager.ready) {
+    // Freefall runs when the blueprint says so, OR as a safety net when no other
+    // locomotion engaged (no wheeled rootGroup, not legged) — so passive objects
+    // and edge cases still fall under physics instead of freezing.
+    if ((forcedPath === 'freefall' || (!this.rootGroup && !this._isLegged)) && physicsManager.ready) {
       physicsManager.setGravity(gravity)   // ensure correct environment gravity
 
       // Snapshot design-time positions so exit() can restore them.

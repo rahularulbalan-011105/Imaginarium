@@ -7,7 +7,7 @@ import { useHistory } from '../hooks/useHistory.js'
 import { buildAssemblies } from '../utils/robotAssembly.js'
 import { createBlueprint, LOCOMOTION_TYPES } from '../robot/RobotBlueprint.js'
 import { moduleLabels } from '../robot/ModuleLoader.js'
-import { classifyComponent } from '../robot/componentRegistry.js'
+import { scanCapabilities, suggestLocomotion } from '../robot/autoBlueprint.js'
 import { buildLinks, buildJoints, buildElectronics } from '../robot/blueprintBuilder.js'
 import { validatePower } from '../robot/PowerSystem.js'
 import { aiRuntime } from '../robot/ai/AIRuntime.js'
@@ -20,31 +20,6 @@ const LOCO_META = {
   rotors: { icon: '🚁', label: 'Drone' },
   marine: { icon: '🌊', label: 'Marine' },
   hybrid: { icon: '🧩', label: 'Hybrid' },
-}
-
-// Map an assembly's member component types → actuators / sensors / controller.
-// This only PRE-FILLS the blueprint (wizard convenience); the saved blueprint is
-// the authority — we never inspect geometry at sim time.
-function scanCapabilities(memberIds, byId) {
-  const actuators = [], sensors = []
-  let controller = null
-  for (const id of memberIds) {
-    const o = byId[id]; if (!o) continue
-    const c = classifyComponent(o.type)   // {category, role} from the Component Registry
-    if (!c) continue
-    if      (c.category === 'actuator')   actuators.push({ role: c.role, componentId: id, type: o.type })
-    else if (c.category === 'sensor')     sensors.push({ role: c.role, componentId: id, type: o.type })
-    else if (c.category === 'controller') controller = { type: o.type, componentId: id }
-    // 'output' (led/buzzer/oled) and unknown types are ignored here, as before.
-  }
-  return { actuators, sensors, controller }
-}
-
-// Suggest a default locomotion type from the scan (only a wizard default).
-function suggestLocomotion(actuators) {
-  if (actuators.some(a => a.type === 'servo')) return 'legs'
-  if (actuators.some(a => a.role === 'drive')) return 'wheels'
-  return 'wheels'
 }
 
 export default function RobotPanel() {
