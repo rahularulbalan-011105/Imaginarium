@@ -8,6 +8,8 @@ import { buildAssemblies } from '../utils/robotAssembly.js'
 import { createBlueprint, LOCOMOTION_TYPES } from '../robot/RobotBlueprint.js'
 import { moduleLabels } from '../robot/ModuleLoader.js'
 import { classifyComponent } from '../robot/componentRegistry.js'
+import { buildLinks, buildJoints } from '../robot/blueprintBuilder.js'
+import { validatePower } from '../robot/PowerSystem.js'
 
 const LOCO_META = {
   wheels: { icon: '🛞', label: 'Wheeled' },
@@ -70,12 +72,14 @@ export default function RobotPanel() {
   const generate = () => {
     if (!chosen) return
     const { actuators, sensors, controller } = scanCapabilities(chosen.memberIds, byId)
+    const links  = buildLinks(chosen.rootId, chosen.memberIds)   // link tree from bonds + attachments
+    const joints = buildJoints(chosen.memberIds)                 // jointStore joints within this robot
     const bp = createBlueprint({
       rootId: chosen.rootId,
       members: chosen.memberIds,
       robotName: name.trim() || chosen.name || 'Robot',
       locomotion: { type: loco, params: {} },
-      actuators, sensors, controller,
+      actuators, sensors, controller, links, joints,
     })
     addBlueprint(bp)
     snapshot()
@@ -104,7 +108,7 @@ export default function RobotPanel() {
                 <span className="text-base">{LOCO_META[bp.locomotion.type]?.icon ?? '🤖'}</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-slate-900 truncate">{bp.robotName}</div>
-                  <div className="text-[9px] text-gray-500">{LOCO_META[bp.locomotion.type]?.label ?? bp.locomotion.type} · {(bp.members?.length ?? 0)} parts</div>
+                  <div className="text-[9px] text-gray-500">{LOCO_META[bp.locomotion.type]?.label ?? bp.locomotion.type} · {(bp.members?.length ?? 0)} parts · {(bp.joints?.length ?? 0)} joints · {validatePower(bp).draw_mA} mA</div>
                 </div>
                 <button onClick={() => { removeBlueprint(bp.id); snapshot() }}
                   className="text-[10px] text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-red-900/30">🗑</button>

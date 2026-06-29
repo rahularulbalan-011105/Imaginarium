@@ -25,6 +25,12 @@ export const LOCOMOTION_EXEC = {
   hybrid: 'wheeled',
 }
 
+export const BLUEPRINT_VERSION = 2
+
+// Default power block. budget_mA = 0 means "no budget set" → validation passes.
+const defaultPower = () => ({ batteryComponentId: null, voltage: 0, capacity_mAh: 0, budget_mA: 0 })
+const defaultMeta  = () => ({ created: null, tags: [], notes: '' })
+
 export function createBlueprint(overrides = {}) {
   return {
     id:            overrides.id ?? overrides.rootId ?? uuid(),
@@ -32,13 +38,32 @@ export function createBlueprint(overrides = {}) {
     robotCategory: overrides.robotCategory ?? 'robot',
     rootId:        overrides.rootId ?? null,        // base link (chassis) object id
     members:       overrides.members ?? null,       // null = derive from assembly (bonds+attachments)
+    links:         overrides.links ?? [],           // [{ id(objectId), parentLinkId|null }] — link tree
+    joints:        overrides.joints ?? [],           // [jointId] — jointStore ids governed by this robot
     locomotion:    { type: 'wheels', params: {}, ...(overrides.locomotion ?? {}) },
-    actuators:     overrides.actuators ?? [],       // [{ role, componentId, type }]
-    sensors:       overrides.sensors ?? [],         // [{ role, componentId, type }]
+    actuators:     overrides.actuators ?? [],       // [{ role, componentId, type, drivesJointId? }]
+    sensors:       overrides.sensors ?? [],         // [{ role, componentId, type, mountLinkId? }]
     controller:    overrides.controller ?? null,    // { type, componentId }
-    battery:       overrides.battery ?? null,       // { type, voltage, capacity_mAh }
+    power:         { ...defaultPower(), ...(overrides.power ?? {}) }, // battery + budget_mA
+    battery:       overrides.battery ?? null,       // legacy (kept for back-compat)
     modules:       overrides.modules ?? [],         // cache only — recomputed by ModuleLoader
-    version:       1,
+    metadata:      { ...defaultMeta(), ...(overrides.metadata ?? {}) },
+    version:       BLUEPRINT_VERSION,
+  }
+}
+
+// Upgrade an older (v1) blueprint to the current schema, filling any missing
+// fields with defaults. Existing values always win. Safe to call on any object.
+export function migrateBlueprint(bp) {
+  if (!bp || typeof bp !== 'object') return bp
+  return {
+    links: [], joints: [],
+    power: defaultPower(), metadata: defaultMeta(),
+    ...bp,
+    locomotion: { type: 'wheels', params: {}, ...(bp.locomotion ?? {}) },
+    power:      { ...defaultPower(), ...(bp.power ?? {}) },
+    metadata:   { ...defaultMeta(),  ...(bp.metadata ?? {}) },
+    version: BLUEPRINT_VERSION,
   }
 }
 

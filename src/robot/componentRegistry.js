@@ -80,3 +80,18 @@ registerComponent({ type: 'ir',         category: 'sensor', label: 'IR Sensor', 
 registerComponent({ type: 'gas_sensor', category: 'sensor', label: 'Gas Sensor', icon: '🟤', role: 'gas',   physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'gas' } })
 registerComponent({ type: 'gas',        category: 'sensor', label: 'Gas Sensor', icon: '🟤', role: 'gas',   physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'gas' } }) // alias key
 registerComponent({ type: 'imu',        category: 'sensor', label: 'IMU',        icon: '🧭', role: 'imu',   physicsModules: ['IMUSim'],         capabilities: { sensor: 'orientation' } })
+
+// ── Typical current draw (mA) ─────────────────────────────────────────────────
+// Used by PowerSystem to estimate total draw vs the battery budget (Stage 6).
+// Rough running figures — refine per real component later.
+const DRAW_mA = {
+  arduino: 50, subo: 80,
+  motor: 250, motor_bo: 250, motor_dc: 250, dc_motor: 250,
+  servo: 150,
+  led: 20, buzzer: 30, oled: 20,
+  ultrasonic: 15, ir_sensor: 25, ir: 25, gas_sensor: 150, gas: 150, imu: 10,
+}
+for (const [type, mA] of Object.entries(DRAW_mA)) {
+  const d = getComponentDef(type)
+  if (d) d.electrical = { ...(d.electrical ?? {}), currentDraw_mA: mA }
+}
