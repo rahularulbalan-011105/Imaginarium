@@ -7,10 +7,19 @@
 // these modules declare/describe what's active for the UI and future per-module
 // execution. New-type modules (tracks/rotors/marine) are registered stubs.
 
+import { DifferentialDrive } from '../managers/robot/DifferentialDrive.js'
+
+// PhysicsModule contract (Stage 4): the ModuleHost calls enter → step* → exit.
+// `ctx` is a shared per-robot object:
+//   { blueprint, wheelbase, inputs:{leftPWM,rightPWM,…}, env, output:{} }
+// A module READS ctx.inputs/env and WRITES its result onto ctx.output
+// (e.g. ctx.output.drive = { v, omega }). Most modules are still no-op stubs;
+// they gain real step() bodies stage by stage.
 export class PhysicsModule {
   static key = 'PhysicsModule'
   static label = 'Physics'
-  enter(/* entity, world, blueprint */) {}
+  static category = 'physics'
+  enter(/* ctx */) {}
   step(/* dt, ctx */) {}
   exit() {}
 }
@@ -24,7 +33,26 @@ const def = (key, label) => {
 // Locomotion modules
 const WheelPhysics            = def('WheelPhysics', 'Wheel physics')
 const MotorPhysics            = def('MotorPhysics', 'Motor physics')
-const DifferentialDrivePhysics = def('DifferentialDrivePhysics', 'Differential drive')
+
+// First EXECUTABLE module: turns motor PWM into the robot's drive velocities
+// using the same differential-drive control law DriveManager has always used.
+// Writes { v, omega } to ctx.output.drive each step.
+class DifferentialDrivePhysics extends PhysicsModule {
+  static key = 'DifferentialDrivePhysics'
+  static label = 'Differential drive'
+  enter(ctx) {
+    this._drive = new DifferentialDrive()
+    if (ctx?.wheelbase) this._drive.wheelbase = ctx.wheelbase
+  }
+  step(_dt, ctx) {
+    if (!this._drive) this._drive = new DifferentialDrive()
+    const { leftPWM = 0, rightPWM = 0 } = ctx?.inputs ?? {}
+    const { v, omega } = this._drive.compute(leftPWM, rightPWM)
+    ctx.output = ctx.output ?? {}
+    ctx.output.drive = { v, omega }
+  }
+  exit() { this._drive = null }
+}
 const ServoPhysics            = def('ServoPhysics', 'Servo physics')
 const JointPhysics            = def('JointPhysics', 'Joint physics')
 const InverseKinematics       = def('InverseKinematics', 'Inverse kinematics')

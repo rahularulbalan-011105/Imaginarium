@@ -7,6 +7,7 @@ import { useHistory } from '../hooks/useHistory.js'
 import { buildAssemblies } from '../utils/robotAssembly.js'
 import { createBlueprint, LOCOMOTION_TYPES } from '../robot/RobotBlueprint.js'
 import { moduleLabels } from '../robot/ModuleLoader.js'
+import { classifyComponent } from '../robot/componentRegistry.js'
 
 const LOCO_META = {
   wheels: { icon: '🛞', label: 'Wheeled' },
@@ -25,12 +26,12 @@ function scanCapabilities(memberIds, byId) {
   let controller = null
   for (const id of memberIds) {
     const o = byId[id]; if (!o) continue
-    if (o.type === 'servo')                                   actuators.push({ role: 'servo', componentId: id, type: 'servo' })
-    else if (['motor', 'motor_bo', 'motor_dc'].includes(o.type)) actuators.push({ role: 'drive', componentId: id, type: o.type })
-    else if (o.type === 'ultrasonic')                         sensors.push({ role: 'range', componentId: id, type: 'ultrasonic' })
-    else if (o.type === 'ir_sensor')                          sensors.push({ role: 'ir',    componentId: id, type: 'ir_sensor' })
-    else if (o.type === 'gas_sensor')                         sensors.push({ role: 'gas',   componentId: id, type: 'gas_sensor' })
-    else if (o.type === 'arduino' || o.type === 'subo')       controller = { type: o.type, componentId: id }
+    const c = classifyComponent(o.type)   // {category, role} from the Component Registry
+    if (!c) continue
+    if      (c.category === 'actuator')   actuators.push({ role: c.role, componentId: id, type: o.type })
+    else if (c.category === 'sensor')     sensors.push({ role: c.role, componentId: id, type: o.type })
+    else if (c.category === 'controller') controller = { type: o.type, componentId: id }
+    // 'output' (led/buzzer/oled) and unknown types are ignored here, as before.
   }
   return { actuators, sensors, controller }
 }

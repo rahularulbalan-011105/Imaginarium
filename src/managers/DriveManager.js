@@ -11,6 +11,7 @@ import { PhysicsIntegrator } from './physics/PhysicsIntegrator.js'
 import { SCENE_TO_M } from './physics/EnvironmentConfig.js'
 import { robotRuntime } from '../robot/RobotRuntime.js'
 import { buildAssemblies } from '../utils/robotAssembly.js'
+import { ModuleHost } from '../robot/ModuleHost.js'
 
 const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc'])
 const DRIVE_BODY_ID  = 'robot_drive'
@@ -59,6 +60,12 @@ class DriveManager {
     this._robotMaxLocalZ =  3         // max local-Z of robot bounding box (set in enter)
     this._robotMinLocalX = -3         // min local-X of robot bounding box (set in enter)
     this._robotMaxLocalX =  3         // max local-X of robot bounding box (set in enter)
+
+    // Stage 4 — executable physics modules (blueprint-driven). Null = legacy path.
+    this._moduleHost  = null
+    this._blueprint   = null
+    this._forcedPath  = null
+    this._hostTried   = false
 
     // Rapier freefall mode — non-wheeled, non-legged objects
     this._rapierBodies      = new Map()   // rootId → { body, mesh, halfY, lCtr, compound }
@@ -206,6 +213,13 @@ class DriveManager {
     // (so every existing project keeps working unchanged).
     const forcedPath = robotRuntime.execPathForObjects(topLevel.map(o => o.id))
     if (forcedPath) console.log('[Drive] blueprint locomotion → path:', forcedPath)
+
+    // Stage 4: remember the blueprint (if any) so the wheeled step can run its
+    // locomotion through the executable ModuleHost. Reset host state each enter.
+    this._blueprint  = robotRuntime.blueprintForObjects(topLevel.map(o => o.id))
+    this._forcedPath = forcedPath
+    this._hostTried  = false
+    if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
 
     // Bonded (surface-welded) parts fall as ONE rigid body — a Rapier COMPOUND
     // body (a collider per part) so the weld tumbles and lands on a real face,
@@ -659,6 +673,11 @@ class DriveManager {
   }
 
   exit(updateObject) {
+    // Tear down the executable module host (Stage 4) regardless of path.
+    if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
+    this._hostTried = false
+    this._blueprint = null
+
     if (!this.rootGroup && !this._useRapierFreefall) return
 
     // ── Rapier freefall cleanup ───────────────────────────────────────────────
@@ -971,7 +990,21 @@ class DriveManager {
     const rightPWM = avg(this._rightIds)
     // (Do NOT early-return on zero PWM — PhysicsIntegrator needs to apply rolling friction)
 
-    const { v, omega } = this._drive.compute(leftPWM, rightPWM)
+    // Stage 4: if this robot has a blueprint, run its locomotion through the
+    // executable ModuleHost (the DifferentialDrivePhysics module). It uses the
+    // same control law, so motion is unchanged — the difference is the decision
+    // now lives in a module. No blueprint → the built-in model, byte-identical.
+    if (!this._moduleHost && !this._hostTried && this._blueprint && this._forcedPath === 'wheeled') {
+      this._hostTried = true
+      const host = new ModuleHost()
+      host.enter(this._blueprint, { wheelbase: this.wheelbase })
+      if (host.hasModule('DifferentialDrivePhysics')) this._moduleHost = host
+      else host.exit()
+    }
+    let v, omega
+    const driveOut = this._moduleHost ? this._moduleHost.computeDrive(leftPWM, rightPWM, dt) : null
+    if (driveOut) { v = driveOut.v; omega = driveOut.omega }
+    else { const r = this._drive.compute(leftPWM, rightPWM); v = r.v; omega = r.omega }
 
     // ── Physics path — Rapier kinematic body ─────────────────────────────────
     let body = physicsManager.getBody(DRIVE_BODY_ID)
