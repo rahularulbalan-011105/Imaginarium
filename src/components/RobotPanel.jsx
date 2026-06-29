@@ -8,8 +8,10 @@ import { buildAssemblies } from '../utils/robotAssembly.js'
 import { createBlueprint, LOCOMOTION_TYPES } from '../robot/RobotBlueprint.js'
 import { moduleLabels } from '../robot/ModuleLoader.js'
 import { classifyComponent } from '../robot/componentRegistry.js'
-import { buildLinks, buildJoints } from '../robot/blueprintBuilder.js'
+import { buildLinks, buildJoints, buildElectronics } from '../robot/blueprintBuilder.js'
 import { validatePower } from '../robot/PowerSystem.js'
+import { aiRuntime } from '../robot/ai/AIRuntime.js'
+import { AI_BEHAVIORS } from '../robot/ai/behaviors.js'
 
 const LOCO_META = {
   wheels: { icon: '🛞', label: 'Wheeled' },
@@ -65,6 +67,7 @@ export default function RobotPanel() {
   const [rootId, setRootId] = useState(defaultRoot)
   const [name, setName]     = useState('')
   const [loco, setLoco]     = useState('wheels')
+  const [, setAiVer]        = useState(0)   // re-render when an AI behavior is picked
 
   const chosen = assemblies.find(a => a.rootId === rootId) ?? null
   const blueprintList = Object.values(blueprints)
@@ -72,14 +75,16 @@ export default function RobotPanel() {
   const generate = () => {
     if (!chosen) return
     const { actuators, sensors, controller } = scanCapabilities(chosen.memberIds, byId)
-    const links  = buildLinks(chosen.rootId, chosen.memberIds)   // link tree from bonds + attachments
-    const joints = buildJoints(chosen.memberIds)                 // jointStore joints within this robot
+    const links       = buildLinks(chosen.rootId, chosen.memberIds)  // link tree from bonds + attachments
+    const joints      = buildJoints(chosen.memberIds)                // jointStore joints within this robot
+    const connections = buildElectronics(chosen.memberIds)           // wiring conns within this robot
     const bp = createBlueprint({
       rootId: chosen.rootId,
       members: chosen.memberIds,
       robotName: name.trim() || chosen.name || 'Robot',
       locomotion: { type: loco, params: {} },
       actuators, sensors, controller, links, joints,
+      electronics: { connections },
     })
     addBlueprint(bp)
     snapshot()
@@ -108,7 +113,7 @@ export default function RobotPanel() {
                 <span className="text-base">{LOCO_META[bp.locomotion.type]?.icon ?? '🤖'}</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-slate-900 truncate">{bp.robotName}</div>
-                  <div className="text-[9px] text-gray-500">{LOCO_META[bp.locomotion.type]?.label ?? bp.locomotion.type} · {(bp.members?.length ?? 0)} parts · {(bp.joints?.length ?? 0)} joints · {validatePower(bp).draw_mA} mA</div>
+                  <div className="text-[9px] text-gray-500">{LOCO_META[bp.locomotion.type]?.label ?? bp.locomotion.type} · {(bp.members?.length ?? 0)} parts · {(bp.joints?.length ?? 0)} joints · {(bp.electronics?.connections?.length ?? 0)} wires · {validatePower(bp).draw_mA} mA</div>
                 </div>
                 <button onClick={() => { removeBlueprint(bp.id); snapshot() }}
                   className="text-[10px] text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-red-900/30">🗑</button>
@@ -127,6 +132,20 @@ export default function RobotPanel() {
                   </button>
                 ))}
               </div>
+              {/* AI driver — reactive behavior that drives this robot from its sensors */}
+              <label className="mt-1.5 flex items-center gap-1.5 text-[9px] text-gray-500">
+                <span>🧠 AI</span>
+                <select
+                  value={aiRuntime.behaviorFor(bp.id)}
+                  onChange={(e) => { aiRuntime.setBehavior(bp.id, e.target.value); setAiVer(v => v + 1) }}
+                  className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-[10px] text-slate-800 px-1.5 py-1 focus:outline-none"
+                  title="Run this robot from an AI behavior instead of firmware. Then press Simulate."
+                >
+                  {Object.entries(AI_BEHAVIORS).map(([key, b]) => (
+                    <option key={key} value={key}>{b.label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
           ))}
         </div>

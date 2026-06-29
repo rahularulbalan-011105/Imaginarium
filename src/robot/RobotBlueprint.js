@@ -46,6 +46,8 @@ export function createBlueprint(overrides = {}) {
     controller:    overrides.controller ?? null,    // { type, componentId }
     power:         { ...defaultPower(), ...(overrides.power ?? {}) }, // battery + budget_mA
     battery:       overrides.battery ?? null,       // legacy (kept for back-compat)
+    electronics:   { connections: [], ...(overrides.electronics ?? {}) }, // wiring conn ids in this robot
+    aiModules:     overrides.aiModules ?? [],       // [{ key, config }] — AI behaviors
     modules:       overrides.modules ?? [],         // cache only — recomputed by ModuleLoader
     metadata:      { ...defaultMeta(), ...(overrides.metadata ?? {}) },
     version:       BLUEPRINT_VERSION,
@@ -57,12 +59,13 @@ export function createBlueprint(overrides = {}) {
 export function migrateBlueprint(bp) {
   if (!bp || typeof bp !== 'object') return bp
   return {
-    links: [], joints: [],
+    links: [], joints: [], aiModules: [],
     power: defaultPower(), metadata: defaultMeta(),
     ...bp,
-    locomotion: { type: 'wheels', params: {}, ...(bp.locomotion ?? {}) },
-    power:      { ...defaultPower(), ...(bp.power ?? {}) },
-    metadata:   { ...defaultMeta(),  ...(bp.metadata ?? {}) },
+    locomotion:  { type: 'wheels', params: {}, ...(bp.locomotion ?? {}) },
+    power:       { ...defaultPower(), ...(bp.power ?? {}) },
+    electronics: { connections: [], ...(bp.electronics ?? {}) },
+    metadata:    { ...defaultMeta(),  ...(bp.metadata ?? {}) },
     version: BLUEPRINT_VERSION,
   }
 }

@@ -40,3 +40,17 @@ export function buildJoints(memberIds) {
     .filter(j => memberset.has(j.parentId) && memberset.has(j.childId))
     .map(j => j.id)
 }
+
+/** Wiring connection ids whose BOTH endpoints' components are members of this
+ *  robot (pin ids are "componentId:pinName"). Ties the wiring graph to the robot. */
+export function buildElectronics(memberIds) {
+  const memberset = new Set(memberIds)
+  const conns = useElectronicsStore.getState().connections ?? {}
+  const ids = []
+  for (const [connId, c] of Object.entries(conns)) {
+    const a = (c.fromPinId ?? '').split(':')[0]
+    const b = (c.toPinId ?? '').split(':')[0]
+    if (memberset.has(a) && memberset.has(b)) ids.push(connId)
+  }
+  return ids
+}

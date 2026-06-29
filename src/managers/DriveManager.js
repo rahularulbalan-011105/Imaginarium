@@ -12,6 +12,7 @@ import { SCENE_TO_M } from './physics/EnvironmentConfig.js'
 import { robotRuntime } from '../robot/RobotRuntime.js'
 import { buildAssemblies } from '../utils/robotAssembly.js'
 import { ModuleHost } from '../robot/ModuleHost.js'
+import { aiRuntime } from '../robot/ai/AIRuntime.js'
 
 const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc'])
 const DRIVE_BODY_ID  = 'robot_drive'
@@ -759,6 +760,10 @@ class DriveManager {
     usePhysicsStore.getState().setLeggedControl(0, 0)
   }
 
+  // The left/right drive-motor split, exposed so the AI runtime can command
+  // the same motors the wheeled path reads.
+  getDriveGroups() { return { leftIds: this._leftIds, rightIds: this._rightIds } }
+
   // Called every animation frame.
   step() {
     if (!this.rootGroup && !this._useRapierFreefall) return
@@ -767,6 +772,10 @@ class DriveManager {
     const dt  = this._lastTime !== null ? Math.min(now - this._lastTime, 0.05) : 0
     this._lastTime = now
     if (dt === 0) return
+
+    // AI behaviors (if any) write drive commands into simulationManager.motorSpeeds
+    // BEFORE the wheeled path reads them, so an AI robot drives via the same channel.
+    aiRuntime.tick(dt, this.getDriveGroups())
 
     // ── Rapier freefall path ──────────────────────────────────────────────────
     // Each object is a Rapier dynamic body — gravity, tipping, stacking and
@@ -977,8 +986,8 @@ class DriveManager {
       }
     }
 
-    // ── Wheeled path (requires Arduino code to be running) ───────────────────
-    if (!simulationManager.isRunning()) return
+    // ── Wheeled path (driven by Arduino firmware OR an AI behavior) ──────────
+    if (!simulationManager.isRunning() && !aiRuntime.isActive()) return
     if (!this._leftIds.length || !this._rightIds.length) return
 
     // ── Compute velocities from motor PWM via the differential-drive model ───
