@@ -998,7 +998,10 @@ class DriveManager {
       this._hostTried = true
       const host = new ModuleHost()
       host.enter(this._blueprint, { wheelbase: this.wheelbase })
-      if (host.hasModule('DifferentialDrivePhysics')) this._moduleHost = host
+      // Use the host for drive if ANY of its modules produce a drive velocity
+      // (wheels → DifferentialDrivePhysics, tracks → TrackPhysics, …). Probe with
+      // zero input so a sensor-only blueprint cleanly falls back to the legacy model.
+      if (host.computeDrive(0, 0, 0) != null) this._moduleHost = host
       else host.exit()
     }
     let v, omega

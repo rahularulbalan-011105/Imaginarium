@@ -58,7 +58,27 @@ const JointPhysics            = def('JointPhysics', 'Joint physics')
 const InverseKinematics       = def('InverseKinematics', 'Inverse kinematics')
 const BalanceSystem           = def('BalanceSystem', 'Balance system')
 const GaitEngine              = def('GaitEngine', 'Gait engine')
-const TrackPhysics            = def('TrackPhysics', 'Track physics')
+// EXECUTABLE: tracked (skid-steer) drive. Same PWM→velocity model as wheels but
+// with sharper turning and slight linear slip, so a 'tracks' robot feels like a
+// tank rather than a car. Routes through the same wheeled seam (v/omega).
+class TrackPhysics extends PhysicsModule {
+  static key = 'TrackPhysics'
+  static label = 'Track physics'
+  enter(ctx) {
+    this._drive = new DifferentialDrive()
+    if (ctx?.wheelbase) this._drive.wheelbase = ctx.wheelbase
+    this._turnBoost = 1.4   // tracks pivot faster than wheels
+    this._linSlip   = 0.92  // and lose a little forward speed to slip
+  }
+  step(_dt, ctx) {
+    if (!this._drive) this._drive = new DifferentialDrive()
+    const { leftPWM = 0, rightPWM = 0 } = ctx?.inputs ?? {}
+    const { v, omega } = this._drive.compute(leftPWM, rightPWM)
+    ctx.output = ctx.output ?? {}
+    ctx.output.drive = { v: v * this._linSlip, omega: omega * this._turnBoost }
+  }
+  exit() { this._drive = null }
+}
 const SlipPhysics             = def('SlipPhysics', 'Slip physics')
 const TerrainPhysics          = def('TerrainPhysics', 'Terrain interaction')
 const RotorPhysics            = def('RotorPhysics', 'Rotor physics')
