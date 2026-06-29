@@ -12,33 +12,29 @@ import { AI_BEHAVIORS } from './behaviors.js'
 // on aiRuntime.isActive() so AI-driven robots run even when no firmware is.
 const clampPWM = (v) => Math.max(-255, Math.min(255, v || 0))
 
-class AIRuntime {
-  constructor() {
-    this._enabled = {}   // blueprintId → behavior key
-    this._phase   = 0
-  }
+// AI selection lives on the blueprint (blueprint.aiModules = [{ key }]), so it
+// saves / loads / undoes with the project. The runtime just reads it each frame.
+function behaviorKeyOf(bp) { return bp?.aiModules?.[0]?.key ?? 'idle' }
 
-  setBehavior(blueprintId, key) {
-    if (!key || key === 'idle') delete this._enabled[blueprintId]
-    else this._enabled[blueprintId] = key
+class AIRuntime {
+  constructor() { this._phase = 0 }
+
+  isActive() {
+    return Object.values(useRobotStore.getState().blueprints)
+      .some(bp => behaviorKeyOf(bp) !== 'idle')
   }
-  behaviorFor(blueprintId) { return this._enabled[blueprintId] ?? 'idle' }
-  isActive() { return Object.keys(this._enabled).length > 0 }
-  clear() { this._enabled = {}; this._phase = 0 }
 
   // groups = { leftIds, rightIds } from DriveManager (the drive motor split).
   tick(dt, groups) {
-    if (!this.isActive()) return
-    this._phase += dt
-    const left = groups?.leftIds ?? []
+    const left  = groups?.leftIds ?? []
     const right = groups?.rightIds ?? []
     if (!left.length && !right.length) return
 
-    const bps = useRobotStore.getState().blueprints
-    for (const [bpId, key] of Object.entries(this._enabled)) {
-      const bp  = bps[bpId]
+    this._phase += dt
+    for (const bp of Object.values(useRobotStore.getState().blueprints)) {
+      const key = behaviorKeyOf(bp)
       const beh = AI_BEHAVIORS[key]
-      if (!bp || !beh) continue
+      if (!beh || key === 'idle') continue
 
       // Forward range from the robot's first range sensor (ultrasonic/IR).
       const rangeSensor = (bp.sensors ?? []).find(s => s.role === 'range' || s.role === 'ir')

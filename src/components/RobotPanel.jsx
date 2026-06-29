@@ -10,7 +10,6 @@ import { moduleLabels } from '../robot/ModuleLoader.js'
 import { scanCapabilities, suggestLocomotion } from '../robot/autoBlueprint.js'
 import { buildLinks, buildJoints, buildElectronics } from '../robot/blueprintBuilder.js'
 import { validatePower } from '../robot/PowerSystem.js'
-import { aiRuntime } from '../robot/ai/AIRuntime.js'
 import { AI_BEHAVIORS } from '../robot/ai/behaviors.js'
 
 const LOCO_META = {
@@ -42,7 +41,6 @@ export default function RobotPanel() {
   const [rootId, setRootId] = useState(defaultRoot)
   const [name, setName]     = useState('')
   const [loco, setLoco]     = useState('wheels')
-  const [, setAiVer]        = useState(0)   // re-render when an AI behavior is picked
 
   const chosen = assemblies.find(a => a.rootId === rootId) ?? null
   const blueprintList = Object.values(blueprints)
@@ -111,10 +109,10 @@ export default function RobotPanel() {
               <label className="mt-1.5 flex items-center gap-1.5 text-[9px] text-gray-500">
                 <span>🧠 AI</span>
                 <select
-                  value={aiRuntime.behaviorFor(bp.id)}
-                  onChange={(e) => { aiRuntime.setBehavior(bp.id, e.target.value); setAiVer(v => v + 1) }}
+                  value={bp.aiModules?.[0]?.key ?? 'idle'}
+                  onChange={(e) => { const k = e.target.value; updateBlueprint(bp.id, { aiModules: k === 'idle' ? [] : [{ key: k }] }); snapshot() }}
                   className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-[10px] text-slate-800 px-1.5 py-1 focus:outline-none"
-                  title="Run this robot from an AI behavior instead of firmware. Then press Simulate."
+                  title="Run this robot from an AI behavior instead of firmware. Then press Simulate. Saved with the project."
                 >
                   {Object.entries(AI_BEHAVIORS).map(([key, b]) => (
                     <option key={key} value={key}>{b.label}</option>
