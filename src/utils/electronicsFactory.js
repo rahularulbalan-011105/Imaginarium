@@ -882,10 +882,17 @@ function drawOledCanvas(ctx, canvas, text) {
   ctx.fillRect(0, 0, W, H)
   ctx.fillStyle = '#7ff0ff'
   ctx.textBaseline = 'top'
-  ctx.font = 'bold 18px "Courier New", monospace'
   const lines = String(text ?? '').split('\n')
-  let y = 8
-  for (const ln of lines) { ctx.fillText(ln, 8, y, W - 14); y += 22; if (y > H) break }
+  const n = Math.max(1, lines.length)
+  // Fewer lines → bigger font (so an "eyes" face is large); centre the whole
+  // block both horizontally and vertically for a clean look.
+  const fontPx = n <= 2 ? 46 : n <= 4 ? 30 : 20
+  const lineH  = Math.round(fontPx * 1.12)
+  ctx.font = `bold ${fontPx}px "Courier New", monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  let y = H / 2 - (n * lineH) / 2 + lineH / 2
+  for (const ln of lines) { ctx.fillText(ln, W / 2, y, W - 10); y += lineH }
 }
 
 // Add a glowing canvas "screen" plane over the OLED model's largest face and store
