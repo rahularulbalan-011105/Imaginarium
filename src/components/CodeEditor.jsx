@@ -100,7 +100,10 @@ export default function CodeEditor() {
   const hasLeds         = objects.some(o => o.type === 'led')
   const hasServos       = objects.some(o => o.type === 'servo')
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
-  const hasControllable = hasMotors || hasLeds || hasServos
+  // Count ANY controllable component (sensors/buzzer/OLED included), not just
+  // motors/LEDs/servos — otherwise a scene with only an OLED or sensor wrongly
+  // shows "add an electronics component" and disables Run.
+  const hasControllable = objects.some(o => CONTROLLABLE.includes(o.type))
 
   const handleRun = () => {
     setError(null)
