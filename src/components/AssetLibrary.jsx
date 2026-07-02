@@ -67,12 +67,21 @@ const ELECTRONICS_CATEGORIES = [
       { type: 'led',      label: 'LED',         icon: '💡', desc: 'Light output',            purpose: 'A light you can switch on/off or dim from code.', usage: 'status indicators · signals' },
     ],
   },
+  {
+    key: 'sensors', label: 'Sensors & I/O', icon: '📡', blurb: 'Sense the world · extra outputs.',
+    items: [
+      { type: 'ultrasonic', label: 'Ultrasonic', icon: '📡', desc: 'Distance sensor',   purpose: 'Measures the distance to the nearest object in front of it.', usage: 'obstacle avoidance · range finding' },
+      { type: 'ir_sensor',  label: 'IR Sensor',  icon: '👁', desc: 'Proximity / line',  purpose: 'Detects a nearby object or surface in front of it (near vs far).', usage: 'obstacle & edge detection · line following' },
+      { type: 'gas_sensor', label: 'Gas Sensor', icon: '💨', desc: 'Gas / air quality', purpose: 'Reads a gas / air-quality level (analog value).', usage: 'gas alarms · air-quality projects' },
+      { type: 'buzzer',     label: 'Buzzer',     icon: '🔔', desc: 'Sound output',       purpose: 'Beeps at a frequency you set from code.', usage: 'alerts · tones · feedback' },
+      { type: 'oled',       label: 'OLED',       icon: '📺', desc: 'Text display',       purpose: 'A small screen — show text/values from code on the 3D screen.', usage: 'readouts · debug display' },
+    ],
+  },
 ]
 
 // Categories from the standard taxonomy that aren't available yet — shown so the
 // structure is clear, but disabled (adding them isn't supported).
 const ELECTRONICS_SOON = [
-  { key: 'sensors', label: 'Sensors',       icon: '📡', note: 'Ultrasonic · IR · temperature · IMU · GPS — coming soon.' },
   { key: 'power',   label: 'Power',         icon: '🔋', note: 'Batteries · supplies · regulators — coming soon.' },
   { key: 'comms',   label: 'Communication', icon: '📶', note: 'WiFi · Bluetooth · RF — coming soon.' },
 ]
@@ -96,7 +105,7 @@ export default function AssetLibrary() {
   const { assets, deleteAsset } = useAssetStore()
 
   // Which electronics categories are expanded (MCUs + Actuators open by default).
-  const [openCats, setOpenCats] = useState({ mcu: true, actuators: true })
+  const [openCats, setOpenCats] = useState({ mcu: true, actuators: true, sensors: true })
   const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
 
   const fileRef = useRef(null)
