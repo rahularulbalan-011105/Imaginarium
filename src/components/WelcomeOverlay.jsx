@@ -6,7 +6,7 @@ import { useOnboardingStore } from '../onboarding/onboardingStore.js'
 // the onboarding store; it never touches scene, electronics, physics or saves.
 
 const STEPS = [
-  { icon: '🧊', title: 'Add a shape',      text: 'Click a shape in the left toolbar (or press 1–0). It drops into the scene.' },
+  { icon: '🧊', title: 'Add a shape',      text: 'Click a shape in the floating toolbox, top-left (or press 1–0). It drops into the scene.' },
   { icon: '✛',  title: 'Move it',          text: 'Select an object, then drag the arrows. W = Move · E = Rotate · R = Scale.' },
   { icon: '🟢', title: 'Add electronics',  text: 'From the “Elec” group add an Arduino, Motor, Servo, or LED.' },
   { icon: '⚡', title: 'Connect parts',     text: 'In the Wiring tab, click two pins to run a wire between components.' },

@@ -5,7 +5,7 @@ const SECTIONS = [
   {
     icon: '🧊', title: '1 · Create an object',
     body: [
-      'Click any shape in the left Toolbar — a Cube is a good start (or press 3).',
+      'Click any shape in the floating Toolbox (top-left) — a Cube is a good start (or press 3).',
       'It appears in the 3D Viewport. Click it to select it; the colored arrows are the Move gizmo.',
       'Press W to Move, E to Rotate, R to Scale. Fine-tune exact values in the Properties panel on the right.',
     ],
@@ -13,7 +13,7 @@ const SECTIONS = [
   {
     icon: '🔌', title: '2 · Add electronics',
     body: [
-      'In the Toolbar’s “Elec” group, add a controller (Arduino or SUBO) plus a part to control — a Motor, Servo, or LED.',
+      'In the Toolbox’s Electronics group, add a controller (Arduino or SUBO) plus a part to control — a Motor, Servo, or LED.',
       'Position them in the scene like any other object.',
       'Tip: drag an object near a motor’s shaft and the app offers to attach it so it spins with the motor.',
     ],
@@ -37,7 +37,7 @@ const SECTIONS = [
   {
     icon: '🤖', title: '5 · Run a simulation',
     body: [
-      'Press Simulate (▶) in the Toolbar to enter simulation mode with real physics.',
+      'Press Simulate (▶) in the Toolbox to enter simulation mode with real physics.',
       'Drive wheeled robots with the on-screen controls; gravity, friction, and wind all apply.',
       'Press Stop (⏹) to return to editing. Nothing you built is lost.',
     ],

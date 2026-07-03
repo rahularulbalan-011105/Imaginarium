@@ -381,10 +381,11 @@ class DriveManager {
     // ready yet (first ~1 s of app startup).
     // Robots with ≥1 motor always use the rootGroup path so the wheel and
     // chassis stay as one unified rigid body (no Rapier contact explosions).
-    // Freefall runs when the blueprint says so, OR as a safety net when no other
-    // locomotion engaged (no wheeled rootGroup, not legged) — so passive objects
-    // and edge cases still fall under physics instead of freezing.
-    if ((forcedPath === 'freefall' || (!this.rootGroup && !this._isLegged)) && physicsManager.ready) {
+    // Freefall runs ONLY when the blueprint's locomotion maps to it (passive
+    // 'none', or rotors/marine until their modules land). A robot that doesn't
+    // engage wheeled/legged simply sits — it must NOT be dumped into per-object
+    // dynamic bodies, or its overlapping wheel/motor colliders get ejected apart.
+    if (forcedPath === 'freefall' && physicsManager.ready) {
       physicsManager.setGravity(gravity)   // ensure correct environment gravity
 
       // Snapshot design-time positions so exit() can restore them.
@@ -856,6 +857,18 @@ class DriveManager {
     const gravAccel = physEnv.gravity / SCENE_TO_M  // m/s² → scene_u/s²
     this._vy = Math.max(this._vy + gravAccel * dt, -MAX_V)
     this.rootGroup.position.y += this._vy * dt
+
+    // TEMP DIAGNOSTIC (remove after debugging the spin) — ~once/sec
+    if ((this._dbg = (this._dbg || 0) + 1) % 45 === 1) {
+      const ms = simulationManager.motorSpeeds
+      console.log('[drive dbg]',
+        'L', JSON.stringify(this._leftIds), 'R', JSON.stringify(this._rightIds),
+        'yawOff', +this._yawOffset.toFixed(2),
+        'yaw', +this.rootGroup.rotation.y.toFixed(2),
+        'pitch', +this._pitch.toFixed(2), 'roll', +this._roll.toFixed(2),
+        'host', !!this._moduleHost,
+        'speeds', JSON.stringify(ms))
+    }
 
     // ── Pitch / tipping physics ───────────────────────────────────────────────
     // Only applies when the COM is meaningfully offset from the axle in Z

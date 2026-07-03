@@ -12,10 +12,10 @@ export const TOUR_STEPS = [
   },
   {
     selector: 'toolbar',
-    title: 'Toolbar',
-    what: 'The vertical strip on the left.',
-    does: 'Create shapes, electronics, and mechanical parts; switch Move/Rotate/Scale; toggle the grid and axes; and start a simulation.',
-    when: 'Use it whenever you want to add something or change how you edit.',
+    title: 'Toolbox',
+    what: 'The floating glass toolbox in the top-left of the 3D view.',
+    does: 'Switch Move / Rotate / Scale, use Surface / Extrude / Slice, and toggle grid, axes, snapping and the print bed.',
+    when: 'Use it while shaping objects. Add new objects from the right panel’s Library, Electronics and Mechanical sections.',
   },
   {
     selector: 'viewport',
@@ -67,8 +67,8 @@ export const TOUR_STEPS = [
   {
     selector: 'simulate',
     title: 'Simulation Controls',
-    what: 'The Simulate (▶) button at the bottom of the toolbar.',
-    does: 'Enters simulation mode and brings your robot to life with physics — then you can drive it around.',
+    what: 'The Start Simulation (▶) button in the Sim section of the right panel.',
+    does: 'Enters simulation mode and brings your robot to life with physics — then you can drive it around. Environment and game-mode options live alongside it in the Sim section.',
     when: 'Use it once your build is wired up and programmed.',
   },
   {
@@ -77,6 +77,6 @@ export const TOUR_STEPS = [
     title: 'Asset Library',
     what: 'A catalog of parts and models.',
     does: 'Add extra shapes, drop in your own GLB / GLTF / STL models, and reuse parts you saved earlier.',
-    when: 'Use it when the toolbar does not have the shape you need.',
+    when: 'Use it when the toolbox does not have the shape you need.',
   },
 ]
