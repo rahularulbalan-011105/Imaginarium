@@ -15,9 +15,11 @@ import { attachPointEvents } from './PropertiesPanel.jsx'
 import { jointPickEvents } from './JointPanel.jsx'
 import { jointManager } from '../managers/JointManager.js'
 import DimensionOverlay from './DimensionOverlay.jsx'
+import SlicePolylineOverlay from './SlicePolylineOverlay.jsx'
 import SurfaceAttachPrompt from './SurfaceAttachPrompt.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
 import ViewGizmo from './ViewGizmo.jsx'
+import ViewportToolbox from './ViewportToolbox.jsx'
 import DrivePanel from './DrivePanel.jsx'
 import { useHistory } from '../hooks/useHistory.js'
 import { driveManager } from '../managers/DriveManager.js'
@@ -49,6 +51,7 @@ export default function Viewport() {
 
   const surfaceToolActive = useUiStore((s) => s.surfaceToolActive)
   const extrudeToolActive = useUiStore((s) => s.extrudeToolActive)
+  const sliceToolActive   = useUiStore((s) => s.sliceToolActive)
   const extrudeState      = useUiStore((s) => s.extrudeState)
   const simActive         = useUiStore((s) => s.simActive)
   const patches           = useSurfaceStore((s) => s.patches)
@@ -679,6 +682,9 @@ export default function Viewport() {
         onClick={handleClick}
       />
 
+      {/* Slice tool — editable cut-line overlay */}
+      {sliceToolActive && <SlicePolylineOverlay containerRef={containerRef} />}
+
       {/* Face attach mode overlay */}
       {surfaceToolActive && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
@@ -805,7 +811,7 @@ export default function Viewport() {
             <div className="text-5xl mb-3 opacity-70">🧊</div>
             <div className="text-base font-semibold text-[#1E293B]">Your scene is empty</div>
             <div className="text-sm text-[#64748B] mt-1.5 leading-relaxed">
-              Pick a shape from the <span className="text-indigo-600 font-medium">left toolbar</span> to begin —
+              Pick a shape from the <span className="text-indigo-600 font-medium">floating toolbox</span> (top-left) to begin —
               or press keys <span className="font-mono text-[#475569]">1</span>–<span className="font-mono text-[#475569]">0</span>.
             </div>
             <div className="text-xs text-[#94A3B8] mt-2">Need a hand? Tap the “?” in the top bar.</div>
@@ -813,7 +819,12 @@ export default function Viewport() {
         </div>
       )}
 
-      {/* View indicator + quick-view switcher (top-right corner) */}
+      {/* Floating glass toolbox (top-left) — replaces the old docked left sidebar.
+          Always mounted so the Simulate/Stop control (and its tutorial anchor)
+          stays reachable during simulation. */}
+      <ViewportToolbox />
+
+      {/* Interactive view cube + quick-view switcher (top-right corner) */}
       {!simActive && <ViewGizmo />}
 
       <DimensionOverlay />

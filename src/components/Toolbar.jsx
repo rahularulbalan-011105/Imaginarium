@@ -115,6 +115,8 @@ export default function Toolbar() {
   const setSurfaceTool    = useUiStore((s) => s.setSurfaceTool)
   const extrudeToolActive = useUiStore((s) => s.extrudeToolActive)
   const setExtrudeTool    = useUiStore((s) => s.setExtrudeTool)
+  const sliceToolActive   = useUiStore((s) => s.sliceToolActive)
+  const setSliceTool      = useUiStore((s) => s.setSliceTool)
   const simActive         = useUiStore((s) => s.simActive)
   const setSimActive      = useUiStore((s) => s.setSimActive)
   const snapTranslate     = useUiStore((s) => s.snapTranslate)
@@ -144,6 +146,10 @@ export default function Toolbar() {
     if (!extrudeToolActive) setSurfaceTool(false)
     else patchManager.clearExtrudeHover()
     setExtrudeTool(!extrudeToolActive)
+  }
+  const handleSliceTool = () => {
+    if (!sliceToolActive) { setSurfaceTool(false); setExtrudeTool(false); patchManager.clearExtrudeHover() }
+    setSliceTool(!sliceToolActive)
   }
   const patchCount        = Object.keys(useSurfaceStore((s) => s.patches)).length
   const { snapshot } = useHistory()
@@ -325,6 +331,20 @@ export default function Toolbar() {
           <span className="text-base leading-none">⬆</span>
           <span className="text-[10px] font-medium leading-tight" style={{ color: extrudeToolActive ? '#FFFFFF' : T_PRIMARY }}>
             {extrudeToolActive ? 'Extruding' : 'Extrude'}
+          </span>
+        </button>
+        <button
+          onClick={handleSliceTool}
+          title={sliceToolActive ? 'Exit slice mode' : 'Slice — draw a line across a selected shape to cut it into two pieces'}
+          className={`mt-1 w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-lg transition-all duration-150 ${
+            sliceToolActive
+              ? 'bg-red-500 ring-2 ring-red-300 shadow-lg shadow-red-500/30'
+              : 'hover:bg-red-500/15 border border-red-800/40'
+          }`}
+        >
+          <span className="text-base leading-none">🔪</span>
+          <span className="text-[10px] font-medium leading-tight" style={{ color: sliceToolActive ? '#FFFFFF' : T_PRIMARY }}>
+            {sliceToolActive ? 'Slicing' : 'Slice'}
           </span>
         </button>
       </div>

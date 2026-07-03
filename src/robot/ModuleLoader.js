@@ -1,4 +1,5 @@
 import { MODULE_REGISTRY } from './modules.js'
+import { allComponents, physicsModulesFor } from './componentRegistry.js'
 
 // Capability-based module loading. Maps a blueprint's locomotion type AND its
 // installed components to the set of physics modules that should be active.
@@ -14,21 +15,14 @@ export const LOCOMOTION_MODULES = {
   hybrid: [],   // union of the sub-locomotion blocks it declares (locomotion.parts)
 }
 
-// Component type → modules it enables (component-based detection layered on top
-// of the locomotion type). Keys match actuator/sensor `type` values.
-export const CAPABILITY_MODULES = {
-  servo:      ['ServoPhysics', 'JointConstraints'],
-  dc_motor:   ['WheelPhysics', 'DrivePhysics'],
-  motor:      ['WheelPhysics', 'DrivePhysics'],
-  motor_bo:   ['WheelPhysics', 'DrivePhysics'],
-  motor_dc:   ['WheelPhysics', 'DrivePhysics'],
-  imu:        ['IMUSim'],
-  ultrasonic: ['RangeSensorSim'],
-  ir:         ['RangeSensorSim'],
-  ir_sensor:  ['RangeSensorSim'],
-  gas:        ['AnalogSensorSim'],
-  gas_sensor: ['AnalogSensorSim'],
-}
+// Component type → modules it enables, now DERIVED from the Component Registry
+// (the single source of truth). Kept as an export for back-compat / debug; the
+// resolver reads the registry directly via physicsModulesFor().
+export const CAPABILITY_MODULES = Object.fromEntries(
+  allComponents()
+    .filter(c => (c.physicsModules ?? []).length > 0)
+    .map(c => [c.type, c.physicsModules])
+)
 
 // Resolve the de-duplicated set of module keys for a blueprint.
 export function resolveModuleKeys(blueprint) {
@@ -40,8 +34,8 @@ export function resolveModuleKeys(blueprint) {
       for (const k of (LOCOMOTION_MODULES[sub] ?? [])) keys.add(k)
     }
   }
-  for (const a of (blueprint?.actuators ?? [])) for (const k of (CAPABILITY_MODULES[a.type] ?? [])) keys.add(k)
-  for (const s of (blueprint?.sensors ?? []))   for (const k of (CAPABILITY_MODULES[s.type] ?? [])) keys.add(k)
+  for (const a of (blueprint?.actuators ?? [])) for (const k of physicsModulesFor(a.type)) keys.add(k)
+  for (const s of (blueprint?.sensors ?? []))   for (const k of physicsModulesFor(s.type)) keys.add(k)
   return [...keys]
 }
 

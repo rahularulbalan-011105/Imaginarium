@@ -67,7 +67,7 @@ export default function ObjectList() {
       <div className="flex flex-col items-center justify-center h-full p-4 text-center">
         <div className="text-3xl mb-2 opacity-30">📦</div>
         <div className="text-sm text-gray-500">No objects in scene.</div>
-        <div className="text-xs text-gray-600 mt-1">Use the toolbar to add shapes.</div>
+        <div className="text-xs text-gray-600 mt-1">Use the toolbox to add shapes.</div>
       </div>
     )
   }

@@ -7,6 +7,10 @@ import { useHistory } from '../hooks/useHistory.js'
 import { buildAssemblies } from '../utils/robotAssembly.js'
 import { createBlueprint, LOCOMOTION_TYPES } from '../robot/RobotBlueprint.js'
 import { moduleLabels } from '../robot/ModuleLoader.js'
+import { scanCapabilities, suggestLocomotion } from '../robot/autoBlueprint.js'
+import { buildLinks, buildJoints, buildElectronics } from '../robot/blueprintBuilder.js'
+import { validatePower } from '../robot/PowerSystem.js'
+import { AI_BEHAVIORS } from '../robot/ai/behaviors.js'
 
 const LOCO_META = {
   wheels: { icon: '🛞', label: 'Wheeled' },
@@ -15,31 +19,6 @@ const LOCO_META = {
   rotors: { icon: '🚁', label: 'Drone' },
   marine: { icon: '🌊', label: 'Marine' },
   hybrid: { icon: '🧩', label: 'Hybrid' },
-}
-
-// Map an assembly's member component types → actuators / sensors / controller.
-// This only PRE-FILLS the blueprint (wizard convenience); the saved blueprint is
-// the authority — we never inspect geometry at sim time.
-function scanCapabilities(memberIds, byId) {
-  const actuators = [], sensors = []
-  let controller = null
-  for (const id of memberIds) {
-    const o = byId[id]; if (!o) continue
-    if (o.type === 'servo')                                   actuators.push({ role: 'servo', componentId: id, type: 'servo' })
-    else if (['motor', 'motor_bo', 'motor_dc'].includes(o.type)) actuators.push({ role: 'drive', componentId: id, type: o.type })
-    else if (o.type === 'ultrasonic')                         sensors.push({ role: 'range', componentId: id, type: 'ultrasonic' })
-    else if (o.type === 'ir_sensor')                          sensors.push({ role: 'ir',    componentId: id, type: 'ir_sensor' })
-    else if (o.type === 'gas_sensor')                         sensors.push({ role: 'gas',   componentId: id, type: 'gas_sensor' })
-    else if (o.type === 'arduino' || o.type === 'subo')       controller = { type: o.type, componentId: id }
-  }
-  return { actuators, sensors, controller }
-}
-
-// Suggest a default locomotion type from the scan (only a wizard default).
-function suggestLocomotion(actuators) {
-  if (actuators.some(a => a.type === 'servo')) return 'legs'
-  if (actuators.some(a => a.role === 'drive')) return 'wheels'
-  return 'wheels'
 }
 
 export default function RobotPanel() {
@@ -69,12 +48,16 @@ export default function RobotPanel() {
   const generate = () => {
     if (!chosen) return
     const { actuators, sensors, controller } = scanCapabilities(chosen.memberIds, byId)
+    const links       = buildLinks(chosen.rootId, chosen.memberIds)  // link tree from bonds + attachments
+    const joints      = buildJoints(chosen.memberIds)                // jointStore joints within this robot
+    const connections = buildElectronics(chosen.memberIds)           // wiring conns within this robot
     const bp = createBlueprint({
       rootId: chosen.rootId,
       members: chosen.memberIds,
       robotName: name.trim() || chosen.name || 'Robot',
       locomotion: { type: loco, params: {} },
-      actuators, sensors, controller,
+      actuators, sensors, controller, links, joints,
+      electronics: { connections },
     })
     addBlueprint(bp)
     snapshot()
@@ -103,7 +86,7 @@ export default function RobotPanel() {
                 <span className="text-base">{LOCO_META[bp.locomotion.type]?.icon ?? '🤖'}</span>
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-semibold text-slate-900 truncate">{bp.robotName}</div>
-                  <div className="text-[9px] text-gray-500">{LOCO_META[bp.locomotion.type]?.label ?? bp.locomotion.type} · {(bp.members?.length ?? 0)} parts</div>
+                  <div className="text-[9px] text-gray-500">{LOCO_META[bp.locomotion.type]?.label ?? bp.locomotion.type} · {(bp.members?.length ?? 0)} parts · {(bp.joints?.length ?? 0)} joints · {(bp.electronics?.connections?.length ?? 0)} wires · {validatePower(bp).draw_mA} mA</div>
                 </div>
                 <button onClick={() => { removeBlueprint(bp.id); snapshot() }}
                   className="text-[10px] text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-red-900/30">🗑</button>
@@ -122,6 +105,20 @@ export default function RobotPanel() {
                   </button>
                 ))}
               </div>
+              {/* AI driver — reactive behavior that drives this robot from its sensors */}
+              <label className="mt-1.5 flex items-center gap-1.5 text-[9px] text-gray-500">
+                <span>🧠 AI</span>
+                <select
+                  value={bp.aiModules?.[0]?.key ?? 'idle'}
+                  onChange={(e) => { const k = e.target.value; updateBlueprint(bp.id, { aiModules: k === 'idle' ? [] : [{ key: k }] }); snapshot() }}
+                  className="flex-1 bg-gray-800 border border-gray-600/50 rounded text-[10px] text-slate-800 px-1.5 py-1 focus:outline-none"
+                  title="Run this robot from an AI behavior instead of firmware. Then press Simulate. Saved with the project."
+                >
+                  {Object.entries(AI_BEHAVIORS).map(([key, b]) => (
+                    <option key={key} value={key}>{b.label}</option>
+                  ))}
+                </select>
+              </label>
             </div>
           ))}
         </div>

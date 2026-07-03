@@ -18,6 +18,9 @@ export const useUiStore = create((set) => ({
   surfaceToolActive: false,
   simActive: false,
 
+  // Slice tool — draw an editable polyline, then cut the selected shape in two
+  sliceToolActive: false,
+
   // Extrude tool
   extrudeToolActive: false,
   // { sourceObjectId, extrudeObjectId, faceCenterWorld:{x,y,z}, faceNormalWorld:{x,y,z} }
@@ -31,6 +34,7 @@ export const useUiStore = create((set) => ({
   setSurfaceTool: (v) => set({ surfaceToolActive: v }),
   setSimActive: (v) => set({ simActive: v }),
   setExtrudeTool: (v) => set({ extrudeToolActive: v, ...(v ? {} : { extrudeState: null }) }),
+  setSliceTool: (v) => set({ sliceToolActive: v }),
   setExtrudeState: (s) => set({ extrudeState: s }),
   setSnapTranslate: (v) => set({ snapTranslate: v }),
   setSnapRotateDeg: (v) => set({ snapRotateDeg: v }),

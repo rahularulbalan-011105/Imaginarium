@@ -18,12 +18,19 @@ export const ROBOT_CATEGORIES = ['robot', 'vehicle', 'drone', 'marine', 'arm', '
 // sim never breaks while their physics modules are being built.
 export const LOCOMOTION_EXEC = {
   wheels: 'wheeled',
-  tracks: 'wheeled',     // until TrackPhysics lands
+  tracks: 'wheeled',     // skid-steer via TrackPhysics
   legs:   'legged',
-  rotors: 'freefall',    // until RotorPhysics lands
-  marine: 'freefall',    // until BuoyancyPhysics lands
+  rotors: 'freefall',    // until RotorPhysics lands (Stage 6.5)
+  marine: 'freefall',    // until BuoyancyPhysics lands (Stage 6.5)
   hybrid: 'wheeled',
+  none:   'freefall',    // passive object (no actuators) → just physics / drop
 }
+
+export const BLUEPRINT_VERSION = 2
+
+// Default power block. budget_mA = 0 means "no budget set" → validation passes.
+const defaultPower = () => ({ batteryComponentId: null, voltage: 0, capacity_mAh: 0, budget_mA: 0 })
+const defaultMeta  = () => ({ created: null, tags: [], notes: '' })
 
 export function createBlueprint(overrides = {}) {
   return {
@@ -32,13 +39,35 @@ export function createBlueprint(overrides = {}) {
     robotCategory: overrides.robotCategory ?? 'robot',
     rootId:        overrides.rootId ?? null,        // base link (chassis) object id
     members:       overrides.members ?? null,       // null = derive from assembly (bonds+attachments)
+    links:         overrides.links ?? [],           // [{ id(objectId), parentLinkId|null }] — link tree
+    joints:        overrides.joints ?? [],           // [jointId] — jointStore ids governed by this robot
     locomotion:    { type: 'wheels', params: {}, ...(overrides.locomotion ?? {}) },
-    actuators:     overrides.actuators ?? [],       // [{ role, componentId, type }]
-    sensors:       overrides.sensors ?? [],         // [{ role, componentId, type }]
+    actuators:     overrides.actuators ?? [],       // [{ role, componentId, type, drivesJointId? }]
+    sensors:       overrides.sensors ?? [],         // [{ role, componentId, type, mountLinkId? }]
     controller:    overrides.controller ?? null,    // { type, componentId }
-    battery:       overrides.battery ?? null,       // { type, voltage, capacity_mAh }
+    power:         { ...defaultPower(), ...(overrides.power ?? {}) }, // battery + budget_mA
+    battery:       overrides.battery ?? null,       // legacy (kept for back-compat)
+    electronics:   { connections: [], ...(overrides.electronics ?? {}) }, // wiring conn ids in this robot
+    aiModules:     overrides.aiModules ?? [],       // [{ key, config }] — AI behaviors
     modules:       overrides.modules ?? [],         // cache only — recomputed by ModuleLoader
-    version:       1,
+    metadata:      { ...defaultMeta(), ...(overrides.metadata ?? {}) },
+    version:       BLUEPRINT_VERSION,
+  }
+}
+
+// Upgrade an older (v1) blueprint to the current schema, filling any missing
+// fields with defaults. Existing values always win. Safe to call on any object.
+export function migrateBlueprint(bp) {
+  if (!bp || typeof bp !== 'object') return bp
+  return {
+    links: [], joints: [], aiModules: [],
+    power: defaultPower(), metadata: defaultMeta(),
+    ...bp,
+    locomotion:  { type: 'wheels', params: {}, ...(bp.locomotion ?? {}) },
+    power:       { ...defaultPower(), ...(bp.power ?? {}) },
+    electronics: { connections: [], ...(bp.electronics ?? {}) },
+    metadata:    { ...defaultMeta(),  ...(bp.metadata ?? {}) },
+    version: BLUEPRINT_VERSION,
   }
 }
 

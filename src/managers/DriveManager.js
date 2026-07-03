@@ -11,6 +11,10 @@ import { PhysicsIntegrator } from './physics/PhysicsIntegrator.js'
 import { SCENE_TO_M } from './physics/EnvironmentConfig.js'
 import { robotRuntime } from '../robot/RobotRuntime.js'
 import { buildAssemblies } from '../utils/robotAssembly.js'
+import { ModuleHost } from '../robot/ModuleHost.js'
+import { aiRuntime } from '../robot/ai/AIRuntime.js'
+import { execPathFor } from '../robot/RobotBlueprint.js'
+import { autoBlueprintForObjects } from '../robot/autoBlueprint.js'
 
 const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc'])
 const DRIVE_BODY_ID  = 'robot_drive'
@@ -59,6 +63,12 @@ class DriveManager {
     this._robotMaxLocalZ =  3         // max local-Z of robot bounding box (set in enter)
     this._robotMinLocalX = -3         // min local-X of robot bounding box (set in enter)
     this._robotMaxLocalX =  3         // max local-X of robot bounding box (set in enter)
+
+    // Stage 4 — executable physics modules (blueprint-driven). Null = legacy path.
+    this._moduleHost  = null
+    this._blueprint   = null
+    this._forcedPath  = null
+    this._hostTried   = false
 
     // Rapier freefall mode — non-wheeled, non-legged objects
     this._rapierBodies      = new Map()   // rootId → { body, mesh, halfY, lCtr, compound }
@@ -204,8 +214,18 @@ class DriveManager {
     // the execution path ('wheeled' | 'legged' | 'freefall') — geometry is NOT
     // inspected to decide. No blueprint → forcedPath is null → legacy auto-detect
     // (so every existing project keeps working unchanged).
-    const forcedPath = robotRuntime.execPathForObjects(topLevel.map(o => o.id))
-    if (forcedPath) console.log('[Drive] blueprint locomotion → path:', forcedPath)
+    // Stage 8: the blueprint is the UNIVERSAL source of truth. Use the explicit
+    // blueprint if one exists, otherwise AUTO-BUILD an ephemeral one from the
+    // scene (same locomotion heuristic, now expressed as a blueprint). So the
+    // execution path is ALWAYS chosen by blueprint locomotion — geometry only
+    // supplies mechanical parameters (motor positions), never the type decision.
+    const ids = topLevel.map(o => o.id)
+    this._blueprint  = robotRuntime.blueprintForObjects(ids) ?? autoBlueprintForObjects(topLevel)
+    const forcedPath = execPathFor(this._blueprint)
+    this._forcedPath = forcedPath
+    this._hostTried  = false
+    if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
+    console.log('[Drive] locomotion →', forcedPath, this._blueprint?.metadata?.auto ? '(auto-blueprint)' : '(blueprint)')
 
     // Bonded (surface-welded) parts fall as ONE rigid body — a Rapier COMPOUND
     // body (a collider per part) so the weld tumbles and lands on a real face,
@@ -361,7 +381,11 @@ class DriveManager {
     // ready yet (first ~1 s of app startup).
     // Robots with ≥1 motor always use the rootGroup path so the wheel and
     // chassis stay as one unified rigid body (no Rapier contact explosions).
-    if ((forcedPath === 'freefall' || (forcedPath == null && motors.length === 0 && !this._isLegged)) && physicsManager.ready) {
+    // Freefall runs ONLY when the blueprint's locomotion maps to it (passive
+    // 'none', or rotors/marine until their modules land). A robot that doesn't
+    // engage wheeled/legged simply sits — it must NOT be dumped into per-object
+    // dynamic bodies, or its overlapping wheel/motor colliders get ejected apart.
+    if (forcedPath === 'freefall' && physicsManager.ready) {
       physicsManager.setGravity(gravity)   // ensure correct environment gravity
 
       // Snapshot design-time positions so exit() can restore them.
@@ -659,6 +683,11 @@ class DriveManager {
   }
 
   exit(updateObject) {
+    // Tear down the executable module host (Stage 4) regardless of path.
+    if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
+    this._hostTried = false
+    this._blueprint = null
+
     if (!this.rootGroup && !this._useRapierFreefall) return
 
     // ── Rapier freefall cleanup ───────────────────────────────────────────────
@@ -740,6 +769,10 @@ class DriveManager {
     usePhysicsStore.getState().setLeggedControl(0, 0)
   }
 
+  // The left/right drive-motor split, exposed so the AI runtime can command
+  // the same motors the wheeled path reads.
+  getDriveGroups() { return { leftIds: this._leftIds, rightIds: this._rightIds } }
+
   // Called every animation frame.
   step() {
     if (!this.rootGroup && !this._useRapierFreefall) return
@@ -748,6 +781,10 @@ class DriveManager {
     const dt  = this._lastTime !== null ? Math.min(now - this._lastTime, 0.05) : 0
     this._lastTime = now
     if (dt === 0) return
+
+    // AI behaviors (if any) write drive commands into simulationManager.motorSpeeds
+    // BEFORE the wheeled path reads them, so an AI robot drives via the same channel.
+    aiRuntime.tick(dt, this.getDriveGroups())
 
     // ── Rapier freefall path ──────────────────────────────────────────────────
     // Each object is a Rapier dynamic body — gravity, tipping, stacking and
@@ -820,6 +857,18 @@ class DriveManager {
     const gravAccel = physEnv.gravity / SCENE_TO_M  // m/s² → scene_u/s²
     this._vy = Math.max(this._vy + gravAccel * dt, -MAX_V)
     this.rootGroup.position.y += this._vy * dt
+
+    // TEMP DIAGNOSTIC (remove after debugging the spin) — ~once/sec
+    if ((this._dbg = (this._dbg || 0) + 1) % 45 === 1) {
+      const ms = simulationManager.motorSpeeds
+      console.log('[drive dbg]',
+        'L', JSON.stringify(this._leftIds), 'R', JSON.stringify(this._rightIds),
+        'yawOff', +this._yawOffset.toFixed(2),
+        'yaw', +this.rootGroup.rotation.y.toFixed(2),
+        'pitch', +this._pitch.toFixed(2), 'roll', +this._roll.toFixed(2),
+        'host', !!this._moduleHost,
+        'speeds', JSON.stringify(ms))
+    }
 
     // ── Pitch / tipping physics ───────────────────────────────────────────────
     // Only applies when the COM is meaningfully offset from the axle in Z
@@ -958,8 +1007,8 @@ class DriveManager {
       }
     }
 
-    // ── Wheeled path (requires Arduino code to be running) ───────────────────
-    if (!simulationManager.isRunning()) return
+    // ── Wheeled path (driven by Arduino firmware OR an AI behavior) ──────────
+    if (!simulationManager.isRunning() && !aiRuntime.isActive()) return
     if (!this._leftIds.length || !this._rightIds.length) return
 
     // ── Compute velocities from motor PWM via the differential-drive model ───
@@ -971,7 +1020,24 @@ class DriveManager {
     const rightPWM = avg(this._rightIds)
     // (Do NOT early-return on zero PWM — PhysicsIntegrator needs to apply rolling friction)
 
-    const { v, omega } = this._drive.compute(leftPWM, rightPWM)
+    // Stage 4: if this robot has a blueprint, run its locomotion through the
+    // executable ModuleHost (the DifferentialDrivePhysics module). It uses the
+    // same control law, so motion is unchanged — the difference is the decision
+    // now lives in a module. No blueprint → the built-in model, byte-identical.
+    if (!this._moduleHost && !this._hostTried && this._blueprint && this._forcedPath === 'wheeled') {
+      this._hostTried = true
+      const host = new ModuleHost()
+      host.enter(this._blueprint, { wheelbase: this.wheelbase })
+      // Use the host for drive if ANY of its modules produce a drive velocity
+      // (wheels → DifferentialDrivePhysics, tracks → TrackPhysics, …). Probe with
+      // zero input so a sensor-only blueprint cleanly falls back to the legacy model.
+      if (host.computeDrive(0, 0, 0) != null) this._moduleHost = host
+      else host.exit()
+    }
+    let v, omega
+    const driveOut = this._moduleHost ? this._moduleHost.computeDrive(leftPWM, rightPWM, dt) : null
+    if (driveOut) { v = driveOut.v; omega = driveOut.omega }
+    else { const r = this._drive.compute(leftPWM, rightPWM); v = r.v; omega = r.omega }
 
     // ── Physics path — Rapier kinematic body ─────────────────────────────────
     let body = physicsManager.getBody(DRIVE_BODY_ID)
