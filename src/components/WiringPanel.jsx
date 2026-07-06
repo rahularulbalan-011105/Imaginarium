@@ -6,7 +6,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 
-const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor'])
+const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
 
 const PIN_DEFS = {
   arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2'],
@@ -21,11 +21,14 @@ const PIN_DEFS = {
   buzzer:     ['SIGNAL','GND'],
   oled:       ['GND','VCC','SCL','SDA'],
   gas_sensor: ['VCC','GND','DO','AO'],
+  color_sensor: ['VCC','GND','S0','S1','S2','S3','OUT'],
+  ldr_sensor:   ['VCC','GND','AO','DO'],
+  dht11:        ['VCC','GND','DATA'],
 }
 
 const WIRE_COLORS = ['#f59e0b','#3b82f6','#22c55e','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316']
 
-const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩', ir_sensor: '👁', ultrasonic: '📡', buzzer: '🔔', oled: '📺', gas_sensor: '💨' }
+const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩', ir_sensor: '👁', ultrasonic: '📡', buzzer: '🔔', oled: '📺', gas_sensor: '💨', color_sensor: '🎨', ldr_sensor: '🔆', dht11: '🌡' }
 function compIcon(type) { return COMP_ICONS[type] ?? '📦' }
 
 function routeWire(fromMesh, toMesh) {

@@ -18,6 +18,9 @@ export const MODEL_SCALE_TARGET = {
   buzzer:     2.2,
   oled:       3.2,
   gas_sensor: 3.2,
+  color_sensor: 3.2,
+  ldr_sensor:   2.2,
+  dht11:        2.6,
 }
 
 const BASE = import.meta.env.BASE_URL
@@ -35,6 +38,9 @@ const MODEL_PATHS = {
   buzzer:     `${BASE}models/buzzer.glb`,
   oled:       `${BASE}models/oled.glb`,
   gas_sensor: `${BASE}models/gas_sensor.glb`,
+  color_sensor: `${BASE}models/color_sensor.glb`,
+  ldr_sensor:   `${BASE}models/ldr.glb`,
+  dht11:        `${BASE}models/dht11.glb`,
 }
 
 // module-level cache: name → THREE.Group (scaled & centered) | null (not found)

@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { useOnboardingStore } from '../../onboarding/onboardingStore.js'
+import { useOverlay } from '../ui/overlay.js'
 
 // The "?" Help button + dropdown menu in the header.
 export default function HelpMenu() {
   const [open, setOpen] = useState(false)
   const ref = useRef(null)
+
+  // While the dropdown is open, register it as an overlay so the View Cube (and
+  // any other passive viewport widget) steps aside.
+  useOverlay('help-menu', open)
 
   const startCoach      = useOnboardingStore((s) => s.startCoach)
   const restartCoach    = useOnboardingStore((s) => s.restartCoach)

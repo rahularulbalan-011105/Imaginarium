@@ -69,6 +69,29 @@ export const GAS_PINS = {
   DO:  { x:  0.4, y: -0.1, z: 1.2, color: 0xffcc00, type: 'digital', label: 'DO'  },
   AO:  { x:  1.2, y: -0.1, z: 1.2, color: 0x22cc88, type: 'analog',  label: 'AO'  },
 }
+// TCS3200 colour sensor — VCC/GND + S0/S1 (freq scale), S2/S3 (filter), OUT.
+export const COLOR_PINS = {
+  VCC: { x: -1.8, y: -0.1, z: 1.2, color: 0xff2222, type: 'power',   label: 'VCC' },
+  GND: { x: -1.2, y: -0.1, z: 1.2, color: 0x333333, type: 'gnd',     label: 'GND' },
+  S0:  { x: -0.6, y: -0.1, z: 1.2, color: 0xff8800, type: 'digital', label: 'S0'  },
+  S1:  { x:  0.0, y: -0.1, z: 1.2, color: 0xff8800, type: 'digital', label: 'S1'  },
+  S2:  { x:  0.6, y: -0.1, z: 1.2, color: 0x66aaff, type: 'digital', label: 'S2'  },
+  S3:  { x:  1.2, y: -0.1, z: 1.2, color: 0x66aaff, type: 'digital', label: 'S3'  },
+  OUT: { x:  1.8, y: -0.1, z: 1.2, color: 0xffcc00, type: 'digital', label: 'OUT' },
+}
+// LDR (photoresistor) module — analog + digital-threshold outputs.
+export const LDR_PINS = {
+  VCC: { x: -1.05, y: -0.1, z: 1.0, color: 0xff2222, type: 'power',   label: 'VCC' },
+  GND: { x: -0.35, y: -0.1, z: 1.0, color: 0x333333, type: 'gnd',     label: 'GND' },
+  AO:  { x:  0.35, y: -0.1, z: 1.0, color: 0x22cc88, type: 'analog',  label: 'AO'  },
+  DO:  { x:  1.05, y: -0.1, z: 1.0, color: 0xffcc00, type: 'digital', label: 'DO'  },
+}
+// DHT11 temperature + humidity — single one-wire DATA line.
+export const DHT11_PINS = {
+  VCC:  { x: -0.7, y: -0.1, z: 1.0, color: 0xff2222, type: 'power',   label: 'VCC'  },
+  GND:  { x:  0.0, y: -0.1, z: 1.0, color: 0x333333, type: 'gnd',     label: 'GND'  },
+  DATA: { x:  0.7, y: -0.1, z: 1.0, color: 0xffcc00, type: 'digital', label: 'DATA' },
+}
 
 // SUBO board (custom ESP32-S3). Pins use the real silk labels IO1..IO21 from the
 // Subo Arduino library; the simulator resolves IOn → GPIO via pinNameToNumber.
@@ -105,6 +128,9 @@ export const PIN_DEFS = {
   buzzer:     BUZZER_PINS,
   oled:       OLED_PINS,
   gas_sensor: GAS_PINS,
+  color_sensor: COLOR_PINS,
+  ldr_sensor:   LDR_PINS,
+  dht11:        DHT11_PINS,
 }
 
 const PIN_SPHERE_R = 0.17
@@ -930,4 +956,79 @@ export function createOLEDGroup() {
   r.userData.isOled = true
   attachOledScreen(r)
   return r
+}
+
+// ─── New sensors (GLB when present, tailored procedural fallback otherwise) ────
+// Same pattern as the Arduino/servo/motor builders: prefer the preloaded GLB;
+// if it 404s, build a small distinctive module so the part still looks the part.
+// Pins come from the static PIN_DEFS above via addPinSpheresToGroup.
+
+// A small PCB base + a header strip, shared by the procedural sensor fallbacks.
+function sensorBoard(root, w, d, color) {
+  const board = new THREE.Mesh(new THREE.BoxGeometry(w, 0.25, d), mat(color, { roughness: 0.7 }))
+  root.add(board)
+  const header = new THREE.Mesh(new THREE.BoxGeometry(w * 0.9, 0.18, 0.28), mat(0x111111))
+  header.position.set(0, 0.16, d / 2 - 0.2)
+  root.add(header)
+  return board
+}
+
+export function createColorSensorGroup() {
+  const glb = cloneModel('color_sensor')
+  const root = new THREE.Group()
+  if (glb) { root.add(glb) }
+  else {
+    sensorBoard(root, 4.0, 3.0, 0x1b3a6b)
+    // Central photodiode lens
+    const lens = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 24), mat(0x0a0a0a, { roughness: 0.3 }))
+    lens.position.y = 0.28
+    root.add(lens)
+    // Four white illumination LEDs at the corners
+    for (const [x, z] of [[-1.2, -0.9], [1.2, -0.9], [-1.2, 0.9], [1.2, 0.9]]) {
+      const led = new THREE.Mesh(new THREE.SphereGeometry(0.16, 10, 10), mat(0xffffff, { emissive: 0x222222, roughness: 0.2 }))
+      led.position.set(x, 0.22, z)
+      root.add(led)
+    }
+  }
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
+}
+
+export function createLDRGroup() {
+  const glb = cloneModel('ldr_sensor')
+  const root = new THREE.Group()
+  if (glb) { root.add(glb) }
+  else {
+    sensorBoard(root, 2.4, 2.0, 0x0e5a3a)
+    // The photoresistor: a light disc with a squiggle pattern hint
+    const cell = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.18, 24), mat(0xd9b64a, { roughness: 0.5 }))
+    cell.position.set(0, 0.22, -0.3)
+    root.add(cell)
+    const pot = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 0.5), mat(0x2255aa))
+    pot.position.set(0.6, 0.22, 0.4)
+    root.add(pot)
+  }
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
+}
+
+export function createDHT11Group() {
+  const glb = cloneModel('dht11')
+  const root = new THREE.Group()
+  if (glb) { root.add(glb) }
+  else {
+    sensorBoard(root, 2.6, 2.0, 0x123a7a)
+    // The classic blue perforated DHT11 housing
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.1, 0.8), mat(0x2c6fe0, { roughness: 0.6 }))
+    body.position.set(0, 0.7, -0.1)
+    root.add(body)
+    for (let i = 0; i < 4; i++) {
+      const hole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.85, 8), mat(0x0a0a0a))
+      hole.rotation.x = Math.PI / 2
+      hole.position.set(-0.45 + i * 0.3, 0.85, 0.3)
+      root.add(hole)
+    }
+  }
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
 }

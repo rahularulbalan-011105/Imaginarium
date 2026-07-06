@@ -78,6 +78,8 @@ export default function ViewportToolbox() {
   const setPrintBedVisible= useUiStore((s) => s.setPrintBedVisible)
   const printBedSizeMm    = useUiStore((s) => s.printBedSizeMm)
   const setPrintBedSizeMm = useUiStore((s) => s.setPrintBedSizeMm)
+  const smartGuides       = useUiStore((s) => s.smartGuides)
+  const setSmartGuides    = useUiStore((s) => s.setSmartGuides)
   const patchCount        = Object.keys(useSurfaceStore((s) => s.patches)).length
 
   const handleSurfaceTool = () => {
@@ -137,14 +139,16 @@ export default function ViewportToolbox() {
 
         <Divider />
 
-        {/* ── Snap + View ───────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-4 gap-1">
+        {/* ── Snap + View + Smart Guides ────────────────────────────────────── */}
+        <div className="grid grid-cols-3 gap-1">
           <Tile icon="magnet" label={snapTranslate > 0 ? `${snapTranslate}u` : 'Move'} active={snapTranslate > 0}
             onClick={() => setSnapTranslate(cycle(TRANSLATE_STEPS, snapTranslate))}
             title="Move snap step (click to cycle: Off / 0.5 / 1 / 2 units)" />
           <Tile icon="rotate" label={snapRotateDeg > 0 ? `${snapRotateDeg}°` : 'Rot'} active={snapRotateDeg > 0}
             onClick={() => setSnapRotateDeg(cycle(ROTATE_STEPS, snapRotateDeg))}
             title="Rotation snap (click to cycle: Off / 15° / 45° / 90°)" />
+          <Tile icon="guides" label="Guides" active={smartGuides} onClick={() => setSmartGuides(!smartGuides)}
+            title={smartGuides ? 'Smart alignment guides: ON — click to turn off' : 'Smart alignment guides: OFF — click to turn on'} />
           <Tile icon="grid" label="Grid" active={gridVisible} onClick={toggleGrid} title="Toggle Grid [G]" />
           <Tile icon="axes" label="Axes" active={axesVisible} onClick={toggleAxes} title="Toggle Axes [A]" />
         </div>

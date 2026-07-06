@@ -12,33 +12,50 @@ import { useHistory } from '../hooks/useHistory.js'
 
 const CATEGORIES = [
   {
-    key: 'mcu', label: 'MCUs', icon: '🧠', blurb: 'Controllers that run programs.',
+    key: 'mcu', label: 'MCUs', icon: '🧠', blurb: 'Controllers that run your code.',
     items: [
       { type: 'arduino', label: 'Arduino', icon: '🟢', desc: 'Microcontroller board', purpose: 'The programmable “brain”. Runs your code and controls everything wired to it.', usage: 'robot brains · automation · reading sensors' },
       { type: 'subo',    label: 'SUBO',    icon: '🟣', desc: 'Controller w/ I/O ports', purpose: 'A controller board with built-in I/O ports for fast prototyping.', usage: 'plug-and-play wiring · prototyping' },
     ],
   },
   {
-    key: 'actuators', label: 'Actuators', icon: '⚙', blurb: 'Create movement or output.',
+    key: 'sensors', label: 'Sensors', icon: '📡', blurb: 'Measure the world and report back.',
     items: [
-      { type: 'servo',    label: 'Servo Motor', icon: '🔩', desc: 'Angle control actuator', purpose: 'Rotates to a precise angle (0–180°).', usage: 'robot arms · steering · camera gimbals' },
+      { type: 'ultrasonic',   label: 'Ultrasonic',   icon: '📡', desc: 'HC-SR04 distance', purpose: 'Measures distance.', usage: 'obstacle avoidance · range finding' },
+      { type: 'ir_sensor',    label: 'IR Sensor',    icon: '👁', desc: 'Obstacle detect',  purpose: 'Detects nearby obstacles.', usage: 'line following · edge/obstacle detection' },
+      { type: 'gas_sensor',   label: 'Gas Sensor',   icon: '💨', desc: 'MQ combustible',    purpose: 'Detects combustible gases.', usage: 'gas-leak alarms · air quality' },
+      { type: 'color_sensor', label: 'Color Sensor', icon: '🎨', desc: 'TCS3200 RGB',       purpose: 'Detects the dominant reflected colour.', usage: 'colour sorting · line following' },
+      { type: 'ldr_sensor',   label: 'LDR Sensor',   icon: '🔆', desc: 'Light level',       purpose: 'Measures ambient light intensity.', usage: 'auto night-lights · light following' },
+      { type: 'dht11',        label: 'DHT11',        icon: '🌡', desc: 'Temp + humidity',   purpose: 'Measures temperature and humidity.', usage: 'weather stations · climate logging' },
+    ],
+  },
+  {
+    key: 'displays', label: 'Displays', icon: '📺', blurb: 'Show text and graphics.',
+    items: [
+      { type: 'oled', label: 'OLED', icon: '📺', desc: 'I²C 128×64', purpose: 'Displays text and graphics.', usage: 'readouts · menus · debugging' },
+    ],
+  },
+  {
+    key: 'actuators', label: 'Actuators', icon: '⚙', blurb: 'Create movement, light or sound.',
+    items: [
+      { type: 'servo',    label: 'Servo Motor', icon: '🔩', desc: 'Angle control actuator', purpose: 'Rotates to a specified angle (0–180°).', usage: 'robot arms · steering · camera gimbals' },
       { type: 'motor_dc', label: 'DC Motor',    icon: '🔧', desc: 'Continuous rotation',     purpose: 'Spins continuously at a set speed.', usage: 'wheels · fans · propellers' },
       { type: 'motor_bo', label: 'BO Motor',    icon: '⚙',  desc: 'Geared drive motor',      purpose: 'A geared DC motor — high torque at low speed.', usage: 'driving robot wheels' },
       { type: 'led',      label: 'LED',         icon: '💡', desc: 'Light output',            purpose: 'A light you can switch on/off or dim from code.', usage: 'status indicators · signals' },
+      { type: 'buzzer',   label: 'Buzzer',      icon: '🔔', desc: 'Tone output',            purpose: 'Plays tones and beeps from code.', usage: 'alarms · feedback · melodies' },
     ],
   },
 ]
 
 const SOON = [
-  { key: 'sensors', label: 'Sensors',       icon: '📡', note: 'Ultrasonic · IR · temperature · IMU · GPS — coming soon.' },
-  { key: 'power',   label: 'Power',         icon: '🔋', note: 'Batteries · supplies · regulators — coming soon.' },
-  { key: 'comms',   label: 'Communication', icon: '📶', note: 'WiFi · Bluetooth · RF — coming soon.' },
+  { key: 'power', label: 'Power',         icon: '🔋', note: 'Batteries · supplies · regulators — coming soon.' },
+  { key: 'comms', label: 'Communication', icon: '📶', note: 'WiFi · Bluetooth · RF — coming soon.' },
 ]
 
 export default function ElectronicsLibrary() {
   const addObject = useSceneStore((s) => s.addObject)
   const { snapshot } = useHistory()
-  const [openCats, setOpenCats] = useState({ mcu: true, actuators: true })
+  const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true })
   const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
   const addPart = (type) => { addObject(type); snapshot() }
 

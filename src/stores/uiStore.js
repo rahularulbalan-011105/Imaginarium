@@ -15,6 +15,12 @@ export const useUiStore = create((set) => ({
   printBedVisible: false,
   printBedSizeMm: 220,
 
+  // Smart alignment guides (Phase 5). `smartGuides` is the master toggle; the
+  // two snap modes can be enabled independently (grid snap is `snapTranslate`).
+  smartGuides: true,
+  snapObject: true,    // center + edge alignment to other objects
+  snapSurface: true,   // face / stacking (one object's face onto another's)
+
   surfaceToolActive: false,
   simActive: false,
 
@@ -40,4 +46,7 @@ export const useUiStore = create((set) => ({
   setSnapRotateDeg: (v) => set({ snapRotateDeg: v }),
   setPrintBedVisible: (v) => set({ printBedVisible: v }),
   setPrintBedSizeMm: (v) => set({ printBedSizeMm: v }),
+  setSmartGuides: (v) => set({ smartGuides: v }),
+  setSnapObject:  (v) => set({ snapObject: v }),
+  setSnapSurface: (v) => set({ snapSurface: v }),
 }))

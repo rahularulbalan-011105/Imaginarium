@@ -21,6 +21,7 @@ import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsMod
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
 import PanelHint from './components/onboarding/PanelHint.jsx'
 import RobotPanel from './components/RobotPanel.jsx'
+import OverlayBridge from './components/OverlayBridge.jsx'
 import SimulationPanel from './components/SimulationPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 import Icon from './components/ui/Icon.jsx'
@@ -529,6 +530,9 @@ function AppEditor() {
       <StatusBar />
 
       {/* ── Onboarding layer (UI-only; observes state, never mutates it) ── */}
+      {/* Mirrors onboarding flags into the overlay coordinator so the View Cube
+          yields to the welcome card / tour / coach / reference modals. */}
+      <OverlayBridge />
       <WelcomeOverlay />
       <ProductTour />
       <GuidedCoach />

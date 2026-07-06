@@ -61,6 +61,12 @@ export default function SettingsPanel() {
   const setPrintBedVisible= useUiStore((s) => s.setPrintBedVisible)
   const printBedSizeMm    = useUiStore((s) => s.printBedSizeMm)
   const setPrintBedSizeMm = useUiStore((s) => s.setPrintBedSizeMm)
+  const smartGuides       = useUiStore((s) => s.smartGuides)
+  const setSmartGuides    = useUiStore((s) => s.setSmartGuides)
+  const snapObject        = useUiStore((s) => s.snapObject)
+  const setSnapObject     = useUiStore((s) => s.setSnapObject)
+  const snapSurface       = useUiStore((s) => s.snapSurface)
+  const setSnapSurface    = useUiStore((s) => s.setSnapSurface)
 
   const [theme, setTheme] = useState(getTheme)
   const handleToggleTheme = () => setTheme(toggleTheme())
@@ -94,6 +100,17 @@ export default function SettingsPanel() {
           valueLabel={snapTranslate > 0 ? `${snapTranslate}u` : 'Off'} onClick={() => setSnapTranslate(cycle(TRANSLATE_STEPS, snapTranslate))} />
         <Row icon="rotate" label="Rotate snap" hint="Cycle: Off / 15° / 45° / 90°" active={snapRotateDeg > 0}
           valueLabel={snapRotateDeg > 0 ? `${snapRotateDeg}°` : 'Off'} onClick={() => setSnapRotateDeg(cycle(ROTATE_STEPS, snapRotateDeg))} />
+      </div>
+
+      {/* ── Smart Alignment (guides + magnetic object/surface snapping) ─────── */}
+      <div className="flex flex-col gap-1.5">
+        <SectionTitle>Smart Alignment</SectionTitle>
+        <Row icon="guides" label="Smart guides" hint="Show alignment guide lines + magnetic snapping while dragging"
+          active={smartGuides} valueLabel={smartGuides ? 'On' : 'Off'} onClick={() => setSmartGuides(!smartGuides)} />
+        <Row icon="layers" label="Object snap" hint="Snap to other objects' centers and edges"
+          active={snapObject} valueLabel={snapObject ? 'On' : 'Off'} onClick={() => setSnapObject(!snapObject)} />
+        <Row icon="surface" label="Surface snap" hint="Snap one object's face onto another (stacking)"
+          active={snapSurface} valueLabel={snapSurface ? 'On' : 'Off'} onClick={() => setSnapSurface(!snapSurface)} />
       </div>
 
       {/* ── 3D Printing ────────────────────────────────────────────────────── */}

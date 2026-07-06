@@ -219,7 +219,8 @@ export default function DrivePanel() {
             </div>
           )}
           {sensors.map(s => (
-            <SensorControl key={s.id} obj={s} value={sensorValues[s.id]} auto={autoSense} onChange={v => setSensorValue(s.id, v)} />
+            <SensorControl key={s.id} obj={s} value={sensorValues[s.id]} values={sensorValues} auto={autoSense}
+              onChange={v => setSensorValue(s.id, v)} setValue={setSensorValue} />
           ))}
           {hasOled && <OledScreen text={oledText} />}
           {hasBuzzer && (
@@ -354,7 +355,53 @@ export default function DrivePanel() {
 
 // Live input control for a sensor — drives what digitalRead/analogRead/pulseIn return.
 // In Auto mode IR/ultrasonic are read-only (driven by scene raycast); gas is always manual.
-function SensorControl({ obj, value, onChange, auto }) {
+function SensorControl({ obj, value, values = {}, onChange, setValue, auto }) {
+  if (obj.type === 'ldr_sensor') {
+    const raw = value ?? 512
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">🔆 {obj.name} · <span className="text-yellow-300 font-mono">{raw}</span> <span className="text-gray-600">(0–1023)</span></div>
+        <input type="range" min="0" max="1023" value={raw} onChange={e => onChange(+e.target.value)} className="w-36 accent-yellow-500" />
+      </div>
+    )
+  }
+  if (obj.type === 'dht11') {
+    const temp = value ?? 25
+    const hum  = values[`${obj.id}:hum`] ?? 50
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="text-[9px] text-gray-500 mb-0.5">🌡 {obj.name}</div>
+        <label className="text-[9px] text-gray-500 flex items-center gap-1.5">
+          <span className="w-8">Temp</span>
+          <input type="range" min="0" max="50" value={temp} onChange={e => onChange(+e.target.value)} className="w-28 accent-red-500" />
+          <span className="text-red-300 font-mono w-8">{temp}°C</span>
+        </label>
+        <label className="text-[9px] text-gray-500 flex items-center gap-1.5">
+          <span className="w-8">Hum</span>
+          <input type="range" min="0" max="100" value={hum} onChange={e => setValue(`${obj.id}:hum`, +e.target.value)} className="w-28 accent-sky-500" />
+          <span className="text-sky-300 font-mono w-8">{hum}%</span>
+        </label>
+      </div>
+    )
+  }
+  if (obj.type === 'color_sensor') {
+    const rgb = values[`${obj.id}:rgb`] ?? { r: 120, g: 90, b: 60 }
+    const swatches = [
+      ['Red', 220, 40, 40], ['Green', 40, 200, 80], ['Blue', 50, 90, 220],
+      ['Yellow', 230, 210, 40], ['White', 235, 235, 235], ['Black', 20, 20, 20],
+    ]
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">🎨 {obj.name} · <span className="font-mono" style={{ color: `rgb(${rgb.r},${rgb.g},${rgb.b})` }}>■</span></div>
+        <div className="flex gap-1 flex-wrap">
+          {swatches.map(([name, r, g, b]) => (
+            <button key={name} title={name} onClick={() => setValue(`${obj.id}:rgb`, { r, g, b })}
+              className="w-5 h-5 rounded border border-gray-600 hover:scale-110 transition-transform" style={{ background: `rgb(${r},${g},${b})` }} />
+          ))}
+        </div>
+      </div>
+    )
+  }
   if (obj.type === 'ir_sensor') {
     const on = !!value
     return (
