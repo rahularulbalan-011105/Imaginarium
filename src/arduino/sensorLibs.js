@@ -55,12 +55,13 @@ export function createSensorLibraries({ sensorMap, getStore }) {
       this._id = idForPin(this._out)
     }
     begin()      { this._id = idForPin(this._out); return true }
+    // null → sensor not powered/wired: report a clearly-dead reading.
     _rgb()       { return sensorSim.readColorRGB(getStore(), this._id) }
-    readRGB()    { const c = this._rgb(); return new RGB(c.r, c.g, c.b) }
-    readColor()  { return sensorSim.classifyColor(this._rgb()) }
-    readRed()    { return this._rgb().r }
-    readGreen()  { return this._rgb().g }
-    readBlue()   { return this._rgb().b }
+    readRGB()    { const c = this._rgb(); return c ? new RGB(c.r, c.g, c.b) : new RGB(0, 0, 0) }
+    readColor()  { const c = this._rgb(); return c ? sensorSim.classifyColor(c) : 'None' }
+    readRed()    { const c = this._rgb(); return c ? c.r : 0 }
+    readGreen()  { const c = this._rgb(); return c ? c.g : 0 }
+    readBlue()   { const c = this._rgb(); return c ? c.b : 0 }
   }
 
   return { LDR, DHT11, ColorSensor, RGB }

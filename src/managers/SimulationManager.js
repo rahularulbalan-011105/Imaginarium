@@ -1,4 +1,4 @@
-import { buildPinToComponentMap, buildSensorInputMap, useElectronicsStore } from '../stores/electronicsStore.js'
+import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, SENSOR_TYPES, useElectronicsStore } from '../stores/electronicsStore.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
 import { createSensorLibraries } from '../arduino/sensorLibs.js'
@@ -341,6 +341,13 @@ class SimulationManager {
       console.log(`[Sim] sensor on pin ${pin}: ${s.type} (${s.pin})`)
     if (Object.keys(sensorMap).length === 0)
       console.log('[Sim] no sensors wired to a controller pin — digitalRead/analogRead/pulseIn will read 0')
+    // Flag sensors that ARE present but won't read because they lack correct
+    // power/ground — so wrong wiring fails loudly instead of silently working.
+    for (const o of this._objects) {
+      if (!SENSOR_TYPES.has(o.type)) continue
+      if (!isSensorPowered(this._connections, this._objects, o.id))
+        console.warn(`[Sim] ${o.name || o.type} has no power/ground — needs VCC→5V and GND→GND. Reads as disconnected.`)
+    }
     const { code: jsCode, error: parseErr } = parseAndTranspile(code, BUILTIN_NAMES)
     if (parseErr) {
       this._running = false
