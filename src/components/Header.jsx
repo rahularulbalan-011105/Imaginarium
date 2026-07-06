@@ -14,6 +14,7 @@ import { saveJSONToFile, readJSONFile } from '../utils/export.js'
 import { buildProjectSnapshot } from '../utils/helpers.js'
 import HelpMenu from './onboarding/HelpMenu.jsx'
 import { getTheme, toggleTheme } from '../theme/theme.js'
+import { useOverlay } from './ui/overlay.js'
 import { v4 as uuidv4 } from 'uuid'
 
 export default function Header() {
@@ -44,6 +45,10 @@ export default function Header() {
   const [theme, setTheme]             = useState(getTheme)
   const [shareMsg, setShareMsg] = useState(null)
   const importRef = useRef(null)
+
+  // Register the header's floating layers as overlays so the View Cube yields.
+  useOverlay('file-menu', showMenu)
+  useOverlay('open-dialog', showOpenDlg)
 
   const handleToggleTheme = () => setTheme(toggleTheme())
 
@@ -182,7 +187,7 @@ export default function Header() {
 
   return (
     <>
-      <header data-tour="header" className="flex items-center gap-3 px-4 h-12 shrink-0 z-10"
+      <header data-tour="header" className="flex items-center gap-3 px-4 h-12 shrink-0 relative z-40"
         style={{ background: 'linear-gradient(90deg,rgb(var(--g-950)) 0%,rgb(var(--g-900)) 50%,rgb(var(--g-950)) 100%)', borderBottom: '1px solid rgb(var(--a-600) / 0.18)' }}>
         {/* Logo */}
         <div className="flex items-center gap-2 mr-2">

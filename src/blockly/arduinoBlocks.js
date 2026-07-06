@@ -10,6 +10,7 @@ const C_IO     = '#e67e22'   // pins / IO
 const C_TIME   = '#16a085'   // timing
 const C_SERIAL = '#2c98f0'   // serial
 const C_SERVO  = '#9b59b6'   // servo
+const C_SENSOR = '#27ae60'   // sensors
 
 const pinField = (name = 'PIN', def = 13) => ({
   type: 'field_number', name, value: def, min: 0, max: 19, precision: 1,
@@ -104,6 +105,36 @@ const CUSTOM_BLOCKS = [
     inputsInline: true, previousStatement: null, nextStatement: null, colour: C_SERVO,
     tooltip: 'servo.write(angle) — rotate the attached arm.',
   },
+
+  // ── Sensor library blocks (LDR / DHT11 / ColorSensor) ─────────────────────
+  {
+    type: 'arduino_read_ldr',
+    message0: 'read LDR light on pin %1',
+    args0: [pinField('PIN', 0)],
+    output: 'Number', colour: C_SENSOR,
+    tooltip: 'ldr.read() — ambient light 0 (dark) … 1023 (bright).',
+  },
+  {
+    type: 'arduino_dht_temperature',
+    message0: 'read temperature (°C) on pin %1',
+    args0: [pinField('PIN', 2)],
+    output: 'Number', colour: C_SENSOR,
+    tooltip: 'dht.readTemperature() — DHT11 temperature in °C.',
+  },
+  {
+    type: 'arduino_dht_humidity',
+    message0: 'read humidity (%) on pin %1',
+    args0: [pinField('PIN', 2)],
+    output: 'Number', colour: C_SENSOR,
+    tooltip: 'dht.readHumidity() — DHT11 relative humidity in %.',
+  },
+  {
+    type: 'arduino_read_color',
+    message0: 'read colour name on OUT pin %1',
+    args0: [pinField('PIN', 8)],
+    output: 'String', colour: C_SENSOR,
+    tooltip: 'color.readColor() — detected colour name (e.g. "Red").',
+  },
 ]
 
 let _registered = false
@@ -138,6 +169,15 @@ export const ARDUINO_TOOLBOX = {
           kind: 'block', type: 'arduino_servo_write',
           inputs: { ANGLE: { shadow: { type: 'math_number', fields: { NUM: 90 } } } },
         },
+      ],
+    },
+    {
+      kind: 'category', name: 'Sensors', colour: C_SENSOR,
+      contents: [
+        { kind: 'block', type: 'arduino_read_ldr' },
+        { kind: 'block', type: 'arduino_dht_temperature' },
+        { kind: 'block', type: 'arduino_dht_humidity' },
+        { kind: 'block', type: 'arduino_read_color' },
       ],
     },
     {

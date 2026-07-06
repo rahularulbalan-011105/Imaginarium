@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup } from '../utils/electronicsFactory.js'
+import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group } from '../utils/electronicsFactory.js'
 import { cloneModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -54,7 +54,7 @@ function applyHoleStyle(object3d, obj) {
   })
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor'])
+const ELECTRONICS  = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo'])
@@ -106,6 +106,12 @@ class ObjectManager {
       object3d = createGasSensorGroup()
     } else if (obj.type === 'oled') {
       object3d = createOLEDGroup()
+    } else if (obj.type === 'color_sensor') {
+      object3d = createColorSensorGroup()
+    } else if (obj.type === 'ldr_sensor') {
+      object3d = createLDRGroup()
+    } else if (obj.type === 'dht11') {
+      object3d = createDHT11Group()
     } else if (obj.type === 'gear') {
       const geo = createSpurGearGeometry({
         teeth: obj.teeth ?? 12, module: obj.module ?? 0.25, faceWidth: obj.faceWidth ?? 0.5,

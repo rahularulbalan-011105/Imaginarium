@@ -126,6 +126,43 @@ G['arduino_servo_write'] = function (block, gen) {
   return `servo_pin${pin}.write(${angle});\n`
 }
 
+// ── Sensor libraries (LDR / DHT11 / ColorSensor) ─────────────────────────────
+// Each ensure* helper declares the library object once (with its #include),
+// exactly like ensureServo — the resulting Arduino C++ runs unchanged in the
+// text editor too.
+function ensureLDR(gen, pin) {
+  gen.includes_.add('<LDR.h>')
+  gen.definitions_['ldr_pin' + pin] = `LDR ldr_pin${pin}(${pin});`
+}
+function ensureDHT(gen, pin) {
+  gen.includes_.add('<DHT11.h>')
+  gen.definitions_['dht_pin' + pin] = `DHT11 dht_pin${pin}(${pin});`
+}
+function ensureColor(gen, pin) {
+  gen.includes_.add('<ColorSensor.h>')
+  gen.definitions_['color_pin' + pin] = `ColorSensor color_pin${pin}(S0, S1, S2, S3, ${pin});`
+}
+G['arduino_read_ldr'] = function (block, gen) {
+  const pin = block.getFieldValue('PIN')
+  ensureLDR(gen, pin)
+  return [`ldr_pin${pin}.read()`, Order.ATOMIC]
+}
+G['arduino_dht_temperature'] = function (block, gen) {
+  const pin = block.getFieldValue('PIN')
+  ensureDHT(gen, pin)
+  return [`dht_pin${pin}.readTemperature()`, Order.ATOMIC]
+}
+G['arduino_dht_humidity'] = function (block, gen) {
+  const pin = block.getFieldValue('PIN')
+  ensureDHT(gen, pin)
+  return [`dht_pin${pin}.readHumidity()`, Order.ATOMIC]
+}
+G['arduino_read_color'] = function (block, gen) {
+  const pin = block.getFieldValue('PIN')
+  ensureColor(gen, pin)
+  return [`color_pin${pin}.readColor()`, Order.ATOMIC]
+}
+
 // ── Logic ───────────────────────────────────────────────────────────────────
 G['controls_if'] = function (block, gen) {
   let n = 0, code = ''

@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { sceneManager } from '../managers/SceneManager.js'
 import Icon from './ui/Icon.jsx'
 import { GLASS, glassStyle } from './ui/surfaces.js'
+import { useAnyOverlay } from './ui/overlay.js'
+import { Z } from './ui/zIndex.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ViewGizmo — an interactive View Cube pinned to the viewport's top-right corner.
@@ -34,6 +36,12 @@ export default function ViewGizmo() {
   const [hover, setHover] = useState(null)
   const rafRef = useRef(null)
 
+  // The View Cube is a passive viewport widget: whenever ANY floating overlay is
+  // open (help menu, dialogs, modals, tutorial cards, …) it fades out and stops
+  // receiving mouse events so the overlay always has priority. It stays mounted
+  // (no layout shift) and restores automatically when the overlay closes.
+  const suppressed = useAnyOverlay()
+
   // Poll the camera orientation each frame so the label reflects orbiting.
   useEffect(() => {
     let mounted = true
@@ -60,9 +68,13 @@ export default function ViewGizmo() {
   }
 
   return (
-    <div className="absolute top-3 right-3 z-20 select-none flex flex-col items-end gap-1.5 pointer-events-none">
+    <div
+      className="absolute top-3 right-3 select-none flex flex-col items-end gap-1.5 pointer-events-none"
+      aria-hidden={suppressed}
+      style={{ zIndex: Z.viewCube, opacity: suppressed ? 0 : 1, transition: 'opacity 180ms ease' }}
+    >
       {/* Interactive iso cube */}
-      <div className={`p-1.5 pointer-events-auto ${GLASS}`} style={glassStyle}>
+      <div className={`p-1.5 ${suppressed ? '' : 'pointer-events-auto'} ${GLASS}`} style={glassStyle}>
         <div className="flex items-center gap-1">
           <svg width="60" height="60" viewBox="0 0 100 100" role="group" aria-label="View cube">
             {Object.keys(FACES).map((f) => (
@@ -107,8 +119,8 @@ export default function ViewGizmo() {
         </div>
       </div>
 
-      {/* Full quick-view grid (all six faces + Home) */}
-      {open && (
+      {/* Full quick-view grid (all six faces + Home) — hidden while suppressed */}
+      {open && !suppressed && (
         <div className={`p-2 pointer-events-auto ${GLASS}`} style={glassStyle}>
           <div className="grid grid-cols-3 gap-1 mb-1">
             {VIEWS.map((v) => {

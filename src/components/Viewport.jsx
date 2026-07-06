@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import * as THREE from 'three'
 import { sceneManager } from '../managers/SceneManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
+import { alignmentManager } from '../managers/AlignmentManager.js'
 import { wireManager } from '../managers/WireManager.js'
 import { patchManager } from '../managers/PatchManager.js'
 import { recordSnapshot } from '../managers/history/editorDispatch.js'
@@ -139,12 +140,24 @@ export default function Viewport() {
     sceneManager.init(canvasRef.current, width, height)
     patchManager.init(sceneManager.scene, sceneManager.camera, objectManager)
     driveManager.init(sceneManager.scene, objectManager)
+    alignmentManager.init(sceneManager.scene, sceneManager.camera, sceneManager.renderer)
     initialized.current = true
 
     sceneManager.onTransformChange = () => {
       const tc = sceneManager.transformControls
       const mesh = tc?.object
       if (!mesh) return
+
+      // ── Smart alignment snap (translate only) ─────────────────────────────
+      // Magnetically nudge mesh.position into alignment with nearby objects
+      // BEFORE we read it below, so the store / bonds / history see the snapped
+      // value — exactly how the built-in grid snap already works. Rotate & scale
+      // are untouched (guarded by transformMode).
+      const ui = useUiStore.getState()
+      if (ui.transformMode === 'translate' && ui.smartGuides && !ui.simActive) {
+        alignmentManager.update(mesh, { object: ui.snapObject, surface: ui.snapSurface, axis: tc?.axis })
+      }
+
       const id = mesh.userData.id
       updateObject(id, {
         position: vec3FromObject(mesh.position),
@@ -198,7 +211,20 @@ export default function Viewport() {
 
     sceneManager.onDraggingChanged = (isDragging) => {
       dragging.current = isDragging
-      if (isDragging) return    // drag just started — preview only, no history yet
+      if (isDragging) {
+        // ── Smart-guide drag start: cache other objects' AABBs for alignment ──
+        const ui = useUiStore.getState()
+        const startMesh = sceneManager.transformControls?.object
+        if (startMesh && ui.transformMode === 'translate' && ui.smartGuides && !ui.simActive) {
+          const others = objectManager.getAllMeshes().filter(m =>
+            m !== startMesh && !m.userData.isWire && m.userData.type !== 'plane')
+          alignmentManager.beginDrag(startMesh, others)
+        }
+        return    // drag just started — preview only, no history yet
+      }
+
+      // Drag released — fade the guides out.
+      alignmentManager.endDrag()
 
       // ── Drag just ended → commit ONE undo step for the whole move/rotate/scale ──
       const tc = sceneManager.transformControls
@@ -269,6 +295,7 @@ export default function Viewport() {
       ro.disconnect()
       canvas.removeEventListener('mousedown', captureDown, { capture: true })
       canvas.removeEventListener('mousemove', captureMove, { capture: true })
+      alignmentManager.dispose()
       sceneManager.dispose()
       initialized.current = false
       dragging.current = false

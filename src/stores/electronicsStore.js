@@ -193,8 +193,8 @@ export function buildPinToComponentMap(connections, objects) {
 }
 
 // Sensor components whose output pins feed a value back to the controller.
-export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor'])
-const SENSOR_OUTPUT_PINS = ['OUT', 'DO', 'AO', 'ECHO', 'SIGNAL']
+export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
+const SENSOR_OUTPUT_PINS = ['OUT', 'DO', 'AO', 'ECHO', 'SIGNAL', 'DATA']
 
 // pinNum → { id, type, pin } for any MCU pin wired to a SENSOR's output pin, so
 // digitalRead/analogRead/pulseIn(pin) can return that sensor's live value.

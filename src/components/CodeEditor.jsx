@@ -94,11 +94,11 @@ export default function CodeEditor() {
     return () => document.removeEventListener('mousedown', handler)
   }, [showTemplates])
 
-  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor']
+  // Components a sketch can drive OR read — motors/LED/servo/buzzer/OLED plus
+  // every sensor (so sensor-only sketches like an LDR/DHT11/ColorSensor reader
+  // are runnable, not just actuator sketches).
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11']
   const hasConnections  = Object.keys(connections).length > 0
-  const hasMotors       = objects.some(o => ['motor', 'motor_bo', 'motor_dc'].includes(o.type))
-  const hasLeds         = objects.some(o => o.type === 'led')
-  const hasServos       = objects.some(o => o.type === 'servo')
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
   // Count ANY controllable component (sensors/buzzer/OLED included), not just
   // motors/LEDs/servos — otherwise a scene with only an OLED or sensor wrongly

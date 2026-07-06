@@ -46,6 +46,7 @@ const PATHS = {
   magnet:  <><path d="M6 3v8a6 6 0 0 0 12 0V3" /><path d="M6 3H2v8M18 3h4v8" /><path d="M6 11h4M14 11h4" /></>,
   grid:    <><rect x="3" y="3" width="18" height="18" rx="1.5" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></>,
   axes:    <><circle cx="12" cy="12" r="9" /><path d="M12 3v4M12 17v4M3 12h4M17 12h4" /></>,
+  guides:  <><path d="M12 2v20M2 12h20" strokeDasharray="2.5 2.5" /><rect x="8.5" y="8.5" width="7" height="7" rx="1" /></>,
   printer: <><path d="M6 9V2h12v7" /><path d="M6 18H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2" /><rect x="6" y="14" width="12" height="8" rx="1.5" /></>,
 
   // ── Playback ──────────────────────────────────────────────────────────────

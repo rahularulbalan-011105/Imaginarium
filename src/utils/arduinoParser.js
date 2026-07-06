@@ -174,6 +174,16 @@ function parseTypeSpec(ts) {
   return parts.join(' ')
 }
 
+// A "class type" is a user/library class used to declare an object — e.g.
+// `Servo`, `LDR`, `DHT11`, `ColorSensor`. PascalCase, not a built-in C type,
+// and not one of the ALL-CAPS Arduino constants. Used to tell an object
+// construction `LDR ldr(A0);` apart from a function prototype `int f(int);`.
+const CTRL_UPPER = new Set(['HIGH', 'LOW', 'INPUT', 'OUTPUT', 'INPUT_PULLUP', 'NULL'])
+function isClassType(typeStr) {
+  const base = typeStr.replace(/\b(const|static|unsigned|signed)\b/g, '').trim()
+  return /^[A-Z][A-Za-z0-9_]*$/.test(base) && !C_TYPES.has(base) && !CTRL_UPPER.has(base)
+}
+
 // ── Parser ────────────────────────────────────────────────────────────────────
 
 class Parser {
@@ -224,8 +234,28 @@ class Parser {
     const typeStr = parseTypeSpec(this.ts)
     const nameTk  = this.ts.next()
     const name    = nameTk.v
-    if (this.ts.isP('(')) return this.parseFnAfterName(typeStr, name)
+    if (this.ts.isP('(')) {
+      // `ClassType name(args);` is an object construction (like Servo/LDR/DHT11),
+      // not a function prototype — construct it. Anything else is a function.
+      if (isClassType(typeStr)) return this.parseClassDeclOrCtor(typeStr, name)
+      return this.parseFnAfterName(typeStr, name)
+    }
     return this.parseVarListAfterName(typeStr, name, false)
+  }
+
+  // `Type name(args)` where Type is a class. Usually a constructor call
+  // (`LDR ldr(A0);`); if a body `{...}` follows, it was actually a function
+  // definition returning that class type, so fall back to parsing it as one.
+  parseClassDeclOrCtor(typeStr, name) {
+    this.ts.expect(TT.PUNCT, '(')
+    const args = this._args()
+    this.ts.expect(TT.PUNCT, ')')
+    if (this.ts.isP('{')) {
+      const body = this.parseBlock()
+      return { type:'FnDecl', retType: typeStr, name, params: [], body }
+    }
+    this.ts.matchP(';')
+    return { type:'VarList', decls: [{ type:'VarDecl', vt: typeStr, name, isConst:false, isArr:false, init:null, ctorArgs: args }] }
   }
 
   parseFnAfterName(retType, name) {
@@ -339,7 +369,10 @@ class Parser {
     if (isTypeStart(this.ts)) {
       const typeStr = parseTypeSpec(this.ts)
       const nm = this.ts.next().v
-      if (this.ts.isP('(')) return this.parseFnAfterName(typeStr, nm)
+      if (this.ts.isP('(')) {
+        if (isClassType(typeStr)) return this.parseClassDeclOrCtor(typeStr, nm)
+        return this.parseFnAfterName(typeStr, nm)
+      }
       return this.parseVarListAfterName(typeStr, nm, false)
     }
 
@@ -642,7 +675,10 @@ class Gen {
       } else { iv = '[]' }
       this.w(`${this.I()}${kw} ${d.name} = ${iv};\n`)
     } else {
-      let iv = d.init !== null ? ` = ${this.gExpr(d.init)}` : this._defInit(d.vt)
+      // `LDR ldr(A0);` → `let ldr = new LDR(A0)` (library-object construction).
+      let iv
+      if (d.ctorArgs) iv = ` = new ${d.vt.trim()}(${d.ctorArgs.map(a => this.gExpr(a)).join(', ')})`
+      else iv = d.init !== null ? ` = ${this.gExpr(d.init)}` : this._defInit(d.vt)
       this.w(`${this.I()}${kw} ${d.name}${iv};\n`)
     }
   }

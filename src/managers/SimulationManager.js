@@ -1,6 +1,7 @@
 import { buildPinToComponentMap, buildSensorInputMap, useElectronicsStore } from '../stores/electronicsStore.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
+import { createSensorLibraries } from '../arduino/sensorLibs.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
 
@@ -24,6 +25,8 @@ const BUILTIN_NAMES = new Set([
   'A0','A1','A2','A3','A4','A5','A6','A7','INPUT_PULLUP','LED_BUILTIN',
   'WHITE','BLACK','SSD1306_WHITE','SSD1306_BLACK','SSD1306_INVERSE',
   'SSD1306_SWITCHCAPVCC','SSD1306_EXTERNALVCC','SCREEN_WIDTH','SCREEN_HEIGHT',
+  // New sensor libraries (LDR / DHT11 / ColorSensor) + their pin macros
+  'LDR','DHT11','ColorSensor','RGB','S0','S1','S2','S3','OUT',
 ])
 
 class SimulationManager {
@@ -66,6 +69,15 @@ class SimulationManager {
     const pinMap    = buildPinToComponentMap(this._connections, this._objects)
     const sensorMap = buildSensorInputMap(this._connections, this._objects)
     const self      = this
+
+    // Sensor libraries (LDR / DHT11 / ColorSensor / RGB) — provided to the sketch
+    // exactly like the built-in Servo class. Each instance binds to the scene
+    // sensor wired to its pin (via sensorMap) and routes readings through the
+    // single reusable sensorSim interface.
+    const { LDR, DHT11, ColorSensor, RGB } = createSensorLibraries({
+      sensorMap,
+      getStore: () => useElectronicsStore.getState(),
+    })
 
     // ── Arduino API ───────────────────────────────────────────────────────────
 
@@ -315,6 +327,12 @@ class SimulationManager {
     // user's library-style code (digitalWrite(IO3,...) etc.) resolves them.
     const SUBO_CONSTS = `const IO1=4,IO2=39,IO3=13,IO4=38,IO5=14,IO6=48,IO7=42,IO8=5,IO9=41,IO10=40,IO11=6,IO12=7,IO13=15,IO14=16,IO15=17,IO16=18,IO17=8,IO18=11,IO19=10,IO20=9,IO21=3,SUBO_BUZZER_PIN=2,SUBO_LED_PIN=12,SUBO_LED_NUM=48,SUBO_BUTTONR=47,SUBO_BUTTONL=1,A0=14,A1=15,A2=16,A3=17,A4=18,A5=19,A6=20,A7=21,INPUT_PULLUP=2,LED_BUILTIN=13,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;`
 
+    // Default TCS3200 colour-sensor control-pin macros, so `ColorSensor color(S0,
+    // S1,S2,S3,OUT);` runs even when a copied sketch omits its own #defines.
+    // A sketch that DOES #define them has those skipped (see BUILTIN_NAMES) and
+    // uses these instead — harmless because the simulated reading is pin-agnostic.
+    const SENSOR_CONSTS = `const S0=4,S1=5,S2=6,S3=7,OUT=8;`
+
     // ── Parse + transpile ─────────────────────────────────────────────────────
 
     for (const [pin, comps] of Object.entries(pinMap))
@@ -331,6 +349,7 @@ class SimulationManager {
 
     const script = `
 ${SUBO_CONSTS}
+${SENSOR_CONSTS}
 ${jsCode}
 if (typeof setup === 'function') await setup();
 while (true) {
@@ -350,6 +369,7 @@ while (true) {
         'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
         'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
         'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
+        'LDR','DHT11','ColorSensor','RGB',
         `"use strict";
          return (async () => {
            try { ${script} }
@@ -370,7 +390,8 @@ while (true) {
         sin, cos, tan, random, randomSeed, Serial, onRuntimeError, Servo, __yield,
         SuboMatrixInit, setAllLED, setSingleLED, playLEDSeq, stripclear,
         playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor,
-        delayMicroseconds, pulseIn, tone, noTone, Wire, Adafruit_SSD1306
+        delayMicroseconds, pulseIn, tone, noTone, Wire, Adafruit_SSD1306,
+        LDR, DHT11, ColorSensor, RGB
       ).then(() => { self._running = false })
 
     } catch (e) {
