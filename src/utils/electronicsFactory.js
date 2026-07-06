@@ -892,7 +892,29 @@ function drawOledCanvas(ctx, canvas, text) {
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   let y = H / 2 - (n * lineH) / 2 + lineH / 2
-  for (const ln of lines) { ctx.fillText(ln, W / 2, y, W - 10); y += lineH }
+  const charW = ctx.measureText('0').width || fontPx * 0.6
+  for (const ln of lines) {
+    if (/[●⬤]/.test(ln)) {
+      // Draw "eye" circles as REAL filled arcs (always solid, never dependent on
+      // a font glyph); every other character on the line renders as text.
+      const startX = (W - ln.length * charW) / 2
+      for (let i = 0; i < ln.length; i++) {
+        const ch = ln[i]
+        if (ch === ' ') continue
+        const cx = startX + i * charW + charW / 2
+        if (ch === '●' || ch === '⬤') {
+          ctx.beginPath()
+          ctx.arc(cx, y, charW * (ch === '⬤' ? 0.5 : 0.42), 0, Math.PI * 2)
+          ctx.fill()
+        } else {
+          ctx.fillText(ch, cx, y)
+        }
+      }
+    } else {
+      ctx.fillText(ln, W / 2, y, W - 10)
+    }
+    y += lineH
+  }
 }
 
 // Add a glowing canvas "screen" plane over the OLED model's largest face and store
