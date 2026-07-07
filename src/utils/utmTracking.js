@@ -24,7 +24,7 @@ const MAX_VISITS      = 1000                   // ring-buffer cap so storage can
 // visitors (see docs/UTM-SETUP.md). '' = local-only (this browser). After
 // setting it you must rebuild + redeploy for visitors to start reporting.
 //   e.g. const COLLECTOR_ENDPOINT = 'https://script.google.com/macros/s/AKfy…/exec'
-const COLLECTOR_ENDPOINT = ''
+const COLLECTOR_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxgWlc_0ZkVdtNGznRm1pCRmKZes18Yrm_XzgDknByKcRfiHxfNh6lfgM0EWIi2SKc0sw/exec'
 
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']
 
