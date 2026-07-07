@@ -19,8 +19,11 @@ const FIRST_TOUCH_KEY = 'utm_first_touch_v1'  // first campaign that ever brough
 const SESSION_FLAG    = 'utm_logged_session'  // one visit per tab-session (sessionStorage)
 const MAX_VISITS      = 1000                   // ring-buffer cap so storage can't grow forever
 
-// Optional server collector. '' → purely local. Any URL → visits are also POSTed
-// (fire-and-forget) so a backend can aggregate cross-visitor traffic.
+// ── SERVER COLLECTOR ──────────────────────────────────────────────────────────
+// Paste your Google Apps Script Web-app URL here to aggregate clicks from ALL
+// visitors (see docs/UTM-SETUP.md). '' = local-only (this browser). After
+// setting it you must rebuild + redeploy for visitors to start reporting.
+//   e.g. const COLLECTOR_ENDPOINT = 'https://script.google.com/macros/s/AKfy…/exec'
 const COLLECTOR_ENDPOINT = ''
 
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content']
@@ -92,11 +95,16 @@ export function captureUTM() {
   }
 
   // Optional: forward to a backend collector for cross-visitor aggregation.
+  // Sent as text/plain (a "simple" request) so there's NO CORS preflight —
+  // Apps Script can't answer preflight, so an application/json POST would fail.
   if (COLLECTOR_ENDPOINT) {
     try {
-      const body = JSON.stringify(visit)
-      if (navigator.sendBeacon) navigator.sendBeacon(COLLECTOR_ENDPOINT, body)
-      else fetch(COLLECTOR_ENDPOINT, { method: 'POST', body, keepalive: true, headers: { 'Content-Type': 'application/json' } })
+      const payload = JSON.stringify(visit)
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon(COLLECTOR_ENDPOINT, new Blob([payload], { type: 'text/plain;charset=UTF-8' }))
+      } else {
+        fetch(COLLECTOR_ENDPOINT, { method: 'POST', body: payload, mode: 'no-cors', keepalive: true })
+      }
     } catch { /* network best-effort */ }
   }
 

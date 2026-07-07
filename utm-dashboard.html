@@ -4,7 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>UTM Dashboard — 3D Editor</title>
-<style>
+<script>
+// CSS injected via JS (not an inline <style> tag) purely to sidestep a Vite
+// multi-page build bug where a second HTML page's inline <style> corrupts the
+// inline-css proxy registry. Functionally identical to a <style> block.
+document.head.appendChild(Object.assign(document.createElement('style'),{textContent:`
   :root{
     --bg:#f7f9fc; --panel:#ffffff; --surface:#f1f5f9; --border:#e2e8f0;
     --text:#1e293b; --muted:#64748b; --accent:#4f46e5; --accent2:#f97316;
@@ -54,7 +58,8 @@
         padding:12px 14px;font-size:13px;margin-bottom:20px}
   .foot{color:var(--muted);font-size:12px;margin-top:24px}
   code{background:var(--surface);padding:1px 5px;border-radius:5px;font-size:12px}
-</style>
+`}))
+</script>
 </head>
 <body>
 <div class="wrap">
@@ -74,6 +79,19 @@
     <button onclick="document.getElementById('imp').click()">⬆ Import JSON</button>
     <input id="imp" type="file" accept="application/json" style="display:none" onchange="importJson(event)">
     <button class="danger" onclick="clearAll()">🗑 Clear all</button>
+  </div>
+
+  <div class="panel" style="margin-bottom:20px">
+    <h2>Server (Google Sheet)</h2>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:10px">
+      Paste your Apps Script Web-app URL to load clicks from <strong>all visitors</strong>
+      (see <code>docs/UTM-SETUP.md</code>). It's remembered on this browser.
+    </div>
+    <div class="out">
+      <input id="endpoint" placeholder="https://script.google.com/macros/s/AKfy…/exec">
+      <button class="primary" onclick="loadServer()">Load from server</button>
+    </div>
+    <div id="srvStatus" style="color:var(--muted);font-size:12px;margin-top:8px">Not connected — showing this browser's visits only.</div>
   </div>
 
   <div class="cards" id="cards"></div>
@@ -123,10 +141,49 @@
 
 <script>
   // Must match the constants in src/utils/utmTracking.js
-  var STORE_KEY = 'utm_visits_v1'
-  var UTM_KEYS  = ['utm_source','utm_medium','utm_campaign','utm_term','utm_content']
+  var STORE_KEY    = 'utm_visits_v1'
+  var ENDPOINT_KEY = 'utm_endpoint'
+  var UTM_KEYS     = ['utm_source','utm_medium','utm_campaign','utm_term','utm_content']
+
+  var remoteVisits = []   // loaded from the Google Sheet (all visitors)
 
   function getVisits(){ try { return JSON.parse(localStorage.getItem(STORE_KEY)) || [] } catch(e){ return [] } }
+
+  // Combined view = server data (everyone) + this browser's local data, de-duplicated.
+  function getAllVisits(){
+    var all = remoteVisits.concat(getVisits())
+    var seen = {}, out = []
+    all.forEach(function(v){
+      var k = (v.ts||'')+'|'+(v.source||'')+'|'+(v.landing||'')+'|'+(v.ua||'')
+      if(seen[k]) return; seen[k]=1; out.push(v)
+    })
+    return out
+  }
+
+  // ── Load everyone's clicks from the Apps Script (JSONP — no CORS) ──
+  function loadServer(){
+    var url = document.getElementById('endpoint').value.trim()
+    var status = document.getElementById('srvStatus')
+    if(!url){ status.textContent = 'Paste your Apps Script Web-app URL first.'; return }
+    localStorage.setItem(ENDPOINT_KEY, url)
+    status.textContent = 'Loading…'
+    var cbName = 'utm_cb_' + Date.now()
+    var s = document.createElement('script')
+    var done = false
+    window[cbName] = function(data){
+      done = true
+      remoteVisits = Array.isArray(data) ? data : []
+      status.textContent = 'Connected — ' + remoteVisits.length + ' visit(s) from server (all visitors).'
+      try{ delete window[cbName] }catch(e){}; s.remove(); render()
+    }
+    s.onerror = function(){
+      status.textContent = 'Could not reach the server. Check the URL and that the Web app is deployed with access = "Anyone".'
+      s.remove()
+    }
+    setTimeout(function(){ if(!done) status.textContent = status.textContent==='Loading…' ? 'No response yet — double-check the deployment URL/access.' : status.textContent }, 8000)
+    s.src = url + (url.indexOf('?')>=0?'&':'?') + 'callback=' + cbName + '&_=' + Date.now()
+    document.body.appendChild(s)
+  }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] }) }
   function fmt(ts){ try{ var d=new Date(ts); return d.toLocaleString() }catch(e){ return ts } }
@@ -151,7 +208,7 @@
   }
 
   function render(){
-    var visits = getVisits()
+    var visits = getAllVisits()
     var total = visits.length
     var tagged = visits.filter(function(v){ return v.tagged }).length
     var sources = new Set(visits.map(function(v){ return v.source })).size
@@ -241,7 +298,12 @@
     render()
   }
 
-  render()
+  // On open: restore a saved endpoint and auto-load everyone's clicks.
+  (function init(){
+    var saved = localStorage.getItem(ENDPOINT_KEY)
+    if(saved){ document.getElementById('endpoint').value = saved; loadServer() }
+    render()
+  })()
 </script>
 </body>
 </html>
