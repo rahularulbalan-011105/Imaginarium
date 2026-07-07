@@ -15,6 +15,7 @@ import MechanicalLibrary from './components/MechanicalLibrary.jsx'
 import JointPanel from './components/JointPanel.jsx'
 import WiringPanel from './components/WiringPanel.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
+import DiscordGate from './components/DiscordGate.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
@@ -533,6 +534,9 @@ function AppEditor() {
       {/* Mirrors onboarding flags into the overlay coordinator so the View Cube
           yields to the welcome card / tour / coach / reference modals. */}
       <OverlayBridge />
+      {/* Blocking join-Discord gate — shown above the welcome card on every
+          visit until the user joins (localStorage 'discord_joined_v1'). */}
+      <DiscordGate />
       <WelcomeOverlay />
       <ProductTour />
       <GuidedCoach />
