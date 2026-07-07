@@ -146,6 +146,9 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   var UTM_KEYS     = ['utm_source','utm_medium','utm_campaign','utm_term','utm_content']
 
   var remoteVisits = []   // loaded from the Google Sheet (all visitors)
+  // Default collector (same URL baked into the app). Auto-loads on open; you can
+  // still overwrite it in the box. Not a secret — it's already in the app bundle.
+  var DEFAULT_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxgWlc_0ZkVdtNGznRm1pCRmKZes18Yrm_XzgDknByKcRfiHxfNh6lfgM0EWIi2SKc0sw/exec'
 
   function getVisits(){ try { return JSON.parse(localStorage.getItem(STORE_KEY)) || [] } catch(e){ return [] } }
 
@@ -300,7 +303,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
 
   // On open: restore a saved endpoint and auto-load everyone's clicks.
   (function init(){
-    var saved = localStorage.getItem(ENDPOINT_KEY)
+    var saved = localStorage.getItem(ENDPOINT_KEY) || DEFAULT_ENDPOINT
     if(saved){ document.getElementById('endpoint').value = saved; loadServer() }
     render()
   })()
