@@ -1,5 +1,5 @@
 /**
- * UTM collector for the 3D Editor — Google Apps Script Web App.
+ * UTM collector for Constructa — Google Apps Script Web App.
  *
  * doPost  : a visit ping from the app → appends one row to the "visits" sheet.
  * doGet   : returns every row as JSON (JSONP via ?callback=) → the dashboard reads it.
@@ -10,11 +10,18 @@
  *    preflight OPTIONS, which is why application/json POSTs fail).
  *  - The dashboard reads with JSONP (a <script> tag), which is not subject to CORS.
  *
+ * NOTE: one row per session, sent at session end (carries session_duration +
+ * popup_action). If you previously deployed the older schema, DELETE the old
+ * "visits" tab once so it is recreated with the new header row, then Deploy →
+ * Manage deployments → Edit → New version.
+ *
  * Setup: see docs/UTM-SETUP.md.
  */
 
 var SHEET_NAME = 'visits';
-var HEADERS = ['received', 'ts', 'source', 'medium', 'campaign', 'term', 'content', 'referrer', 'landing', 'ua'];
+var HEADERS = ['received', 'ts', 'source', 'campaign', 'ref', 'landing', 'country',
+  'device_type', 'is_returning_visitor', 'popup_action', 'session_duration',
+  'medium', 'term', 'content', 'referrer', 'language', 'timezone', 'ua'];
 
 function sheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -29,8 +36,10 @@ function doPost(e) {
   try {
     var v = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     sheet_().appendRow([
-      new Date(), v.ts || '', v.source || '', v.medium || '', v.campaign || '',
-      v.term || '', v.content || '', v.referrer || '', v.landing || '', v.ua || ''
+      new Date(), v.ts || '', v.source || '', v.campaign || '', v.ref || '', v.landing || '',
+      v.country || '', v.device_type || '', v.is_returning_visitor ? 'returning' : 'new',
+      v.popup_action || '', v.session_duration || 0,
+      v.medium || '', v.term || '', v.content || '', v.referrer || '', v.language || '', v.timezone || '', v.ua || ''
     ]);
     return json_({ ok: true });
   } catch (err) {
@@ -46,10 +55,11 @@ function doGet(e) {
   for (var i = 1; i < values.length; i++) {           // row 0 = headers
     var r = values[i];
     out.push({
-      ts:       r[1] || (r[0] && r[0].toISOString ? r[0].toISOString() : String(r[0])),
-      source:   r[2], medium: r[3], campaign: r[4], term: r[5],
-      content:  r[6], referrer: r[7], landing: r[8], ua: r[9],
-      tagged:   !!(r[2] && r[2] !== '(direct)')
+      ts: r[1] || (r[0] && r[0].toISOString ? r[0].toISOString() : String(r[0])),
+      source: r[2], campaign: r[3], ref: r[4], landing: r[5], country: r[6],
+      device_type: r[7], is_returning_visitor: r[8], popup_action: r[9], session_duration: r[10],
+      medium: r[11], term: r[12], content: r[13], referrer: r[14], language: r[15], timezone: r[16], ua: r[17],
+      tagged: !!(r[2] && r[2] !== '(direct)')
     });
   }
   var payload = JSON.stringify(out);

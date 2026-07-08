@@ -272,6 +272,8 @@ class ObjectManager {
         }
       }
     }
+    // Keep the selection outline hugging the geometry after a live edit.
+    this.refreshOutline(id)
   }
 
   // Apply bend deformation directly to the mesh geometry (used by PropertiesPanel for live preview)
@@ -775,7 +777,48 @@ class ObjectManager {
           child.material.emissive.copy(emissive)
         }
       })
+
+      // Tinkercad-style edge outline: cyan on the primary selection, amber on the
+      // secondary. Drawn over the shape's actual edges so it hugs the geometry.
+      const outline = id === primaryId ? 0x22d3ee : id === secondaryId ? 0xff8c1a : null
+      this._setOutline(o, outline)
     })
+  }
+
+  // Add/replace/remove the edge-outline overlay on an object (color=null removes).
+  _setOutline(obj, color) {
+    const old = obj.userData._outlines
+    if (old) for (const ls of old) { ls.parent?.remove(ls); ls.geometry.dispose(); ls.material.dispose() }
+    obj.userData._outlines = null
+    obj.userData._outlineColor = color || null
+    if (!color) return
+
+    const meshes = []
+    obj.traverse(child => {
+      if (child.isMesh && child.geometry?.isBufferGeometry &&
+          !child.userData.isPin && !child.userData.isPinLabel && !child.userData.isSelectionOutline) {
+        meshes.push(child)
+      }
+    })
+    const outlines = []
+    for (const m of meshes) {
+      const edges = new THREE.EdgesGeometry(m.geometry, 20)   // 20° crease threshold
+      const ls = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
+        color, transparent: true, opacity: 0.95, depthTest: false,
+      }))
+      ls.userData.isSelectionOutline = true
+      ls.renderOrder = 999          // draw over the surface
+      ls.raycast = () => {}         // never intercept clicks
+      m.add(ls)                     // child of the mesh → follows its transform
+      outlines.push(ls)
+    }
+    obj.userData._outlines = outlines
+  }
+
+  // Rebuild the outline after a geometry change, if the object is outlined.
+  refreshOutline(id) {
+    const o = this.objects.get(id)
+    if (o && o.userData._outlineColor) this._setOutline(o, o.userData._outlineColor)
   }
 
   clearHighlight() {

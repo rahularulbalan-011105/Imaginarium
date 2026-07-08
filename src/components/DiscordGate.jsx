@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import ConstructaLogo from './ConstructaLogo.jsx'
+import { recordPopupAction } from '../utils/utmTracking.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DiscordGate — the "join our beta community" card.
@@ -37,11 +38,12 @@ export default function DiscordGate() {
   if (joined || !visible) return null
 
   const join = () => {
+    recordPopupAction('join')
     window.open(INVITE, '_blank', 'noopener,noreferrer')
     try { localStorage.setItem(KEY, '1') } catch { /* private mode */ }
     setJoined(true)
   }
-  const later = () => setVisible(false)   // dismiss for now; returns next visit
+  const later = () => { recordPopupAction('dismiss'); setVisible(false) }   // returns next visit
 
   return (
     <div style={{ position: 'fixed', top: 66, left: 200, zIndex: 60, width: 300, pointerEvents: 'none' }}>
