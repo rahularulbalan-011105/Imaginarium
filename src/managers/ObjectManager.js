@@ -427,6 +427,17 @@ class ObjectManager {
     this.objects.get(oledId)?.userData?.oledScreen?.update(text)
   }
 
+  // Drive a SUBO board's on-board 48-LED matrix (setAllLED / setSingleLED /
+  // stripclear / playLEDSeq → 'all' / 'one' / 'clear' / 'seq').
+  setSuboMatrix(suboId, mode, ...args) {
+    const m = this.objects.get(suboId)?.userData?.suboMatrix
+    if (!m) return
+    if      (mode === 'all')   m.all(args[0], args[1], args[2])
+    else if (mode === 'one')   m.one(args[0], args[1], args[2], args[3])
+    else if (mode === 'seq')   m.seq(args[0])
+    else                       m.clear()   // 'clear' / 'init'
+  }
+
   // Distance (scene units) to the nearest obstacle in FRONT of a sensor — within a
   // cone around the sensor's local +Z (its "face"), so things to the side or behind
   // are ignored, like a real IR / ultrasonic beam. Aim the sensor with the blue (Z)

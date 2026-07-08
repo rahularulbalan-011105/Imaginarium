@@ -93,25 +93,58 @@ export const DHT11_PINS = {
   DATA: { x:  0.7, y: -0.1, z: 1.0, color: 0xffcc00, type: 'digital', label: 'DATA' },
 }
 
-// SUBO board (custom ESP32-S3). Pins use the real silk labels IO1..IO21 from the
-// Subo Arduino library; the simulator resolves IOn → GPIO via pinNameToNumber.
+// SUBO board (custom ESP32-S3). Pin names + GPIO map come STRAIGHT from the official Subo
+// library (Subo.h): the header exposes IO1..IO21 (the exact silk labels), plus 5V and GND.
+// The simulator resolves IOn → GPIO via pinNameToNumber (SUBO_IO_TO_GPIO). ADC-capable IOs
+// (per Subo.h //ADC comments) render blue, plain-GPIO IOs green; 5V = red, GND = black.
+// MotorExpansion drives Motor 1 on IO20/IO21 and Motor 2 on IO19/IO18 — those pins are part
+// of this same IO1..IO21 header, so a DC motor wired to them is driven by runMotor().
 const SUBO_ADC = new Set(['IO1', 'IO5', 'IO8', 'IO11', 'IO12', 'IO17', 'IO19', 'IO20', 'IO21'])
 const suboPinStyle = (io) => SUBO_ADC.has(io)
-  ? { color: 0x22cc88, type: 'analog' }   // ADC-capable
-  : { color: 0xff8800, type: 'pwm' }      // PWM-capable digital out
+  ? { color: 0x3b82f6, type: 'analog' }    // ADC → Blue (Analog)
+  : { color: 0x22cc55, type: 'digital' }   // GPIO → Green (Digital)
 
-// Static fallback layout (used only if the GLB is missing; GLB path auto-places).
-// Each IO is a 3-pin S / 5V / G connector — IO1–IO4 left edge, IO5–IO8 right edge.
+// The official Subo header (silk order): G · 5V · IO4 … IO21 · G, plus IO1–IO3.
+export const SUBO_HEADER_A = ['GND1', '5V', 'IO4', 'IO5', 'IO6', 'IO7', 'IO8', 'IO9', 'IO10', 'IO11', 'IO12', 'IO13', 'IO14', 'IO15', 'IO16', 'IO17', 'IO18', 'IO19', 'IO20', 'IO21', 'GND2']
+export const SUBO_HEADER_B = ['IO1', 'IO2', 'IO3']
+// Wiring-panel order — the full official IO header, IO1..IO21 ascending, then the power rails.
+export const SUBO_PIN_ORDER = [...Array.from({ length: 21 }, (_, i) => `IO${i + 1}`), '5V', 'GND1', 'GND2']
+const suboPinDef = (name) => name.startsWith('IO')
+  ? suboPinStyle(name)
+  : name === '5V' ? { color: 0xff2222, type: 'power' } : { color: 0x111111, type: 'gnd' }
+const suboPinLabel = (name) => name.startsWith('IO') ? name : name === '5V' ? '5V' : 'GND'
+
+// SUBO connector spheres — smaller than the 0.17 default (per-pin `r`, honoured by
+// addPinSpheresToGroup) so the dense IO header stays clean.
+const SUBO_PIN_R = 0.11
+
+// Lay the official IO header in two rows on the "bottom" of the board (Row A = the main
+// 21-pin header, Row B = IO1–IO3), matching the physical silk. Center-anchored with
+// ABSOLUTE-capped spacing so it stays compact on the board at any GLB size.
+function placeSuboHeaders(pins, geo) {
+  const { A, B, thinAxis, aCtr, bCtr, aSpan, bSpan, above } = geo
+  const belowOff = Math.min(aSpan * 0.28, 1.8)     // header sits below the LED matrix (−A)
+  const rowGap   = Math.min(aSpan * 0.10, 0.5)     // gap between the two header rows
+  const place = (names, aRow) => {
+    const span = Math.min(bSpan * 0.85, Math.max(names.length - 1, 1) * 0.32)   // capped row width
+    const gap  = names.length > 1 ? span / (names.length - 1) : 0
+    names.forEach((name, i) => {
+      const pos = { x: 0, y: 0, z: 0 }
+      pos[B] = bCtr - span / 2 + i * gap
+      pos[A] = aCtr - belowOff + aRow
+      pos[thinAxis] = above
+      pins[name] = { ...pos, r: SUBO_PIN_R, ...suboPinDef(name), label: suboPinLabel(name) }
+    })
+  }
+  place(SUBO_HEADER_A, +rowGap)   // main 21-pin header (rear row)
+  place(SUBO_HEADER_B, -rowGap)   // IO1 · IO2 · IO3 (front row)
+}
+
+// Static fallback layout (only used if the GLB is missing; the GLB path auto-places the
+// headers over the real board via buildSuboFromGLB → placeSuboHeaders).
 export const SUBO_PINS = (() => {
   const pins = {}
-  const add = (io, x, z) => {
-    pins[io]        = { x,        y: 0.55, z, label: io,   ...suboPinStyle(io) }
-    pins[`${io}_V`] = { x,        y: 0.55, z: z + 0.45, color: 0xff2222, type: 'power', label: '5V' }
-    pins[`${io}_G`] = { x,        y: 0.55, z: z + 0.90, color: 0x333333, type: 'gnd',   label: 'G'  }
-  }
-  const zs = [-2.1, -0.7, 0.7, 2.1]
-  ;['IO1','IO2','IO3','IO4'].forEach((io, i) => add(io, -3.0, zs[i]))
-  ;['IO5','IO6','IO7','IO8'].forEach((io, i) => add(io,  2.1, zs[i]))
+  placeSuboHeaders(pins, { A: 'z', B: 'x', thinAxis: 'y', aCtr: 0, bCtr: 0, aSpan: 4.0, bSpan: 5.6, above: 0.18 })
   return pins
 })()
 
@@ -186,7 +219,7 @@ export function addPinSpheresToGroup(group, componentId, type) {
 
   for (const [pinName, def] of Object.entries(defs)) {
     const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(PIN_SPHERE_R, 12, 12),
+      new THREE.SphereGeometry(def.r ?? PIN_SPHERE_R, 12, 12),
       new THREE.MeshStandardMaterial({
         color: def.color, emissive: new THREE.Color(0x000000),
         roughness: 0.3, metalness: 0.4,
@@ -205,6 +238,9 @@ export function addPinSpheresToGroup(group, componentId, type) {
     group.add(sphere)
 
     const label = createPinLabelSprite(def.label, def.color)
+    // Optional per-component label shrink (dense boards like SUBO) so labels never overlap.
+    const ls = group.userData.labelScale
+    if (ls) { label.scale.x *= ls; label.scale.y *= ls }
     label.position.set(def.x + offset.dx, def.y + offset.dy, def.z + offset.dz)
     label.userData.isPinLabel = true
     label.userData.pinId      = `${componentId}:${pinName}`
@@ -359,68 +395,131 @@ function buildArduinoProcedural() {
 
 export function createSuboGroup() {
   const glbScene = cloneModel('subo')
-  if (glbScene) return buildSuboFromGLB(glbScene)
-  return buildSuboProcedural()
+  const root = glbScene ? buildSuboFromGLB(glbScene) : buildSuboProcedural()
+  attachSuboMatrix(root)          // on-board 48-LED NeoPixel matrix
+  return root
 }
 
-// Connectors broken out to the side headers, each a 3-pin S / 5V / G group
-// (servo-style, matching the silk). Signal key = IOn so it resolves to its GPIO.
-const SUBO_CONNECTORS_LEFT  = ['IO1', 'IO2', 'IO3', 'IO4']
-const SUBO_CONNECTORS_RIGHT = ['IO5', 'IO6', 'IO7', 'IO8']
+// HSV→RGB (0–255) helper for the matrix animations.
+function _hsv(h, s, v) {
+  h = (((h % 360) + 360) % 360) / 60
+  const c = v * s, x = c * (1 - Math.abs((h % 2) - 1)), m = v - c
+  let r = 0, g = 0, b = 0
+  if (h < 1) { r = c; g = x } else if (h < 2) { r = x; g = c } else if (h < 3) { g = c; b = x }
+  else if (h < 4) { g = x; b = c } else if (h < 5) { r = x; b = c } else { r = c; b = x }
+  return { r: Math.round((r + m) * 255), g: Math.round((g + m) * 255), b: Math.round((b + m) * 255) }
+}
+
+// World-space bounding box of the actual SUBO board substrate.
+// The SUBO GLB is a MIXED-UNIT hierarchy: several meshes are named *PCB* but only
+// the board substrate spans the full footprint (~6.45 × 6.8 world units) while other
+// /pcb/i sub-parts are tiny (down to ~0.3 units). Picking the *first* pcb mesh landed
+// on one of those tiny parts, which clustered every pin at the board centre and shrank
+// the LED-matrix panel to a speck. Pick the LARGEST pcb mesh (the real board) so pins
+// and the matrix always span the true board footprint — robust to the unit mismatch.
+function suboBoardBox(root) {
+  root.updateMatrixWorld(true)
+  const tmp = new THREE.Box3(), size = new THREE.Vector3()
+  let best = null, bestDim = -1
+  root.traverse(c => {
+    if (!c.isMesh || !/pcb/i.test(c.name || '')) return
+    tmp.setFromObject(c); tmp.getSize(size)
+    const d = Math.max(size.x, size.y, size.z)
+    if (d > bestDim) { bestDim = d; best = c }
+  })
+  const box = new THREE.Box3()
+  return best ? box.setFromObject(best) : box.setFromObject(root)
+}
+
+// ─── SUBO on-board 48-LED NeoPixel matrix ────────────────────────────────────
+// The LED matrix is the GLB's OWN geometry, rendered exactly as exported — we add
+// NO procedural geometry here (no canvas panel, no PlaneGeometry). The matrix API
+// instead drives the EMISSIVE of the GLB's LED material(s) so setAllLED / stripclear
+// / playLEDSeq still light the real on-board LEDs. Exposes root.userData.suboMatrix
+// { clear, all, one, seq }. If the GLB has no identifiable LED material the API is a
+// safe no-op (simulation runtime still runs unchanged; only the glow is skipped).
+function attachSuboMatrix(root) {
+  const ledMats = new Set()
+  root.traverse(c => {
+    if (!c.isMesh || !c.material) return
+    const mats = Array.isArray(c.material) ? c.material : [c.material]
+    for (const m of mats) {
+      if (m && m.emissive && /led|emiss|neopix|pixel|matrix/i.test(m.name || '')) ledMats.add(m)
+    }
+  })
+  const clamp = (v) => Math.max(0, Math.min(255, Math.round(Number(v) || 0)))
+  const setEmissive = (r, g, b) => {
+    const on = (clamp(r) || clamp(g) || clamp(b))
+    for (const m of ledMats) {
+      m.emissive.setRGB(clamp(r) / 255, clamp(g) / 255, clamp(b) / 255)
+      if ('emissiveIntensity' in m) m.emissiveIntensity = on ? 1.4 : 1
+      m.needsUpdate = true
+    }
+  }
+  // Merged single-mesh GLBs can't isolate one cell, so setSingleLED tints the matrix.
+  root.userData.suboMatrix = {
+    clear: () => setEmissive(0, 0, 0),
+    all:   (r, g, b) => setEmissive(r, g, b),
+    one:   (_n, r, g, b) => setEmissive(r, g, b),
+    seq:   (id) => { const p = _hsv(((Math.round(id) || 1) * 53) % 360, 1, 1); setEmissive(p.r, p.g, p.b) },
+  }
+}
 
 function buildSuboFromGLB(scene) {
-  // preloadModels' scaleAndCenter normalises the whole board to the configured
-  // target size. root stays at scale 1 so pin spheres added to it land in true
-  // world coordinates (scaling root here would double-transform them).
+  // subo_calibrated.glb is authored to its final size directly in Blender and loaded
+  // WITHOUT rescale/normalisation (MODEL_SCALE_TARGET.subo = null). root stays at scale
+  // 1 so pin spheres added to it land in true world coordinates.
   const root = new THREE.Group()
   root.add(scene)
+  // The board is authored FLAT already (thin axis = Y up, PCB substrate resting on the
+  // workplane, LED matrix facing up), so NO rotation is applied here — the old upright
+  // GLB needed a -90° X flatten; the calibrated GLB does not. pins + matrix anchor to
+  // the real board substrate via suboBoardBox, so they span the board in any orientation.
   root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
   root.updateMatrixWorld(true)
 
-  // Anchor pins to the PCB mesh bounds (not the whole model's bbox, which can be
-  // inflated by stray geometry and would fling the pins off the board).
-  let pcb = null
-  root.traverse(c => { if (c.isMesh && /pcb/i.test(c.name) && !pcb) pcb = c })
-  const box  = new THREE.Box3().setFromObject(pcb ?? root)
+  // Anchor pins to the true board substrate bounds (see suboBoardBox) — the largest
+  // /pcb/i mesh — so the two header rows span the full board instead of collapsing
+  // onto a tiny sub-part.
+  const box  = suboBoardBox(root)
   const size = box.getSize(new THREE.Vector3())
   const sorted = [['x', size.x], ['y', size.y], ['z', size.z]].sort((a, b) => a[1] - b[1])
   const thinAxis = sorted[0][0]   // thickness
   const medAxis  = sorted[1][0]   // shorter dim (connectors spread along this)
   const longAxis = sorted[2][0]   // longer dim — headers on the left/right wings
 
-  const above   = box.max[thinAxis] + 0.25
-  const medMin  = box.min[medAxis]
-  const medSpan = size[medAxis]
+  // Seat the pin spheres just above the PCB top face, but CAP the height so an oversized
+  // GLB can't push the connector bank far off the workplane.
+  const thinCtr  = (box.min[thinAxis] + box.max[thinAxis]) / 2
+  const thinHalf = (box.max[thinAxis] - box.min[thinAxis]) / 2
+  const above = thinCtr + Math.min(thinHalf + SUBO_PIN_R * 0.5, 0.55)
   const pins = {}
 
-  // A 3-pin connector (S / 5V / G), pins spaced inward from the wing edge.
-  const placeConnector = (io, side, t) => {
-    const edge   = side < 0 ? box.min[longAxis] + 0.3 : box.max[longAxis] - 0.3
-    const inward = side < 0 ? +1 : -1
-    const medPos = medMin + medSpan * t
-    const trio = [
-      { key: io,        off: 0.0, label: io,   ...suboPinStyle(io) },
-      { key: `${io}_V`, off: 0.6, label: '5V', color: 0xff2222, type: 'power' },
-      { key: `${io}_G`, off: 1.2, label: 'G',  color: 0x333333, type: 'gnd' },
-    ]
-    for (const pin of trio) {
-      const p = { x: 0, y: 0, z: 0 }
-      p[longAxis] = edge + inward * pin.off
-      p[medAxis]  = medPos
-      p[thinAxis] = above
-      pins[pin.key] = { ...p, color: pin.color, type: pin.type, label: pin.label }
-    }
-  }
-  const ts = [0.15, 0.38, 0.62, 0.85]
-  SUBO_CONNECTORS_LEFT.forEach((io, i)  => placeConnector(io, -1, ts[i]))
-  SUBO_CONNECTORS_RIGHT.forEach((io, i) => placeConnector(io, +1, ts[i]))
+  // Eight 3-pin IO headers laid over the real PCB: IO1–IO4 on the LEFT of the LED matrix,
+  // IO5–IO8 on the RIGHT (see placeSuboHeaders). longAxis = left↔right (matrix centred,
+  // groups flank it); medAxis = the axis the 4 headers stack along. The GLB models no
+  // header geometry, so anchors are derived from the measured PCB bbox with uniform spacing.
+  placeSuboHeaders(pins, {
+    A: medAxis, B: longAxis, thinAxis,
+    aCtr: (box.min[medAxis] + box.max[medAxis]) / 2,
+    bCtr: (box.min[longAxis] + box.max[longAxis]) / 2,
+    aSpan: size[medAxis], bSpan: size[longAxis], above,
+  })
+
+  // Render the GLB's own LED-matrix geometry exactly as exported — the GLB is the
+  // visual source of truth. (Previously the GLB LEDs were hidden and a procedural
+  // canvas matrix panel replaced them; that procedural geometry has been removed, so
+  // nothing hides or redraws the imported LEDs.)
 
   root.userData.dynamicPins = pins
+  // Labels sit just ABOVE the pin along the board normal (thin axis) — readable,
+  // never intersecting the PCB. Shrunk (labelScale) so the dense 3-pin headers never overlap.
   const lo = { dx: 0, dy: 0, dz: 0 }
-  if (thinAxis === 'x') lo.dx = 0.5
-  else if (thinAxis === 'z') lo.dz = 0.5
-  else lo.dy = 0.5
+  if (thinAxis === 'x') lo.dx = 0.28
+  else if (thinAxis === 'z') lo.dz = 0.28
+  else lo.dy = 0.28
   root.userData.labelOffset = lo
+  root.userData.labelScale = 0.5
 
   return root
 }

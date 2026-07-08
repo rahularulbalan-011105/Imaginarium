@@ -226,6 +226,15 @@ function AppEditor() {
     }
   }, [addWireConnection, removeWireConnection])
 
+  // Reveal pin interaction points only when needed: every board's pins while the
+  // Wiring panel is open, or just the selected board's pins otherwise. Keeps the GLB
+  // boards clean (no floating helper spheres/labels) until the user is actually wiring.
+  useEffect(() => {
+    if (activePanel === 'wiring') wireManager.setReveal({ all: true })
+    else if (selectedId)         wireManager.setReveal({ components: [selectedId] })
+    else                         wireManager.setReveal({ components: [] })
+  }, [activePanel, selectedId])
+
   useEffect(() => () => simulationManager.stop(), [])
 
   useEffect(() => {

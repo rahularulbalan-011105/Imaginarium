@@ -60,6 +60,80 @@ void loop() {
   delay(500);
 }`,
   },
+  {
+    label: 'SUBO: LED matrix',
+    code: `#include <Subo.h>
+
+void setup() {
+  SuboMatrixInit();          // required before any LED call
+}
+
+void loop() {
+  setAllLED(0, 128, 0);      // fill the 48-LED matrix green
+  delay(400);
+  setSingleLED(1, 128, 0, 0); // light LED #1 red
+  delay(400);
+  playLEDSeq(2);             // built-in rainbow animation
+  delay(700);
+  stripclear();              // all off
+  delay(400);
+}`,
+  },
+  {
+    label: 'SUBO: Buzzer',
+    code: `#include <Subo.h>
+
+void setup() {
+  SuboMatrixInit();
+}
+
+void loop() {
+  playTone(NOTE_C5, 0.2);    // dur is in SECONDS
+  delay(250);
+  playTone(NOTE_E5, 0.2);
+  delay(250);
+  playTone(NOTE_G5, 0.2);
+  delay(250);
+  playBuzSeq(1);             // built-in melody
+  delay(1200);
+}`,
+  },
+  {
+    label: 'SUBO: Motors',
+    code: `#include <Subo.h>
+#include <MotorExpansion.h>
+
+void setup() {
+  start_motors();            // required before driving (uses IO18–IO21)
+}
+
+void loop() {
+  runMotor("F", 200);        // forward
+  delay(1000);
+  runMotor("L", 180);        // turn left
+  delay(600);
+  runMotor("S", 0);          // stop
+  delay(1000);
+}`,
+  },
+  {
+    label: 'SUBO: Button',
+    code: `#include <Subo.h>
+
+void setup() {
+  SuboMatrixInit();
+  pinMode(SUBO_BUTTONL, INPUT_PULLUP);
+}
+
+void loop() {
+  if (digitalRead(SUBO_BUTTONL) == LOW) {   // pressed (active-low)
+    setAllLED(128, 0, 0);                   // red while held
+  } else {
+    stripclear();
+  }
+  delay(20);
+}`,
+  },
 ]
 
 export default function CodeEditor() {
@@ -97,10 +171,13 @@ export default function CodeEditor() {
   // Components a sketch can drive OR read — motors/LED/servo/buzzer/OLED plus
   // every sensor (so sensor-only sketches like an LDR/DHT11/ColorSensor reader
   // are runnable, not just actuator sketches).
-  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11']
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo']
   const hasConnections  = Object.keys(connections).length > 0
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
   const hasControllable = objects.some(o => CONTROLLABLE.includes(o.type))
+  // SUBO has on-board peripherals (matrix / buzzer / buttons) that run with no
+  // external component or wiring — so a SUBO board alone is runnable.
+  const hasSubo         = objects.some(o => o.type === 'subo')
 
   const handleRun = () => {
     setError(null)
@@ -138,7 +215,7 @@ export default function CodeEditor() {
 
   const noArduino    = !hasArduino
   const noComponent  = !hasControllable
-  const noConnection = hasArduino && hasControllable && !hasConnections
+  const noConnection = hasArduino && hasControllable && !hasConnections && !hasSubo
 
   const hasMotorSpeeds = Object.keys(simulation.motorSpeeds ?? {}).length > 0
   const hasServoAngles = Object.keys(simulation.servoAngles ?? {}).length > 0
@@ -210,7 +287,7 @@ export default function CodeEditor() {
         ) : (
           <button
             onClick={handleRun}
-            disabled={!hasArduino || !hasControllable || !hasConnections}
+            disabled={!hasArduino || !hasControllable || (!hasConnections && !hasSubo)}
             className="flex-1 flex items-center justify-center gap-2 py-2 rounded bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
           >
             <span>▶</span> Run
