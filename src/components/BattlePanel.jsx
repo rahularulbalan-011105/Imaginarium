@@ -5,7 +5,6 @@ import { useRigidStore } from '../stores/rigidStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { battleManager } from '../managers/BattleManager.js'
 import { combatManager } from '../managers/CombatManager.js'
-import { allWeapons } from '../combat/weaponRegistry.js'
 import { robotOptions } from '../utils/robotAssembly.js'
 
 function HPBar({ side, name, hp, lives, color, you }) {
@@ -32,8 +31,6 @@ export default function BattlePanel() {
   const { battleActive, mode, p1Id, p2Id, setP1, setP2, status, round, lives, hp, message,
           role, connState, roomCode, netError, myRobotId, oppName, oppReady } = g
   const [joinCode, setJoinCode] = useState('')
-  const [p1Weapon, setP1Weapon] = useState('autocannon')
-  const [p2Weapon, setP2Weapon] = useState('shotgun')
 
   // One entry per assembled robot (chassis + bonded parts + wheels), not per part
   const candidates = robotOptions()
@@ -105,16 +102,15 @@ export default function BattlePanel() {
             disabled={!(p1Id && p2Id && p1Id !== p2Id)}
             className="w-full py-2.5 mt-1 rounded-lg text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'linear-gradient(90deg,#ef4444,#b91c1c)', color: 'white' }}>⚔ Start Battle</button>
-          <div className="mt-1 grid grid-cols-2 gap-1.5">
-            <WeaponPick label="P1 weapon" value={p1Weapon} onChange={setP1Weapon} />
-            <WeaponPick label="P2 weapon" value={p2Weapon} onChange={setP2Weapon} />
-          </div>
-          <button onClick={() => combatManager.startArena([p1Id, p2Id], [p1Weapon, p2Weapon])}
+          <button onClick={() => combatManager.startArena([p1Id, p2Id])}
             disabled={!(p1Id && p2Id && p1Id !== p2Id)}
-            className="w-full py-2 rounded-lg text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full py-2 mt-1 rounded-lg text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'linear-gradient(90deg,#6366f1,#4338ca)', color: 'white' }}>
-            🤖 Physics Arena <span className="opacity-70 font-normal">(beta — weapons + knockback)</span>
+            🤖 Physics Arena <span className="opacity-70 font-normal">(beta)</span>
           </button>
+          <div className="text-[10px] leading-snug px-1" style={{ color: 'rgb(var(--g-500))' }}>
+            Tip: add a <b>⚔ Weapon</b> part (Electronics → Weapons) and attach it to your robot to arm it. No weapon = ram only.
+          </div>
           <ControlsLegend online={false} />
         </>
       ) : (
@@ -274,14 +270,3 @@ function PlayerPick({ label, value, onChange, candidates, accent }) {
   )
 }
 
-function WeaponPick({ label, value, onChange }) {
-  return (
-    <div>
-      <div className="text-[9px] uppercase tracking-wider mb-0.5 text-gray-400">{label}</div>
-      <select value={value} onChange={e => onChange(e.target.value)}
-        className="w-full bg-gray-800 border border-gray-600/50 rounded text-[11px] text-slate-800 px-1.5 py-1 focus:outline-none">
-        {allWeapons().map(w => <option key={w.key} value={w.key}>{w.name}</option>)}
-      </select>
-    </div>
-  )
-}

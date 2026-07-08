@@ -45,6 +45,15 @@ const CATEGORIES = [
       { type: 'buzzer',   label: 'Buzzer',      icon: '🔔', desc: 'Tone output',            purpose: 'Plays tones and beeps from code.', usage: 'alarms · feedback · melodies' },
     ],
   },
+  {
+    key: 'weapons', label: 'Weapons', icon: '⚔', blurb: 'Attach to a robot, then fight in the Physics Arena.',
+    items: [
+      { type: 'weapon_autocannon', label: 'Auto Cannon',  icon: '🔫', desc: 'Sustained DPS',  purpose: 'Continuous fire, armor break, crit on exposed core.', usage: 'main gun · sustained damage' },
+      { type: 'weapon_shotgun',    label: 'Shotgun',       icon: '💥', desc: 'Burst + knockback', purpose: 'Pellet spread, short range, heavy knockback.', usage: 'close-range brawling' },
+      { type: 'weapon_rocket',     label: 'Rocket Pod',    icon: '🚀', desc: 'Splash damage',   purpose: 'Explosive rockets with area damage + knockback.', usage: 'area denial · groups' },
+      { type: 'weapon_flame',      label: 'Flamethrower',  icon: '🔥', desc: 'Burn / area',     purpose: 'Close cone that sets targets burning.', usage: 'area denial · zoning' },
+    ],
+  },
 ]
 
 const SOON = [
@@ -55,7 +64,7 @@ const SOON = [
 export default function ElectronicsLibrary() {
   const addObject = useSceneStore((s) => s.addObject)
   const { snapshot } = useHistory()
-  const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true })
+  const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true, weapons: true })
   const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
   const addPart = (type) => { addObject(type); snapshot() }
 

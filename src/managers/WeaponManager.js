@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import { physicsManager } from './physics/PhysicsManager.js'
 import { sceneManager } from './SceneManager.js'
-import { cloneModel } from '../utils/modelLoader.js'
 import { getWeapon } from '../combat/weaponRegistry.js'
 import { damageManager } from '../combat/DamageManager.js'
 import { projectileManager } from '../combat/ProjectileManager.js'
@@ -43,34 +42,17 @@ class WeaponManager {
     return this
   }
 
-  equip(robotId, weaponKey) {
+  // Equip the weapon a robot BUILT (a scene object attached to its assembly).
+  // weaponMesh = that object's mesh; the muzzle rides it, so nothing extra is
+  // mounted and nothing lingers after the match.
+  equip(robotId, weaponKey, weaponMesh = null) {
     const def = getWeapon(weaponKey)
     if (!def) return
     this._weapons[robotId] = {
-      def, ammo: def.magSize, cooldown: 0, reloading: false, reloadEndsAt: 0,
-      recoilGrow: 0, mesh: null, flameMesh: null,
+      def, weaponMesh, ammo: def.magSize, cooldown: 0, reloading: false, reloadEndsAt: 0,
+      recoilGrow: 0, flameMesh: null,
     }
-  }
-
-  // Mount weapon GLBs (call after their models are loaded). Falls back to a
-  // procedural barrel if the model is missing, and scales the weapon to the robot.
-  mountMeshes() {
-    for (const [id, inst] of Object.entries(this._weapons)) {
-      const robot = this._getRobot(id)
-      let g = cloneModel(inst.def.model)
-      if (!g) { g = fallbackWeaponMesh(inst.def); console.warn('[Weapon] model missing, using fallback:', inst.def.model) }
-      // Fit the weapon to the robot's size so it's always clearly visible.
-      const target = Math.min(6, Math.max(2, (robot?.radius || 1.5) * 1.8))
-      const box = new THREE.Box3().setFromObject(g)
-      const sz = box.getSize(new THREE.Vector3())
-      const longest = Math.max(sz.x, sz.y, sz.z) || 1
-      g.scale.multiplyScalar(target / longest)
-      g.userData.isArena = true
-      g.traverse(c => { c.userData.isArena = true })
-      this._scene.add(g)
-      inst.mesh = g
-    }
-    console.log('[Combat] weapons equipped:', Object.entries(this._weapons).map(([id, w]) => w.def.name).join(', '))
+    console.log('[Combat] equipped', def.name, 'on', robotId)
   }
 
   // ── Per-frame ───────────────────────────────────────────────────────────────
@@ -103,10 +85,16 @@ class WeaponManager {
     const P = body.translation()
     const rot = body.rotation()
     const Q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
-    const forward = FWD.clone().applyQuaternion(Q)
-    const muzzle = new THREE.Vector3(P.x, P.y, P.z)
-      .addScaledVector(forward, (robot.radius || 1) + 0.4)
-      .addScaledVector(UP, def.muzzleY || 1.2)
+    const forward = FWD.clone().applyQuaternion(Q)   // aim = robot facing
+    // Muzzle originates at the attached weapon object (if any), else the chassis.
+    let muzzle
+    if (inst.weaponMesh) {
+      muzzle = inst.weaponMesh.getWorldPosition(new THREE.Vector3()).addScaledVector(forward, 0.6)
+    } else {
+      muzzle = new THREE.Vector3(P.x, P.y, P.z)
+        .addScaledVector(forward, (robot.radius || 1) + 0.4)
+        .addScaledVector(UP, def.muzzleY || 1.2)
+    }
     const mass = body.mass() || 1
 
     if (!this._firedOnce) { this._firedOnce = true; console.log('[Combat] first shot fired:', def.name) }
@@ -170,20 +158,6 @@ class WeaponManager {
       const body = physicsManager.getBody(targetId)
       const mass = body ? body.mass() : 1
       physicsManager.applyImpulse(targetId, { x: dir.x * def.knockback * mass, y: 0, z: dir.z * def.knockback * mass })
-    }
-  }
-
-  // ── Weapon-mesh placement (call each frame after robots are posed) ────────────
-  tickMeshes() {
-    for (const [id, inst] of Object.entries(this._weapons)) {
-      if (!inst.mesh) continue
-      const robot = this._getRobot(id)
-      const body = robot && physicsManager.getBody(robot.bodyId)
-      if (!body) { inst.mesh.visible = false; continue }
-      const P = body.translation(), rot = body.rotation()
-      inst.mesh.visible = true
-      inst.mesh.position.set(P.x, P.y + (inst.def.muzzleY || 1.2), P.z)
-      inst.mesh.quaternion.set(rot.x, rot.y, rot.z, rot.w)
     }
   }
 
@@ -253,7 +227,8 @@ class WeaponManager {
 
   clear() {
     for (const inst of Object.values(this._weapons)) {
-      inst.mesh?.removeFromParent()
+      // No mounted mesh to remove — the weapon is a scene object restored by
+      // CombatManager. Only the flame VFX cone needs disposal.
       if (inst.flameMesh) { inst.flameMesh.geometry.dispose(); inst.flameMesh.material.dispose(); inst.flameMesh.removeFromParent() }
     }
     for (const t of this._tracers) t.line.removeFromParent()
@@ -264,24 +239,6 @@ class WeaponManager {
     this._firedOnce = false
     this._getRobot = this._getActor = null
   }
-}
-
-// Procedural weapon (barrel + base) used when a weapon GLB fails to load.
-function fallbackWeaponMesh(def) {
-  const grp = new THREE.Group()
-  const col = def.strategy === 'flame' ? 0xff5522 : def.strategy === 'rocket' ? 0x88cc44 : 0x9aa7b5
-  const barrel = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.2, 1.7, 12),
-    new THREE.MeshStandardMaterial({ color: col, metalness: 0.6, roughness: 0.4 }),
-  )
-  barrel.rotation.x = Math.PI / 2; barrel.position.z = 0.7   // point +Z (facing)
-  grp.add(barrel)
-  const base = new THREE.Mesh(
-    new THREE.BoxGeometry(0.55, 0.4, 0.6),
-    new THREE.MeshStandardMaterial({ color: 0x333a44, metalness: 0.4, roughness: 0.6 }),
-  )
-  grp.add(base)
-  return grp
 }
 
 // Random direction within a `spreadDeg` cone around `dir`.

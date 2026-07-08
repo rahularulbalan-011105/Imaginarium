@@ -14,8 +14,7 @@ import { statusEffectSystem } from '../combat/StatusEffectSystem.js'
 import { weaponManager } from './WeaponManager.js'
 import { projectileManager } from '../combat/ProjectileManager.js'
 import { explosionSystem } from '../combat/ExplosionSystem.js'
-import { getWeapon } from '../combat/weaponRegistry.js'
-import { loadWeaponModel } from '../utils/modelLoader.js'
+import { weaponForType, isWeaponType } from '../combat/weaponRegistry.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -61,21 +60,20 @@ class CombatManager {
 
   get isActive() { return this._active }
 
-  // ── Start a local arena match with the given robot rootIds + weapon keys ────
-  startArena(robotIds, weaponKeys = []) {
+  // ── Start a local arena match. Weapons come from the robots themselves (a
+  // `weapon_*` part attached to the assembly) — no in-battle picker. ───────────
+  startArena(robotIds) {
     const ids = (robotIds || []).filter(Boolean)
     if (ids.length < 2) { console.warn('[Combat] need at least 2 robots'); return }
-    const keys = ids.map((_, i) => weaponKeys[i] || 'autocannon')
+    if (this._active || useCombatStore.getState().arenaActive) this.stop()   // no re-entry orphans
     useCombatStore.getState().sync({ arenaActive: true, status: 'loading', message: '', winnerTeam: null })
-    // Wait for Rapier WASM + the chosen weapon models, then build.
-    const models = [...new Set(keys.map(k => getWeapon(k)?.model).filter(Boolean))]
-    Promise.all([physicsManager.init(), ...models.map(loadWeaponModel)]).then(() => {
+    physicsManager.init().then(() => {
       if (!useCombatStore.getState().arenaActive) return   // cancelled meanwhile
-      this._build(ids, keys)
+      this._build(ids)
     })
   }
 
-  _build(ids, keys) {
+  _build(ids) {
     // Drop focus from the launch button so Space/Enter fire weapons instead of
     // re-activating the focused button.
     if (typeof document !== 'undefined' && document.activeElement?.blur) document.activeElement.blur()
@@ -113,12 +111,12 @@ class CombatManager {
       },
     })
 
-    // Weapons + projectiles + explosions.
+    // Weapons + projectiles + explosions. Each robot fires the weapon PART it was
+    // built with (detected in _captureRobot); robots with no weapon just ram.
     projectileManager.init(sceneManager.scene)
     explosionSystem.configure({ scene: sceneManager.scene, camera: sceneManager.camera, getRobots: () => this._robots })
     weaponManager.configure({ getRobot: (id) => this._robots.find(r => r.id === id), getActor: (id) => this._actors[id] })
-    ids.forEach((id, i) => weaponManager.equip(id, keys[i]))
-    weaponManager.mountMeshes()
+    for (const r of this._robots) if (r.weaponKey) weaponManager.equip(r.id, r.weaponKey, r.weaponMesh)
 
     this._hideNonCombatants()
     this._bindKeys()
@@ -146,9 +144,12 @@ class CombatManager {
     const rootMesh = objectManager.getMesh(rootId)
     if (!rootMesh) return null
 
-    // World AABB of the whole assembly → box half-extents + centre.
+    // World AABB of the whole assembly → box half-extents + centre. Also detect a
+    // weapon PART attached to this robot (its mesh becomes the muzzle origin).
+    const byId = new Map(useSceneStore.getState().objects.map(o => [o.id, o]))
     const box = new THREE.Box3()
     const memberMeshes = []
+    let weaponKey = null, weaponMesh = null
     for (const mid of assemblyMembers(rootId)) {
       if (objectManager.attachedObjects.has(mid)) continue  // wheel → follows its motor (Three child)
       const m = objectManager.getMesh(mid)
@@ -156,6 +157,8 @@ class CombatManager {
       m.updateMatrixWorld(true)
       box.expandByObject(m)
       memberMeshes.push(m)
+      const t = byId.get(mid)?.type
+      if (!weaponKey && isWeaponType(t)) { const def = weaponForType(t); if (def) { weaponKey = def.key; weaponMesh = m } }
     }
     if (memberMeshes.length === 0) { memberMeshes.push(rootMesh); box.expandByObject(rootMesh) }
 
@@ -189,7 +192,7 @@ class CombatManager {
     )
     if (!body) return null
 
-    const robot = { id: rootId, bodyId, movers, stats, radius: Math.max(size.x, size.z) / 2, mass: body.mass() }
+    const robot = { id: rootId, bodyId, movers, stats, weaponKey, weaponMesh, radius: Math.max(size.x, size.z) / 2, mass: body.mass() }
     this._applyMesh(robot, body)
     return robot
   }
@@ -250,7 +253,6 @@ class CombatManager {
       const body = physicsManager.getBody(r.bodyId)
       if (body) this._applyMesh(r, body)
     }
-    weaponManager.tickMeshes()
 
     this._checkWin()
   }

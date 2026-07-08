@@ -26,6 +26,16 @@ export function registerWeapon(def) { _registry[def.key] = def; return def }
 export function getWeapon(key) { return _registry[key] || null }
 export function allWeapons() { return Object.values(_registry) }
 
+// Weapons are placed in the editor as scene objects of type `weapon_<key>`
+// (e.g. 'weapon_autocannon'), attached to the robot. The arena reads them off
+// each robot's assembly — no in-battle picker.
+export function weaponForType(type) {
+  if (typeof type !== 'string' || !type.startsWith('weapon_')) return null
+  return getWeapon(type.slice('weapon_'.length))
+}
+export function isWeaponType(type) { return typeof type === 'string' && type.startsWith('weapon_') }
+export function weaponTypes() { return allWeapons().map(w => 'weapon_' + w.key) }
+
 // ── AUTO CANNON — sustained DPS, armor break, crit on exposed core ────────────
 registerWeapon({
   key: 'autocannon', name: 'Auto Cannon', class: 'sustained', model: 'weapon_autocannon',
