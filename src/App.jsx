@@ -57,10 +57,10 @@ const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', '
 function LoadingScreen() {
   return (
     <div className="flex h-screen items-center justify-center flex-col gap-6" style={{ background: '#121212' }}>
-      <ConstructaLogo width={240} />
+      <ConstructaLogo width={440} style={{ maxWidth: '78vw' }} />
       <div className="flex items-center gap-2.5">
-        <div className="text-lg animate-spin" style={{ color: '#ff7a18' }}>⚙</div>
-        <div className="text-sm" style={{ color: '#9096a0' }}>Loading your workshop…</div>
+        <div className="text-2xl animate-spin" style={{ color: '#ff7a18' }}>⚙</div>
+        <div className="text-base" style={{ color: '#9096a0' }}>Loading your workshop…</div>
       </div>
     </div>
   )
