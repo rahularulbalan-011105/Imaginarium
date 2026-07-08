@@ -16,6 +16,7 @@ import JointPanel from './components/JointPanel.jsx'
 import WiringPanel from './components/WiringPanel.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
 import DiscordGate from './components/DiscordGate.jsx'
+import ConstructaLogo from './components/ConstructaLogo.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
@@ -55,9 +56,12 @@ const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', '
 
 function LoadingScreen() {
   return (
-    <div className="flex h-screen items-center justify-center bg-gray-950 text-slate-700 flex-col gap-3">
-      <div className="text-2xl animate-spin">⚙</div>
-      <div className="text-sm text-gray-400">Loading 3D models…</div>
+    <div className="flex h-screen items-center justify-center flex-col gap-6" style={{ background: '#121212' }}>
+      <ConstructaLogo width={240} />
+      <div className="flex items-center gap-2.5">
+        <div className="text-lg animate-spin" style={{ color: '#ff7a18' }}>⚙</div>
+        <div className="text-sm" style={{ color: '#9096a0' }}>Loading your workshop…</div>
+      </div>
     </div>
   )
 }

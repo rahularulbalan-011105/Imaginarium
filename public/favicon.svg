@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <rect width="64" height="64" rx="14" fill="#ff7a18"/>
+  <!-- antenna -->
+  <line x1="32" y1="18" x2="32" y2="9" stroke="#111" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="32" cy="8" r="4" fill="#111"/>
+  <!-- ears -->
+  <rect x="6"  y="30" width="7" height="13" rx="3" fill="#2f93db" stroke="#111" stroke-width="3"/>
+  <rect x="51" y="30" width="7" height="13" rx="3" fill="#2f93db" stroke="#111" stroke-width="3"/>
+  <!-- head -->
+  <rect x="12" y="20" width="40" height="30" rx="9" fill="#2f93db" stroke="#111" stroke-width="4"/>
+  <!-- eyes (down-pointing triangles) -->
+  <path d="M19 30 L29 30 L24 39 Z" fill="#0b1b2b"/>
+  <path d="M35 30 L45 30 L40 39 Z" fill="#0b1b2b"/>
+</svg>

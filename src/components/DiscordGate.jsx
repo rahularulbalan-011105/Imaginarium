@@ -1,18 +1,26 @@
 import { useState, useEffect } from 'react'
+import ConstructaLogo from './ConstructaLogo.jsx'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DiscordGate — a compact "join our Discord" toast.
+// DiscordGate — the "join our beta community" card.
 //
-// Appears ~2.5s AFTER load (not instantly, not blocking) in the upper-left, to
-// the RIGHT of the floating Tools toolbox (which is pinned top-3 left-3, 176px
-// wide) so it never overlaps it. Shown on every visit until the user joins;
-// clicking Join (or "already joined") sets a localStorage flag and it never
-// returns. Detecting the click is the best we can do without Discord OAuth.
+// Mounts only after the loading screen (models ready → canvas open), then appears
+// after a short beat so it lands just as the workshop opens. Compact, upper-left,
+// non-blocking (clear of the Tools toolbox). "Join" opens the invite + sets a
+// localStorage flag so it never returns; "Continue building" dismisses it for now
+// (it reappears next visit until the user joins).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const KEY    = 'discord_joined_v1'
 const INVITE = 'https://discord.gg/zCKjH3WP6'
-const SHOW_DELAY_MS = 2500
+const SHOW_DELAY_MS = 800
+
+const PERKS = [
+  'Guided walkthroughs',
+  'Early access to new features',
+  'Direct feedback to the team',
+  'Share your builds with others',
+]
 
 export default function DiscordGate() {
   const [joined, setJoined] = useState(() => {
@@ -20,7 +28,6 @@ export default function DiscordGate() {
   })
   const [visible, setVisible] = useState(false)
 
-  // Delay the appearance so it doesn't pop the instant the app loads.
   useEffect(() => {
     if (joined) return
     const t = setTimeout(() => setVisible(true), SHOW_DELAY_MS)
@@ -29,42 +36,50 @@ export default function DiscordGate() {
 
   if (joined || !visible) return null
 
-  const markJoined = () => {
+  const join = () => {
+    window.open(INVITE, '_blank', 'noopener,noreferrer')
     try { localStorage.setItem(KEY, '1') } catch { /* private mode */ }
     setJoined(true)
   }
-  const join = () => { window.open(INVITE, '_blank', 'noopener,noreferrer'); markJoined() }
+  const later = () => setVisible(false)   // dismiss for now; returns next visit
 
   return (
-    // Fixed, upper-left, past the 176px toolbox (left-3 = 12px → toolbox ends ~192px)
-    // and below the ~56px header. Non-blocking: only the card catches clicks.
-    <div style={{ position: 'fixed', top: 66, left: 200, zIndex: 60, width: 270, pointerEvents: 'none' }}>
+    <div style={{ position: 'fixed', top: 66, left: 200, zIndex: 60, width: 300, pointerEvents: 'none' }}>
       <div style={{
-        pointerEvents: 'auto', borderRadius: 12, overflow: 'hidden',
-        background: 'rgb(var(--g-900) / 0.97)', border: '1px solid #5865F2',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.35)',
+        pointerEvents: 'auto', borderRadius: 14, overflow: 'hidden',
+        background: 'rgb(var(--g-900) / 0.98)', border: '1px solid #5865F2',
+        boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 11px', background: 'rgba(88,101,242,0.14)' }}>
-          <svg viewBox="0 0 71 55" width="22" height="17" aria-hidden="true">
-            <path fill="#5865F2" d="M60.1 4.9A58.5 58.5 0 0 0 45.6.4a.2.2 0 0 0-.2.1c-.6 1.1-1.3 2.6-1.8 3.7a54 54 0 0 0-16.2 0c-.5-1.2-1.2-2.6-1.9-3.7a.2.2 0 0 0-.2-.1c-5 .9-9.9 2.4-14.5 4.5a.2.2 0 0 0-.1.1C1.6 18.7-.9 32.1.3 45.4c0 .1 0 .1.1.2a58.9 58.9 0 0 0 17.8 9 .2.2 0 0 0 .2-.1c1.4-1.9 2.6-3.9 3.6-6a.2.2 0 0 0-.1-.3c-1.9-.7-3.7-1.6-5.5-2.6a.2.2 0 0 1 0-.4l1.1-.8a.2.2 0 0 1 .2 0 42 42 0 0 0 35.6 0 .2.2 0 0 1 .2 0l1.1.8a.2.2 0 0 1 0 .4c-1.7 1-3.6 1.9-5.5 2.6a.2.2 0 0 0-.1.3c1 2.1 2.3 4.1 3.6 6a.2.2 0 0 0 .2.1 58.7 58.7 0 0 0 17.8-9 .2.2 0 0 0 .1-.2c1.4-15.4-2.4-28.7-10.1-40.4a.2.2 0 0 0-.1-.1ZM23.7 37.3c-3.5 0-6.4-3.2-6.4-7.1 0-4 2.8-7.2 6.4-7.2 3.6 0 6.5 3.3 6.4 7.2 0 3.9-2.8 7.1-6.4 7.1Zm23.6 0c-3.5 0-6.4-3.2-6.4-7.1 0-4 2.8-7.2 6.4-7.2 3.6 0 6.5 3.3 6.4 7.2 0 3.9-2.8 7.1-6.4 7.1Z"/>
-          </svg>
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--g-100))' }}>Join our Discord</span>
+        {/* Logo */}
+        <div style={{ padding: '16px 16px 6px', display: 'flex', justifyContent: 'center' }}>
+          <ConstructaLogo width={150} />
         </div>
-        <div style={{ padding: '9px 11px 11px' }}>
-          <p style={{ margin: '0 0 9px', fontSize: 11, lineHeight: 1.4, color: 'rgb(var(--g-400))' }}>
-            Get help, share your builds, and hear about new features first.
-          </p>
+
+        <div style={{ padding: '0 16px 16px' }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: 'rgb(var(--g-100))', textAlign: 'center', marginBottom: 12 }}>
+            Join our beta community
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgb(var(--g-400))', marginBottom: 6 }}>Get:</div>
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 5, marginBottom: 14 }}>
+            {PERKS.map((p) => (
+              <li key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'rgb(var(--g-200))' }}>
+                <span style={{ color: '#22c55e', fontWeight: 800 }}>✓</span>{p}
+              </li>
+            ))}
+          </ul>
+
           <button
             onClick={join}
-            style={{ width: '100%', padding: '7px 10px', borderRadius: 8, fontSize: 12, fontWeight: 700, color: '#fff', background: '#5865F2', border: 'none', cursor: 'pointer' }}
+            style={{ width: '100%', padding: '9px 12px', borderRadius: 9, fontSize: 13, fontWeight: 800, color: '#fff', background: '#5865F2', border: 'none', cursor: 'pointer', boxShadow: '0 0 12px rgba(88,101,242,0.4)' }}
           >
-            Join our Discord →
+            Join Discord Community
           </button>
           <button
-            onClick={markJoined}
-            style={{ display: 'block', margin: '7px auto 0', fontSize: 10, color: 'rgb(var(--g-500))', background: 'none', border: 'none', cursor: 'pointer' }}
+            onClick={later}
+            style={{ display: 'block', width: '100%', marginTop: 9, fontSize: 12, color: 'rgb(var(--g-400))', background: 'none', border: 'none', cursor: 'pointer' }}
           >
-            I've already joined
+            Continue building →
           </button>
         </div>
       </div>
