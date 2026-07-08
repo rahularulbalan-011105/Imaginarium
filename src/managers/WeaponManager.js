@@ -31,6 +31,9 @@ class WeaponManager {
     this._getActor = null    // (id) -> runtime actor
     this._tracers = []       // active tracer VFX
     this._tracerPool = []
+    this._flashes = []       // muzzle flashes
+    this._flashPool = []
+    this._firedOnce = false
     this._scene = null
   }
 
@@ -49,12 +52,25 @@ class WeaponManager {
     }
   }
 
-  // Mount weapon GLBs (call after their models are loaded).
+  // Mount weapon GLBs (call after their models are loaded). Falls back to a
+  // procedural barrel if the model is missing, and scales the weapon to the robot.
   mountMeshes() {
     for (const [id, inst] of Object.entries(this._weapons)) {
-      const g = cloneModel(inst.def.model)
-      if (g) { g.userData.isArena = true; g.traverse(c => { c.userData.isArena = true }); this._scene.add(g); inst.mesh = g }
+      const robot = this._getRobot(id)
+      let g = cloneModel(inst.def.model)
+      if (!g) { g = fallbackWeaponMesh(inst.def); console.warn('[Weapon] model missing, using fallback:', inst.def.model) }
+      // Fit the weapon to the robot's size so it's always clearly visible.
+      const target = Math.min(6, Math.max(2, (robot?.radius || 1.5) * 1.8))
+      const box = new THREE.Box3().setFromObject(g)
+      const sz = box.getSize(new THREE.Vector3())
+      const longest = Math.max(sz.x, sz.y, sz.z) || 1
+      g.scale.multiplyScalar(target / longest)
+      g.userData.isArena = true
+      g.traverse(c => { c.userData.isArena = true })
+      this._scene.add(g)
+      inst.mesh = g
     }
+    console.log('[Combat] weapons equipped:', Object.entries(this._weapons).map(([id, w]) => w.def.name).join(', '))
   }
 
   // ── Per-frame ───────────────────────────────────────────────────────────────
@@ -93,6 +109,8 @@ class WeaponManager {
       .addScaledVector(UP, def.muzzleY || 1.2)
     const mass = body.mass() || 1
 
+    if (!this._firedOnce) { this._firedOnce = true; console.log('[Combat] first shot fired:', def.name) }
+    this._muzzleFlash(muzzle)
     if (def.strategy === 'ray')          this._fireRay(robot, actor, inst, muzzle, forward, now)
     else if (def.strategy === 'rocket')  this._fireRocket(robot, inst, muzzle, forward)
     else if (def.strategy === 'flame')   this._fireFlame(robot, actor, inst, muzzle, forward, now)
@@ -169,14 +187,35 @@ class WeaponManager {
     }
   }
 
-  // Advance tracer VFX + flame decay.
+  // Advance tracer + muzzle-flash VFX.
   stepVFX(dt) {
     for (let i = this._tracers.length - 1; i >= 0; i--) {
       const t = this._tracers[i]
       t.life -= dt
       if (t.life <= 0) { t.line.visible = false; this._tracerPool.push(t.line); this._tracers.splice(i, 1) }
-      else t.line.material.opacity = Math.max(0, t.life / 0.06)
+      else t.line.material.opacity = Math.max(0, t.life / 0.11)
     }
+    for (let i = this._flashes.length - 1; i >= 0; i--) {
+      const f = this._flashes[i]
+      f.t += dt
+      const k = f.t / 0.09
+      if (k >= 1) { f.mesh.visible = false; this._flashPool.push(f.mesh); this._flashes.splice(i, 1) }
+      else { f.mesh.scale.setScalar(1 + k * 2); f.mesh.material.opacity = 1 - k }
+    }
+  }
+
+  _muzzleFlash(pos) {
+    let m = this._flashPool.pop()
+    if (!m) {
+      m = new THREE.Mesh(
+        new THREE.SphereGeometry(0.5, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffddaa, transparent: true, opacity: 1, depthWrite: false }),
+      )
+      m.userData.isArena = true
+      this._scene.add(m)
+    }
+    m.position.copy(pos); m.scale.setScalar(1); m.material.opacity = 1; m.visible = true
+    this._flashes.push({ mesh: m, t: 0 })
   }
 
   _tracer(a, b) {
@@ -192,7 +231,7 @@ class WeaponManager {
     const pos = line.geometry.attributes.position
     pos.setXYZ(0, a.x, a.y, a.z); pos.setXYZ(1, b.x, b.y, b.z); pos.needsUpdate = true
     line.material.opacity = 1; line.visible = true
-    this._tracers.push({ line, life: 0.06 })
+    this._tracers.push({ line, life: 0.11 })
   }
 
   _flameVFX(inst, muzzle, forward) {
@@ -219,9 +258,30 @@ class WeaponManager {
     }
     for (const t of this._tracers) t.line.removeFromParent()
     for (const l of this._tracerPool) { l.geometry.dispose(); l.material.dispose(); l.removeFromParent() }
-    this._weapons = {}; this._tracers = []; this._tracerPool = []
+    for (const f of this._flashes) f.mesh.removeFromParent()
+    for (const m of this._flashPool) { m.geometry.dispose(); m.material.dispose(); m.removeFromParent() }
+    this._weapons = {}; this._tracers = []; this._tracerPool = []; this._flashes = []; this._flashPool = []
+    this._firedOnce = false
     this._getRobot = this._getActor = null
   }
+}
+
+// Procedural weapon (barrel + base) used when a weapon GLB fails to load.
+function fallbackWeaponMesh(def) {
+  const grp = new THREE.Group()
+  const col = def.strategy === 'flame' ? 0xff5522 : def.strategy === 'rocket' ? 0x88cc44 : 0x9aa7b5
+  const barrel = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.2, 1.7, 12),
+    new THREE.MeshStandardMaterial({ color: col, metalness: 0.6, roughness: 0.4 }),
+  )
+  barrel.rotation.x = Math.PI / 2; barrel.position.z = 0.7   // point +Z (facing)
+  grp.add(barrel)
+  const base = new THREE.Mesh(
+    new THREE.BoxGeometry(0.55, 0.4, 0.6),
+    new THREE.MeshStandardMaterial({ color: 0x333a44, metalness: 0.4, roughness: 0.6 }),
+  )
+  grp.add(base)
+  return grp
 }
 
 // Random direction within a `spreadDeg` cone around `dir`.

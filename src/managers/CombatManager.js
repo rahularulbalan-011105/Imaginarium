@@ -76,6 +76,9 @@ class CombatManager {
   }
 
   _build(ids, keys) {
+    // Drop focus from the launch button so Space/Enter fire weapons instead of
+    // re-activating the focused button.
+    if (typeof document !== 'undefined' && document.activeElement?.blur) document.activeElement.blur()
     this._saveOrig(ids.flatMap(id => assemblyMembers(id)))
     this._buildArena()
 
@@ -128,10 +131,10 @@ class CombatManager {
     }
     useCombatStore.getState().sync({ status: 'fighting', actors, message: '' })
 
-    // Point the camera at the arena.
+    // Point the camera at the arena (close enough to clearly see robots + weapons).
     if (sceneManager.orbitControls) {
-      sceneManager.camera.position.set(0, 34, 46)
-      sceneManager.orbitControls.target.set(0, 0, 0)
+      sceneManager.camera.position.set(0, 18, 26)
+      sceneManager.orbitControls.target.set(0, 1, 0)
       sceneManager.orbitControls.update()
     }
     this._last = performance.now()
