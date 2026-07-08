@@ -149,7 +149,7 @@ class PhysicsManager {
    * Stability system in a later stage). Collision events are enabled so ram damage
    * can be resolved (see drainContactEvents).
    */
-  createCombatBody(id, position, rotation, halfExtents) {
+  createCombatBody(id, position, rotation, halfExtents, mass = null) {
     if (!this.ready) return null
     this.removeBody(id)
     const R    = this._R
@@ -166,6 +166,8 @@ class PhysicsManager {
       .setFriction(0.9)
       .setRestitution(0.25)
       .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS)
+    // Set real robot mass (class-based) so heavy robots physically shove light ones.
+    if (Number.isFinite(mass) && mass > 0) col.setMass(mass)
     this.world.createCollider(col, body)
     this._bodies.set(id, body)
     this._idByHandle.set(body.handle, id)

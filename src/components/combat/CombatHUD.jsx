@@ -33,11 +33,17 @@ function RobotCard({ a, align }) {
       background: 'rgb(var(--g-900) / 0.92)', border: `1px solid ${accent}`,
       textAlign: align, opacity: dead ? 0.5 : 1,
     }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--g-100))', marginBottom: 6 }}>
-        {a.name} {dead && '💥'}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, justifyContent: align === 'right' ? 'flex-end' : 'flex-start' }}>
+        {a.class && (
+          <span style={{ fontSize: 8, fontWeight: 800, letterSpacing: '.06em', textTransform: 'uppercase', padding: '1px 5px', borderRadius: 4, background: 'rgb(var(--g-800))', color: 'rgb(var(--g-300))' }}>
+            {a.class}
+          </span>
+        )}
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--g-100))' }}>{a.name} {dead && '💥'}</span>
       </div>
       <Bar value={a.armor} max={a.armorMax} color="#38bdf8" label="ARMOR" />
       <Bar value={a.core}  max={a.coreMax}  color={accent} label="CORE" />
+      <Bar value={a.stability} max={a.stabilityMax} color="#f59e0b" label="STABILITY" />
     </div>
   )
 }

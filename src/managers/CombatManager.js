@@ -6,6 +6,8 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useGameStore } from '../stores/gameStore.js'
 import { useCombatStore, makeActor } from '../stores/combatStore.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
+import { computeRobotStats } from '../combat/CombatStats.js'
+import { damageManager } from '../combat/DamageManager.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -78,10 +80,25 @@ class CombatManager {
       if (!robot) return
       this._robots.push(robot)
       const name = useSceneStore.getState().objects.find(o => o.id === id)?.name || 'Robot'
-      this._actors[id] = { ...makeActor({ id, name, team: i }), _t: 0 }
+      const s = robot.stats
+      this._actors[id] = {
+        ...makeActor({ id, name, team: i, armorMax: s.armorMax, coreMax: s.coreMax, heatMax: s.heatMax, stabilityMax: s.stabilityMax }),
+        class: s.class,
+      }
     })
 
     if (this._robots.length < 2) { this.stop(); return }
+
+    // Route all damage through the single funnel.
+    damageManager.configure({
+      getActor: (id) => this._actors[id],
+      onApplied: (id, result) => {
+        const a = this._actors[id]
+        if (!a) return
+        useCombatStore.getState().patchActor(id, { armor: a.armor, core: a.core, heat: a.heat, stability: a.stability, state: a.state })
+        if (result.destroyed) this._checkWin()
+      },
+    })
 
     this._hideNonCombatants()
     this._bindKeys()
@@ -133,6 +150,9 @@ class CombatManager {
       quat0: m.getWorldQuaternion(new THREE.Quaternion()),
     }))
 
+    // Class + stat block from real mass (drives HP, mobility, physics mass).
+    const stats = computeRobotStats(rootId)
+
     // Spawn facing the arena centre; rest the box bottom on the ground (y=half.y).
     const yaw = Math.atan2(-startX, -startZ)
     this._q.setFromAxisAngle(UP, yaw)
@@ -142,10 +162,11 @@ class CombatManager {
       { x: startX, y: half.y + 0.05, z: startZ },
       { x: this._q.x, y: this._q.y, z: this._q.z, w: this._q.w },
       half,
+      stats.mass,
     )
     if (!body) return null
 
-    const robot = { id: rootId, bodyId, movers, radius: Math.max(size.x, size.z) / 2, mass: body.mass() }
+    const robot = { id: rootId, bodyId, movers, stats, radius: Math.max(size.x, size.z) / 2, mass: body.mass() }
     this._applyMesh(robot, body)
     return robot
   }
@@ -193,23 +214,27 @@ class CombatManager {
     const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(this._q)   // local +Z
     const v = body.linvel()
     const mass = r.mass || body.mass() || 1
+    const maxSpeed = r.stats?.maxSpeed ?? MAX_SPEED
+    const accel    = r.stats?.accelGain ?? ACCEL_GAIN
+    const turn     = r.stats?.turnRate ?? TURN_RATE
 
     // Linear: impulse toward desired forward velocity (leaves Y to gravity, keeps
     // knockback because we only correct a fraction of the error each frame).
-    const desX = fwd.x * input.fwd * MAX_SPEED
-    const desZ = fwd.z * input.fwd * MAX_SPEED
+    const desX = fwd.x * input.fwd * maxSpeed
+    const desZ = fwd.z * input.fwd * maxSpeed
     physicsManager.applyImpulse(r.bodyId, {
-      x: (desX - v.x) * mass * ACCEL_GAIN,
+      x: (desX - v.x) * mass * accel,
       y: 0,
-      z: (desZ - v.z) * mass * ACCEL_GAIN,
+      z: (desZ - v.z) * mass * accel,
     })
 
     // Angular: torque impulse toward a target yaw rate.
     const w = body.angvel().y
-    const targetW = -input.turn * TURN_RATE
+    const targetW = -input.turn * turn
     physicsManager.applyTorqueImpulse(r.bodyId, { x: 0, y: (targetW - w) * mass * TURN_GAIN, z: 0 })
   }
 
+  // Turn a ram contact into DamageEvents and route them through the funnel.
   _resolveImpact(idA, idB, now) {
     const a = this._actors[idA], b = this._actors[idB]
     if (!a || !b) return                       // one side is a wall/ground
@@ -225,22 +250,20 @@ class CombatManager {
 
     const dmg = Math.round(IMPACT_K * (closing - IMPACT_MIN))
     if (dmg <= 0) return
-    // Faster mover is the aggressor: takes reduced chip damage; defender takes full.
-    const sa = Math.hypot(va.x, va.z), sb = Math.hypot(vb.x, vb.z)
-    if (sa >= sb) { this._damage(idB, dmg); this._damage(idA, Math.round(dmg * 0.3)) }
-    else          { this._damage(idA, dmg); this._damage(idB, Math.round(dmg * 0.3)) }
-  }
 
-  // Apply damage through the armor→core layers, then mirror to the HUD store.
-  _damage(id, amount) {
-    const a = this._actors[id]
-    if (!a || a.state === 'destroyed' || amount <= 0) return
-    let overflow = 0
-    if (a.armor > 0) { const before = a.armor; a.armor = Math.max(0, a.armor - amount); overflow = amount - (before - a.armor) }
-    else overflow = amount
-    if (overflow > 0) a.core = Math.max(0, a.core - overflow)
-    if (a.core <= 0) { a.core = 0; a.state = 'destroyed' }
-    useCombatStore.getState().patchActor(id, { armor: a.armor, core: a.core, state: a.state })
+    // Faster mover is the aggressor: defender takes full, aggressor takes chip damage.
+    // Damage enters as armor-type (funnel spills overflow into core) + some stability.
+    const sa = Math.hypot(va.x, va.z), sb = Math.hypot(vb.x, vb.z)
+    const defender = sa >= sb ? idB : idA
+    const aggressor = defender === idB ? idA : idB
+    damageManager.apply({
+      targetId: defender, sourceId: aggressor, damageType: 'collision',
+      amounts: { armor: dmg, stability: Math.round(dmg * 0.6) },
+    })
+    damageManager.apply({
+      targetId: aggressor, sourceId: defender, damageType: 'collision',
+      amounts: { armor: Math.round(dmg * 0.3), stability: Math.round(dmg * 0.3) },
+    })
   }
 
   _checkWin() {
@@ -372,6 +395,7 @@ class CombatManager {
     this._robots = []
     this._actors = {}
     this._hitClock = {}
+    damageManager.reset()
     useCombatStore.getState().reset()
   }
 }
@@ -379,7 +403,7 @@ class CombatManager {
 // HUD-facing snapshot of a runtime actor (drops private _ fields).
 function makeActorSnapshot(a) {
   return {
-    id: a.id, name: a.name, team: a.team,
+    id: a.id, name: a.name, team: a.team, class: a.class,
     armor: a.armor, armorMax: a.armorMax,
     core: a.core, coreMax: a.coreMax,
     heat: a.heat, heatMax: a.heatMax,
