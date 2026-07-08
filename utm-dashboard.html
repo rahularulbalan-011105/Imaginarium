@@ -98,8 +98,8 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
 
   <div class="grid2">
     <div class="panel"><h2>By source</h2><div id="bySource"></div></div>
-    <div class="panel"><h2>By medium</h2><div id="byMedium"></div></div>
     <div class="panel"><h2>By campaign</h2><div id="byCampaign"></div></div>
+    <div class="panel"><h2>Popup action</h2><div id="byPopup"></div></div>
   </div>
 
   <div class="panel" style="margin-bottom:24px">
@@ -109,6 +109,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       <div><label>utm_source (where)</label><input id="b_source" placeholder="instagram"></div>
       <div><label>utm_medium (how)</label><input id="b_medium" placeholder="social"></div>
       <div><label>utm_campaign (why)</label><input id="b_campaign" placeholder="launch2026"></div>
+      <div><label>ref (person, e.g. akash)</label><input id="b_ref" placeholder="akash"></div>
       <div><label>utm_term (optional)</label><input id="b_term" placeholder="robotics"></div>
       <div><label>utm_content (optional)</label><input id="b_content" placeholder="story-cta"></div>
     </div>
@@ -124,8 +125,8 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     <div class="scroll">
       <table>
         <thead><tr>
-          <th>Time</th><th>Source</th><th>Medium</th><th>Campaign</th>
-          <th>Term</th><th>Content</th><th>Referrer</th><th>Landing</th>
+          <th>Time</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Country</th>
+          <th>Device</th><th>Visitor</th><th>Popup</th><th>Dur (s)</th><th>Landing</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -222,9 +223,9 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       + card(total-tagged,'direct / untagged')
       + card(sources,'unique sources')
 
-    renderTally('bySource',   tally(visits,'source'),   total)
-    renderTally('byMedium',   tally(visits,'medium'),   total)
-    renderTally('byCampaign', tally(visits,'campaign'), total)
+    renderTally('bySource',   tally(visits,'source'),        total)
+    renderTally('byCampaign', tally(visits,'campaign'),      total)
+    renderTally('byPopup',    tally(visits,'popup_action'),  total)
 
     document.getElementById('visitCount').textContent = total
     var rows = document.getElementById('rows')
@@ -232,14 +233,17 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     rows.innerHTML = visits.slice().reverse().map(function(v){
       var pill = v.tagged ? '<span class="pill tag">'+esc(v.source)+'</span>'
                           : '<span class="pill direct">'+esc(v.source)+'</span>'
+      var ret = (v.is_returning_visitor === 'returning' || v.is_returning_visitor === true) ? 'returning' : 'new'
       return '<tr>'
         + '<td>'+esc(fmt(v.ts))+'</td>'
         + '<td>'+pill+'</td>'
-        + '<td>'+esc(v.medium)+'</td>'
         + '<td>'+esc(v.campaign)+'</td>'
-        + '<td>'+esc(v.term)+'</td>'
-        + '<td>'+esc(v.content)+'</td>'
-        + '<td title="'+esc(v.referrer)+'">'+esc(v.referrer||'—')+'</td>'
+        + '<td>'+esc(v.ref||'—')+'</td>'
+        + '<td>'+esc(v.country||'—')+'</td>'
+        + '<td>'+esc(v.device_type||'—')+'</td>'
+        + '<td>'+esc(ret)+'</td>'
+        + '<td>'+esc(v.popup_action||'—')+'</td>'
+        + '<td>'+esc(v.session_duration!=null?v.session_duration:'—')+'</td>'
         + '<td title="'+esc(v.landing)+'">'+esc(v.landing)+'</td>'
         + '</tr>'
     }).join('')
@@ -259,6 +263,8 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       var v = document.getElementById(map[k]).value.trim()
       if(v) url.searchParams.set(k, v); else url.searchParams.delete(k)
     })
+    var ref = document.getElementById('b_ref').value.trim()
+    if(ref) url.searchParams.set('ref', ref); else url.searchParams.delete('ref')
     out.value = url.toString()
   }
   function copyLink(){
@@ -269,7 +275,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     var btn = event.target; var t = btn.textContent
     btn.textContent = 'Copied!'; setTimeout(function(){ btn.textContent = t }, 1200)
   }
-  ['b_url','b_source','b_medium','b_campaign','b_term','b_content'].forEach(function(id){
+  ['b_url','b_source','b_medium','b_campaign','b_ref','b_term','b_content'].forEach(function(id){
     document.getElementById(id).addEventListener('input', buildLink)
   })
 
