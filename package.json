@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "predeploy": "npm run build",
+    "predeploy": "cross-env VITE_BASE=./ vite build",
     "deploy": "gh-pages -d dist",
     "electron": "electron .",
     "electron:dev": "cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
