@@ -47,6 +47,14 @@ function RobotCard({ a, align }) {
       <Bar value={a.core}  max={a.coreMax}  color={accent} label="CORE" />
       <Bar value={a.stability} max={a.stabilityMax} color="#f59e0b" label="STABILITY" />
       <Bar value={a.heat} max={a.heatMax} color="#ef4444" label="HEAT" />
+      {a.weaponName && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginTop: 4, color: 'rgb(var(--g-300))' }}>
+          <span>🔫 {a.weaponName}</span>
+          <span style={{ color: a.reloading ? '#f59e0b' : 'rgb(var(--g-400))', fontWeight: 700 }}>
+            {a.reloading ? 'RELOAD…' : `${a.ammo}/${a.magSize}`}
+          </span>
+        </div>
+      )}
     </div>
   )
 }
@@ -78,7 +86,7 @@ export default function CombatHUD() {
       {/* Controls hint + Exit */}
       <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 12, pointerEvents: 'auto' }}>
         <div style={{ fontSize: 11, color: 'rgb(var(--g-400))', alignSelf: 'center' }}>
-          P1: WASD · P2: Arrows · ram to damage
+          P1: WASD + Space · P2: Arrows + Enter · fire & ram
         </div>
         <button
           onClick={() => combatManager.stop()}

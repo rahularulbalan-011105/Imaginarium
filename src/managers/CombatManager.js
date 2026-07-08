@@ -11,6 +11,11 @@ import { damageManager } from '../combat/DamageManager.js'
 import { stabilitySystem } from '../combat/StabilitySystem.js'
 import { heatSystem } from '../combat/HeatSystem.js'
 import { statusEffectSystem } from '../combat/StatusEffectSystem.js'
+import { weaponManager } from './WeaponManager.js'
+import { projectileManager } from '../combat/ProjectileManager.js'
+import { explosionSystem } from '../combat/ExplosionSystem.js'
+import { getWeapon } from '../combat/weaponRegistry.js'
+import { loadWeaponModel } from '../utils/modelLoader.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -56,19 +61,21 @@ class CombatManager {
 
   get isActive() { return this._active }
 
-  // ── Start a local arena match with the given robot rootIds ──────────────────
-  startArena(robotIds) {
+  // ── Start a local arena match with the given robot rootIds + weapon keys ────
+  startArena(robotIds, weaponKeys = []) {
     const ids = (robotIds || []).filter(Boolean)
     if (ids.length < 2) { console.warn('[Combat] need at least 2 robots'); return }
+    const keys = ids.map((_, i) => weaponKeys[i] || 'autocannon')
     useCombatStore.getState().sync({ arenaActive: true, status: 'loading', message: '', winnerTeam: null })
-    // Rapier WASM may still be loading — build once it's ready.
-    physicsManager.init().then(() => {
+    // Wait for Rapier WASM + the chosen weapon models, then build.
+    const models = [...new Set(keys.map(k => getWeapon(k)?.model).filter(Boolean))]
+    Promise.all([physicsManager.init(), ...models.map(loadWeaponModel)]).then(() => {
       if (!useCombatStore.getState().arenaActive) return   // cancelled meanwhile
-      this._build(ids)
+      this._build(ids, keys)
     })
   }
 
-  _build(ids) {
+  _build(ids, keys) {
     this._saveOrig(ids.flatMap(id => assemblyMembers(id)))
     this._buildArena()
 
@@ -102,6 +109,13 @@ class CombatManager {
         if (result.destroyed) this._checkWin()
       },
     })
+
+    // Weapons + projectiles + explosions.
+    projectileManager.init(sceneManager.scene)
+    explosionSystem.configure({ scene: sceneManager.scene, camera: sceneManager.camera, getRobots: () => this._robots })
+    weaponManager.configure({ getRobot: (id) => this._robots.find(r => r.id === id), getActor: (id) => this._actors[id] })
+    ids.forEach((id, i) => weaponManager.equip(id, keys[i]))
+    weaponManager.mountMeshes()
 
     this._hideNonCombatants()
     this._bindKeys()
@@ -159,7 +173,10 @@ class CombatManager {
     // Spawn facing the arena centre; rest the box bottom on the ground (y=half.y).
     const yaw = Math.atan2(-startX, -startZ)
     this._q.setFromAxisAngle(UP, yaw)
-    const bodyId = `combat_${rootId}`
+    // Body id === rootId so contact events / raycasts (which return the physics
+    // body id) resolve directly to the actor keyed by rootId. Combat is a separate
+    // mode from drive, so there's no id collision.
+    const bodyId = rootId
     const body = physicsManager.createCombatBody(
       bodyId,
       { x: startX, y: half.y + 0.05, z: startZ },
@@ -216,11 +233,21 @@ class CombatManager {
       })
     }
 
+    // 2c. Weapons: fire (raycast damage / spawn rockets), advance rockets +
+    // explosions, and tracer/flame VFX.
+    const fireInputs = {}
+    this._robots.forEach((r, i) => { fireInputs[r.id] = !!inputs[i]?.fire })
+    weaponManager.step(dt, now, fireInputs)
+    projectileManager.step(dt)
+    explosionSystem.step(dt)
+    weaponManager.stepVFX(dt)
+
     // 3. Read bodies back → place assembly meshes rigidly; keep robots in-bounds.
     for (const r of this._robots) {
       const body = physicsManager.getBody(r.bodyId)
       if (body) this._applyMesh(r, body)
     }
+    weaponManager.tickMeshes()
 
     this._checkWin()
   }
@@ -320,6 +347,8 @@ class CombatManager {
     ;['up', 'down', 'left', 'right'].forEach(act => {
       this._activeKeys.add(ctrl.p1[act]); this._activeKeys.add(ctrl.p2[act])
     })
+    this._activeKeys.add(ctrl.p1.fire || ' ')      // P1 fire: Space
+    this._activeKeys.add(ctrl.p2.fire || 'Enter')  // P2 fire: Enter
     this._keys.clear()
     this._onKeyDown = (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
@@ -338,6 +367,7 @@ class CombatManager {
     return {
       fwd:  (has(c.up) ? 1 : 0) - (has(c.down) ? 1 : 0),
       turn: (has(c.right) ? 1 : 0) - (has(c.left) ? 1 : 0),
+      fire: has(c.fire || ' '),
     }
   }
 
@@ -403,6 +433,9 @@ class CombatManager {
     window.removeEventListener('keydown', this._onKeyDown)
     window.removeEventListener('keyup', this._onKeyUp)
     this._keys.clear()
+    weaponManager.clear()
+    projectileManager.clear()
+    explosionSystem.clear()
     for (const r of this._robots) physicsManager.removeBody(r.bodyId)
     this._clearArena()
     if (this._hidden) { this._hidden.forEach(m => { m.visible = true }); this._hidden = null }
