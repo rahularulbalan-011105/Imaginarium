@@ -40,10 +40,13 @@ function RobotCard({ a, align }) {
           </span>
         )}
         <span style={{ fontSize: 12, fontWeight: 700, color: 'rgb(var(--g-100))' }}>{a.name} {dead && '💥'}</span>
+        {a.staggered && <span style={badge('#f59e0b')}>STAGGER</span>}
+        {a.overheated && <span style={badge('#ef4444')}>OVERHEAT</span>}
       </div>
       <Bar value={a.armor} max={a.armorMax} color="#38bdf8" label="ARMOR" />
       <Bar value={a.core}  max={a.coreMax}  color={accent} label="CORE" />
       <Bar value={a.stability} max={a.stabilityMax} color="#f59e0b" label="STABILITY" />
+      <Bar value={a.heat} max={a.heatMax} color="#ef4444" label="HEAT" />
     </div>
   )
 }
@@ -87,6 +90,11 @@ export default function CombatHUD() {
     </div>
   )
 }
+
+const badge = (color) => ({
+  fontSize: 8, fontWeight: 800, letterSpacing: '.06em', padding: '1px 5px',
+  borderRadius: 4, background: color, color: '#fff',
+})
 
 const bannerStyle = {
   position: 'absolute', top: '42%', left: '50%', transform: 'translate(-50%,-50%)',

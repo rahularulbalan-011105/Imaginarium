@@ -22,9 +22,11 @@ export function makeActor({ id, name, team = 0, armorMax = 100, coreMax = 100, h
     armor: armorMax, armorMax,
     core:  coreMax,  coreMax,
     heat: 0, heatMax,
-    stability: 0, stabilityMax,   // rises with hits; over max → staggered (Stage 3)
-    state: 'active',              // active | staggered | overheated | downed | destroyed
-    effects: [],                  // reserved: [{ type, expiresAt, magnitude }]
+    stability: 0, stabilityMax,   // rises with hits; over max → staggered
+    staggered: false,             // stumble state (reduced move/turn), recovers over time
+    overheated: false,            // heat maxed → speed penalty until it cools below 50%
+    state: 'active',              // active | downed | destroyed (primary lifecycle)
+    effects: [],                  // [{ type, expiresAt, magnitude }] — burn/slow/…
   }
 }
 

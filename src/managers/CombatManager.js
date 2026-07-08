@@ -8,6 +8,9 @@ import { useCombatStore, makeActor } from '../stores/combatStore.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { computeRobotStats } from '../combat/CombatStats.js'
 import { damageManager } from '../combat/DamageManager.js'
+import { stabilitySystem } from '../combat/StabilitySystem.js'
+import { heatSystem } from '../combat/HeatSystem.js'
+import { statusEffectSystem } from '../combat/StatusEffectSystem.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -199,6 +202,20 @@ class CombatManager {
       if (started) this._resolveImpact(idA, idB, now)
     })
 
+    // 2b. Tick per-robot combat systems: stability drain/stagger, heat cooling,
+    // status effects — then mirror the live meters/flags to the HUD.
+    for (const r of this._robots) {
+      const a = this._actors[r.id]
+      if (!a) continue
+      stabilitySystem.tick(a, r.stats, dt, now)
+      heatSystem.tick(a, dt)
+      statusEffectSystem.tick(a, now, dt, (id, amt) =>
+        damageManager.apply({ targetId: id, damageType: 'burn', amounts: { core: amt } }))
+      useCombatStore.getState().patchActor(r.id, {
+        heat: a.heat, stability: a.stability, staggered: a.staggered, overheated: a.overheated,
+      })
+    }
+
     // 3. Read bodies back → place assembly meshes rigidly; keep robots in-bounds.
     for (const r of this._robots) {
       const body = physicsManager.getBody(r.bodyId)
@@ -214,9 +231,13 @@ class CombatManager {
     const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(this._q)   // local +Z
     const v = body.linvel()
     const mass = r.mass || body.mass() || 1
-    const maxSpeed = r.stats?.maxSpeed ?? MAX_SPEED
+    // Stagger (stability), overheat (heat) and slows (status) throttle control.
+    const actor = this._actors[r.id]
+    const auth = stabilitySystem.authority(actor)
+    const moveMult = auth.move * heatSystem.moveMult(actor) * statusEffectSystem.moveMult(actor)
+    const maxSpeed = (r.stats?.maxSpeed ?? MAX_SPEED) * moveMult
     const accel    = r.stats?.accelGain ?? ACCEL_GAIN
-    const turn     = r.stats?.turnRate ?? TURN_RATE
+    const turn     = (r.stats?.turnRate ?? TURN_RATE) * auth.turn
 
     // Linear: impulse toward desired forward velocity (leaves Y to gravity, keeps
     // knockback because we only correct a fraction of the error each frame).
@@ -258,11 +279,11 @@ class CombatManager {
     const aggressor = defender === idB ? idA : idB
     damageManager.apply({
       targetId: defender, sourceId: aggressor, damageType: 'collision',
-      amounts: { armor: dmg, stability: Math.round(dmg * 0.6) },
+      amounts: { armor: dmg, stability: Math.round(dmg * 0.6), heat: Math.round(dmg * 0.5) },
     })
     damageManager.apply({
       targetId: aggressor, sourceId: defender, damageType: 'collision',
-      amounts: { armor: Math.round(dmg * 0.3), stability: Math.round(dmg * 0.3) },
+      amounts: { armor: Math.round(dmg * 0.3), stability: Math.round(dmg * 0.3), heat: Math.round(dmg * 0.35) },
     })
   }
 
@@ -408,6 +429,7 @@ function makeActorSnapshot(a) {
     core: a.core, coreMax: a.coreMax,
     heat: a.heat, heatMax: a.heatMax,
     stability: a.stability, stabilityMax: a.stabilityMax,
+    staggered: !!a.staggered, overheated: !!a.overheated,
     state: a.state, effects: [],
   }
 }
