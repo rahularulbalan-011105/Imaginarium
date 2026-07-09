@@ -5,6 +5,7 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
+import WiringWorkbench from './WiringWorkbench.jsx'
 
 const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
 
@@ -98,6 +99,7 @@ export default function WiringPanel() {
   const [wireColor, setWireColor] = useState(WIRE_COLORS[0])
   const [disconnectConnId, setDisconnectConnId] = useState(null)
   const [disconnectInfo, setDisconnectInfo]     = useState(null) // { from, to, color }
+  const [wbOpen, setWbOpen] = useState(false)   // drag-to-connect workbench modal
 
   const reset = () => { setMode('idle'); setSrcPin(null); setDstPin(null); setDisconnectConnId(null); setDisconnectInfo(null) }
 
@@ -262,6 +264,17 @@ export default function WiringPanel() {
   // ── Idle / source picking ──────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full">
+      {wbOpen && <WiringWorkbench onClose={() => setWbOpen(false)} />}
+
+      {/* Drag-to-connect workbench launcher */}
+      <button
+        onClick={() => setWbOpen(true)}
+        className="m-2 py-2 rounded text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shrink-0"
+        title="Open a 2D workbench where you drag wires between component terminals"
+      >
+        🔌 Wiring Workbench — drag to connect
+      </button>
+
       {/* Header + step indicator */}
       <div className="px-3 py-2 border-b border-gray-700/50 shrink-0">
         {mode === 'idle' ? (

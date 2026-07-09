@@ -4,7 +4,7 @@
 
 A web-based 3D object design and manipulation tool inspired by Tinkercad. Users can create, edit, and manage 3D objects in a browser-based editor without any login or authentication. Projects are stored locally in the browser using IndexedDB.
 
-The editor has expanded well beyond a basic 3D modeller into a full robotics design, simulation, and gaming platform. It supports: parametric solid editing (extrude, fillet/chamfer, boolean CSG, slice, geometry bending), mechanical joints, electronics wiring with both **text (Arduino C++)** and **visual (Blockly)** programming, wheeled and legged robot simulation with physics, a **Robo-Sumo "Battle" game mode** (local + online P2P), an asset library with external 3D model import, the custom **SUBO ESP32 board**, a robot blueprint/AI runtime, and Google Drive / share-link / STL-print export.
+The editor has expanded well beyond a basic 3D modeller into a full robotics design, simulation, and gaming platform. It supports: parametric solid editing (extrude, fillet/chamfer, boolean CSG, slice, geometry bending), mechanical joints, electronics wiring with both **text (Arduino C++)** and **visual (Blockly)** programming, wheeled and legged robot simulation with physics, a **Robo-Sumo "Battle" game mode** (local + online P2P), a **physics-driven co-op Combat "Arena"** (Rapier-based weapons/armor/heat/stability — Stages 1–4 built), an asset library with external 3D model import, the custom **SUBO ESP32 board**, a robot blueprint/AI runtime, and Google Drive / share-link / STL-print export. Branded as **Constructa**.
 
 The interface has been reworked into a **modern robotics design studio** (Tinkercad / Onshape / Figma / Blender-simplified feel): the 3D viewport is the primary surface, tools live in a compact **floating glass toolbox**, an **interactive View Cube** sits top-right, and a single **right-side icon-rail workspace** hosts every panel as a collapsible section.
 
@@ -103,7 +103,8 @@ src/
 │   ├── surfaceStore.js             # Surface-patch relationships
 │   ├── jointStore.js               # Mechanical joints (type, axis, limits, motor settings)
 │   ├── assetStore.js               # User-saved assets (localStorage-backed)
-│   ├── gameStore.js                # Robo-sumo battle state + remappable controls
+│   ├── gameStore.js                # Robo-sumo battle state + remappable controls (P1/P2 keys + fire)
+│   ├── combatStore.js              # Physics-Arena combat: per-robot actors (armor/core/heat/stability/team/state), keyed by rootId
 │   ├── gearStore.js                # Gear mesh pairings (meshPairs)
 │   ├── robotStore.js               # Robot blueprint / module state
 │   └── historyStore.js             # Reactive mirror of undo/redo stacks (debug panel)
@@ -117,6 +118,8 @@ src/
 │   ├── ExtrudeTool.js              # Face extrusion on BufferGeometry
 │   ├── FilletTool.js               # Vertex-chamfer / bevel on sharp edges
 │   ├── BattleManager.js            # Robo-sumo simulation (arcade top-down ring physics, HP, hits)
+│   ├── CombatManager.js            # Physics-Arena orchestrator: one Rapier dynamic body/robot, velocity-driven, ram+weapon damage
+│   ├── WeaponManager.js            # Per-robot weapon runtime (equip/reload/heat/fire strategies + mounted weapon GLB + VFX)
 │   ├── NetworkManager.js           # WebRTC P2P transport (PeerJS) for online battles
 │   ├── StorageManager.js           # IndexedDB persistence + auto-save
 │   ├── PatchManager.js             # Surface patches, face picking, extrude hover preview
@@ -139,6 +142,15 @@ src/
 │   ├── PowerSystem.js · componentRegistry.js · modules.js
 │   ├── autoBlueprint.js · blueprintBuilder.js
 │   └── ai/ (AIRuntime.js, behaviors.js)
+├── combat/                         # Co-op Physics-Arena combat framework (see Combat section)
+│   ├── CombatStats.js              # Robot class (light/medium/heavy) + stat block from real mass
+│   ├── DamageManager.js            # THE single damage funnel (armor→core, crit, stability/heat, friendly-fire hook)
+│   ├── StabilitySystem.js          # Stability meter → stumble/stagger (reduced move/turn)
+│   ├── HeatSystem.js               # Heat meter → overheat (speed penalty, hysteresis)
+│   ├── StatusEffectSystem.js       # Timed debuffs (burning/slow/disabled) → move multiplier + burn ticks
+│   ├── weaponRegistry.js           # Data-driven weapon defs (autocannon/shotgun/rocket/flame) — add = one call
+│   ├── ProjectileManager.js        # Pooled swept-raycast rockets → ExplosionSystem
+│   └── ExplosionSystem.js          # Radial damage + impulse falloff + pooled flash + camera shake
 ├── blockly/
 │   ├── arduinoBlocks.js            # Custom Arduino hardware blocks + toolbox
 │   └── arduinoGenerator.js         # Blockly → Arduino C++ code generator
@@ -165,13 +177,17 @@ src/
 │   ├── export.js                   # JSON/STL/GLTF export + import
 │   ├── printExport.js              # STL export + printability analysis
 │   ├── share.js                    # Share-link build/read (project packed into URL hash)
+│   ├── utmTracking.js              # Backend-free visit analytics (source/campaign/ref/country/device/popup_action/session_duration) → Google Sheet
 │   └── helpers.js                  # Utilities + buildProjectSnapshot (save/load) + snapRotationToAxes
 └── styles/
     └── globals.css                 # Theme CSS variables (--g-* / --a-*), scrollbars, focus rings, theme-anim
 ```
 
-> `public/models/` ships: `arduino_uno.glb`, `subo.glb`, `servo.glb`, `motor_dc.glb`, `motor_bo.glb`, `led.glb`, `free_wheels.glb`, plus sensor/peripheral models `ultrasonic.glb`, `ir_sensor.glb`, `gas_sensor.glb`, `oled.glb`, `buzzer.glb`.
+> `public/models/` ships: `arduino_uno.glb`, `subo.glb`, `servo.glb`, `motor_dc.glb`, `motor_bo.glb`, `led.glb`, `free_wheels.glb`, plus sensor/peripheral models `ultrasonic.glb`, `ir_sensor.glb`, `gas_sensor.glb`, `oled.glb`, `buzzer.glb`, `ldr.glb`, `dht11.glb`, and combat weapon models `weapon_autocannon.glb`, `weapon_shotgun.glb`, `weapon_rocket.glb`, `weapon_flame.glb` (weapons lazy-load on arena entry).
+> `public/` also ships `favicon.svg` (robot-head tab icon), `constructa-logo.png` (brand wordmark), and `CNAME` (custom domain `constructa.atumx.in`).
+> `utm-dashboard.html` (repo root, 2nd Vite page) + `docs/utm-collector.gs` (Google Apps Script) power the visit-analytics dashboard.
 > `electron/` ships `main.cjs` + `preload.cjs` for the desktop shell.
+> **Brand:** the product is **Constructa** (React `ConstructaLogo.jsx`, loading screen, Discord beta-community card in `DiscordGate.jsx`). The internal repo/build name is still `Imaginarium`.
 
 ---
 
@@ -547,6 +563,48 @@ Files that key off `'arduino'`: `modelLoader` (MODEL_PATHS + scale), `electronic
 
 ---
 
+## Co-Op Combat Framework — "Physics Arena"
+
+A physics-driven robot-combat game built **on Rapier** (unlike the arcade `BattleManager`), designed as a modular engine so weapons / robots / game modes are added with minimal core changes. **Separate mode** — it never touches DriveManager or the Robo-Sumo battle. Launched from the **Battle** panel → **🤖 Physics Arena (beta)** (pick 2 robots + a weapon each). Gated by `combatStore.arenaActive`; ticked once per frame from `App.onAnimationTick` (`combatManager.step()`), which also skips bond propagation + editor shortcuts while active (same pattern as battle).
+
+### Design decisions (approved)
+- **Physics:** each combat robot = **ONE Rapier dynamic body** (a box approximating the assembly, `PhysicsManager.createCombatBody`), yaw-locked upright (`enabledRotations(false,true,false)`) so it drives without toppling. Real mass (`collider.setMass`) → heavy robots physically shove light ones. **Per-part armor is logical** (raycast/contact returns the hit id), NOT separate bodies — keeps 8p/100AI feasible.
+- **Body id === assembly rootId** so contact-events / raycasts resolve directly to the actor keyed by rootId. (Critical: an earlier `combat_<id>` prefix silently dropped all damage.)
+- **Movement is velocity-driven via impulses** (never teleport): `_drive` applies an impulse toward the desired forward velocity (leaving knockback intact) + a torque impulse for turning; final speed = base × stagger × overheat × slow.
+- **Netcode target:** host-authoritative star (local-first). Not built yet (Stage 7).
+
+### PhysicsManager additions (combat)
+`applyImpulse` · `applyTorqueImpulse` · `raycast(origin,dir,maxToi,excludeId)` · `getLinvel` · a Rapier **EventQueue** + `drainContactEvents(cb)` (both colliders must be registered bodies) · `createCombatBody(...,mass)`. `step()` feeds the event queue.
+
+### Layered health & meters (per-robot actor in `combatStore`, keyed by rootId)
+`{ armor, core, heat, stability, staggered, overheated, state:'active'|'destroyed', team, effects }`. **Armor absorbs first → overflow into core; core ≤ 0 → destroyed.** HUD mirror is `CombatHUD.jsx` (armor/core/stability/heat bars + class badge + STAGGER/OVERHEAT badges + weapon/ammo).
+
+### The systems (each ticked per robot each frame)
+- **DamageManager** — the **single funnel** every source routes through. `DamageEvent { targetId, sourceId, damageType, amounts:{armor,core,stability,heat}, crit }` → armor→core overflow, crit on exposed core, stability/heat accrual, friendly-fire hook (Stage 5), `onApplied` callback (HUD + win check). Weapons/explosions/collisions all emit these — no divergent damage logic anywhere.
+- **CombatStats** — robot **class (light/medium/heavy)** + stat block (armorMax/coreMax, maxSpeed/accel/turn, recoil/explosion resist) derived from **real mass** (`MassCalculator`).
+- **StabilitySystem** — hits add stability; over max → **stumble** (reduced move/turn) for a window, then drains (rate scales with class/mass).
+- **HeatSystem** — action adds heat; at max → **overheat** (speed penalty, hysteresis clears < 50%); overheated weapons can't fire.
+- **StatusEffectSystem** — timed debuffs (burning ticks damage via the funnel; slow/disabled → move multiplier).
+
+### Weapons (Stage 4)
+Data-driven `weaponRegistry` (adding a weapon = one `registerWeapon({...})`). `WeaponManager` runs per-robot reload/cooldown/heat, mounts the weapon GLB on the chassis, and fires via three strategies:
+- **ray** (raycast + tracer VFX) — **Auto Cannon** (sustained, progressive recoil, crit) · **Shotgun** (pellets, spread, knockback).
+- **rocket** (`ProjectileManager` pooled swept-raycast rocket → `ExplosionSystem` radial damage+impulse, self-damage) — **Rocket Pod**.
+- **flame** (cone raycasts + burning status + self-slow) — **Flamethrower**.
+Recoil (self impulse), target knockback, heat, ammo/reload, muzzle flash + tracers all handled here. Fire keys: **P1 Space, P2 Enter** (`gameStore.controls.*.fire`). Focus is blurred on arena start so Space/Enter fire rather than re-clicking the launch button.
+
+### Stage status
+Done: **1** Rapier bodies + HP layers · **2** damage pipeline + classes · **3** stability + heat + status · **4** weapons + projectiles + explosions.
+Next (await per-stage approval): **5** teams + friendly-fire + local co-op · **6** AI archetypes + objectives + arena hazards · **7** host-authoritative online co-op · **8** feedback/perf/polish.
+
+---
+
+## Visit Analytics (UTM) — `utmTracking.js` + dashboard
+
+Backend-free, client-side. One record per tab-session: `timestamp · source (utm or referrer-inferred) · campaign · ref (?ref=) · landing_page · country (async ipwho.is) · device_type · is_returning_visitor · popup_action (join/dismiss/ignore, from `DiscordGate`) · session_duration`. Written to `localStorage` immediately, **sent once at session end** (pagehide / tab hidden, via `sendBeacon` text/plain — no CORS preflight) to a **Google Apps Script** (`docs/utm-collector.gs`) that appends to a Sheet. The standalone **`utm-dashboard.html`** (a 2nd Vite page; deploy at `/utm-dashboard.html`) reads the Sheet via JSONP (auto-loads a baked default endpoint), shows tallies + a full table + a UTM/ref link builder. Setup: `docs/UTM-SETUP.md`.
+
+---
+
 ## Keyboard Shortcuts
 
 | Shortcut | Action |
@@ -562,7 +620,8 @@ Files that key off `'arduino'`: `modelLoader` (MODEL_PATHS + scale), `electronic
 | `F` | Frame/fit selection (or reset camera) |
 | `Shift+S` | Snap selected rotation to nearest axes |
 | `↑↓←→` | Nudge selected by snap step (Shift = vertical Y); drives legged robot during legged sim |
-| `WASD` / `↑↓←→` | Battle mode: P1 / P2 drive (editor shortcuts blocked while a battle is active) |
+| `WASD` / `↑↓←→` | Battle / Arena mode: P1 / P2 drive (editor shortcuts blocked while active) |
+| `Space` / `Enter` | Physics Arena: P1 / P2 fire weapon |
 | `Escape` | Deselect all / cancel active tool pick |
 | Mouse | Wheel = Zoom · Middle-drag = Orbit · Right-drag = Pan |
 
@@ -642,6 +701,10 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 - [x] **UI overlay-layering fix:** reusable overlay-priority coordinator (`ui/overlay.js` + `ui/zIndex.js` + `OverlayBridge`); the View Cube auto-fades and disables interaction whenever any dropdown/dialog/modal/tutorial overlay is open
 - [x] **SUBO GLB calibration:** the official `subo.glb` is the visible board (never procedural). It is a MIXED-UNIT hierarchy — several `*PCB*` meshes span the full board (~6.45×6.8) while others are tiny sub-parts (down to ~0.3). `suboBoardBox()` (`electronicsFactory.js`) anchors pins + LED-matrix panel to the **largest** `/pcb/i` mesh (the real substrate) so they span the board instead of collapsing onto a sub-part. `MODEL_SCALE_TARGET.subo = 6.8` = Arduino, so both normalise to the same footprint; the board is laid flat (rests on the workplane)
 - [x] **Pin reveal system (hidden-until-needed):** pin spheres + label sprites are hidden by default (`WireManager.setReveal`) so every GLB board reads as real hardware, not a cloud of helpers. Pins appear only while the **Wiring** panel is open (all boards) or a board is **selected** (that board); individual pins still brighten on hover, and a live wire-drag reveals all pins as targets. `_raycastPins` only targets active pins. Applies uniformly to Arduino / SUBO / sensors
+- [x] **Co-op Physics-Arena combat (Stages 1–4)** — Rapier one-body-per-robot with real knockback; single **DamageManager** funnel (armor→core, crit, stability/heat); **robot classes** from real mass; **stability/stagger + heat/overheat + status effects** modulating movement; **4 weapons** (autocannon/shotgun/rocket/flame) with pooled projectiles + explosions. See the Combat Framework section. (Stages 5–8: teams/co-op, AI, online netcode, polish — pending.)
+- [x] **Constructa branding** — robot-head favicon, logo loading screen, beta-community Discord card
+- [x] **Tinkercad-style cyan selection outline** (`EdgesGeometry` on the primary/secondary selection)
+- [x] **Expanded UTM visit analytics** (ref/country/device/returning/popup_action/session_duration) → Google-Sheet collector + dashboard; **custom domain** `constructa.atumx.in`
 
 ### Remaining / Future
 - [ ] Boolean operations on CSG results (nested booleans)
@@ -702,5 +765,5 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 
 ---
 
-**Last Updated:** 2026-07-07
-**Version:** 1.6.2 (SUBO GLB calibration — largest-substrate anchoring for pins/matrix · hidden-until-needed pin reveal system for all boards · Blender + fal.ai MCP asset-authoring tooling)
+**Last Updated:** 2026-07-09
+**Version:** 1.7.1 (merge of SUBO calibration/pin-reveal branch with the Constructa/combat branch) — SUBO GLB calibration (largest-substrate anchoring for pins/matrix) · hidden-until-needed pin reveal system for all boards · Blender + fal.ai MCP asset-authoring tooling · Constructa branding · co-op **Physics Arena** combat framework Stages 1–4 (Rapier bodies + damage funnel + robot classes + stability/heat/status + weapons/projectiles/explosions) · Tinkercad-style cyan selection outline · expanded UTM visit analytics + Google-Sheet collector · custom domain `constructa.atumx.in`

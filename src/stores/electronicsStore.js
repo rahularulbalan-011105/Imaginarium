@@ -196,8 +196,41 @@ export function buildPinToComponentMap(connections, objects) {
 export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
 const SENSOR_OUTPUT_PINS = ['OUT', 'DO', 'AO', 'ECHO', 'SIGNAL', 'DATA']
 
+// ── Pin ROLE tests (by pin-key name, matching PIN_DEFS naming across boards) ──
+// A sensor's VCC must reach a positive supply rail; its GND must reach a ground
+// rail. These recognise the far-end pin a sensor's power/ground legs connect to.
+//   supply : Arduino 5V · generic VCC/3V3/VIN · SUBO IOn_V
+//   ground : Arduino GND/GND1/GND2 · SUBO IOn_G
+export function isSupplyPinName(name) {
+  if (!name) return false
+  return /^(5V|3V3|VIN|VCC)$/.test(name) || name.endsWith('_V')
+}
+export function isGroundPinName(name) {
+  if (!name) return false
+  return /^GND\d*$/.test(name) || name === 'G' || name.endsWith('_G')
+}
+
+// A sensor only produces real readings when it is BOTH powered (its VCC pin
+// wired to a supply rail) AND grounded (its GND pin wired to a ground rail).
+// Missing/incorrect power or ground → dead hardware, exactly like the real part.
+export function isSensorPowered(connections, objects, sensorId) {
+  let powered = false, grounded = false
+  for (const { fromPinId, toPinId } of Object.values(connections)) {
+    for (const [a, b] of [[fromPinId, toPinId], [toPinId, fromPinId]]) {
+      const [aComp, aPin] = a.split(':')
+      const [, bPin] = b.split(':')
+      if (aComp !== sensorId) continue           // a = the sensor's own pin
+      if (aPin === 'VCC' && isSupplyPinName(bPin)) powered  = true
+      if (aPin === 'GND' && isGroundPinName(bPin)) grounded = true
+    }
+  }
+  return powered && grounded
+}
+
 // pinNum → { id, type, pin } for any MCU pin wired to a SENSOR's output pin, so
 // digitalRead/analogRead/pulseIn(pin) can return that sensor's live value.
+// A sensor is only included if it is correctly powered + grounded — an output
+// on the right pin but with no/wrong power is skipped, so it reads as dead.
 export function buildSensorInputMap(connections, objects) {
   const byId = {}
   for (const o of objects) byId[o.id] = o
@@ -211,6 +244,7 @@ export function buildSensorInputMap(connections, objects) {
       const bObj = byId[bComp]
       if (!bObj || !SENSOR_TYPES.has(bObj.type)) continue
       if (!SENSOR_OUTPUT_PINS.includes(bPin)) continue
+      if (!isSensorPowered(connections, objects, bComp)) continue
       map[pinNum] = { id: bComp, type: bObj.type, pin: bPin }
     }
   }

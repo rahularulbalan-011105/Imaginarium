@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
 import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group } from '../utils/electronicsFactory.js'
-import { cloneModel } from '../utils/modelLoader.js'
+import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
 
@@ -118,6 +118,8 @@ class ObjectManager {
       })
       const mat = createMaterial(obj.color, obj.material)
       object3d = new THREE.Mesh(geo, mat)
+    } else if (obj.type && obj.type.startsWith('weapon_')) {
+      object3d = this._makeWeaponMesh(obj)
     } else if (obj.type === 'bolt') {
       object3d = createBoltGroup(obj.color)
     } else if (obj.type === 'screw') {
@@ -193,6 +195,45 @@ class ObjectManager {
     }
 
     return object3d
+  }
+
+  // Weapon part: a holder Group showing a barrel placeholder immediately, then
+  // swapping in the real weapon GLB (lazy-loaded) once it arrives. The holder's
+  // identity stays in this.objects so transforms / attachments are preserved.
+  _makeWeaponMesh(obj) {
+    const holder = new THREE.Group()
+    const fit = (g) => {
+      g.updateMatrixWorld(true)
+      const box = new THREE.Box3().setFromObject(g)
+      const sz = box.getSize(new THREE.Vector3())
+      const longest = Math.max(sz.x, sz.y, sz.z) || 1
+      g.scale.multiplyScalar(3.5 / longest)
+      g.updateMatrixWorld(true)
+      const c = new THREE.Box3().setFromObject(g).getCenter(new THREE.Vector3())
+      g.position.sub(c)
+    }
+    const install = (g) => {
+      fit(g)
+      holder.clear()
+      holder.add(g)
+      holder.traverse(ch => { ch.userData.rootId = obj.id })
+    }
+    const cached = cloneModel(obj.type)
+    if (cached) { install(cached) }
+    else {
+      // placeholder barrel
+      const barrel = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.28, 0.34, 2.4, 14),
+        new THREE.MeshStandardMaterial({ color: 0x9aa7b5, metalness: 0.6, roughness: 0.4 }),
+      )
+      barrel.rotation.x = Math.PI / 2
+      holder.add(barrel)
+      loadWeaponModel(obj.type).then(() => {
+        const g = cloneModel(obj.type)
+        if (g && this.objects.get(obj.id) === holder) install(g)
+      })
+    }
+    return holder
   }
 
   // ── Update ────────────────────────────────────────────────────────────────
@@ -272,6 +313,8 @@ class ObjectManager {
         }
       }
     }
+    // Keep the selection outline hugging the geometry after a live edit.
+    this.refreshOutline(id)
   }
 
   // Apply bend deformation directly to the mesh geometry (used by PropertiesPanel for live preview)
@@ -786,7 +829,48 @@ class ObjectManager {
           child.material.emissive.copy(emissive)
         }
       })
+
+      // Tinkercad-style edge outline: cyan on the primary selection, amber on the
+      // secondary. Drawn over the shape's actual edges so it hugs the geometry.
+      const outline = id === primaryId ? 0x22d3ee : id === secondaryId ? 0xff8c1a : null
+      this._setOutline(o, outline)
     })
+  }
+
+  // Add/replace/remove the edge-outline overlay on an object (color=null removes).
+  _setOutline(obj, color) {
+    const old = obj.userData._outlines
+    if (old) for (const ls of old) { ls.parent?.remove(ls); ls.geometry.dispose(); ls.material.dispose() }
+    obj.userData._outlines = null
+    obj.userData._outlineColor = color || null
+    if (!color) return
+
+    const meshes = []
+    obj.traverse(child => {
+      if (child.isMesh && child.geometry?.isBufferGeometry &&
+          !child.userData.isPin && !child.userData.isPinLabel && !child.userData.isSelectionOutline) {
+        meshes.push(child)
+      }
+    })
+    const outlines = []
+    for (const m of meshes) {
+      const edges = new THREE.EdgesGeometry(m.geometry, 20)   // 20° crease threshold
+      const ls = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
+        color, transparent: true, opacity: 0.95, depthTest: false,
+      }))
+      ls.userData.isSelectionOutline = true
+      ls.renderOrder = 999          // draw over the surface
+      ls.raycast = () => {}         // never intercept clicks
+      m.add(ls)                     // child of the mesh → follows its transform
+      outlines.push(ls)
+    }
+    obj.userData._outlines = outlines
+  }
+
+  // Rebuild the outline after a geometry change, if the object is outlined.
+  refreshOutline(id) {
+    const o = this.objects.get(id)
+    if (o && o.userData._outlineColor) this._setOutline(o, o.userData._outlineColor)
   }
 
   clearHighlight() {

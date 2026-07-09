@@ -1007,10 +1007,39 @@ function drawOledCanvas(ctx, canvas, text) {
   ctx.fillRect(0, 0, W, H)
   ctx.fillStyle = '#7ff0ff'
   ctx.textBaseline = 'top'
-  ctx.font = 'bold 18px "Courier New", monospace'
   const lines = String(text ?? '').split('\n')
-  let y = 8
-  for (const ln of lines) { ctx.fillText(ln, 8, y, W - 14); y += 22; if (y > H) break }
+  const n = Math.max(1, lines.length)
+  // Fewer lines → bigger font (so an "eyes" face is large); centre the whole
+  // block both horizontally and vertically for a clean look.
+  const fontPx = n <= 2 ? 46 : n <= 4 ? 30 : 20
+  const lineH  = Math.round(fontPx * 1.12)
+  ctx.font = `bold ${fontPx}px "Courier New", monospace`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  let y = H / 2 - (n * lineH) / 2 + lineH / 2
+  const charW = ctx.measureText('0').width || fontPx * 0.6
+  for (const ln of lines) {
+    if (/[●⬤]/.test(ln)) {
+      // Draw "eye" circles as REAL filled arcs (always solid, never dependent on
+      // a font glyph); every other character on the line renders as text.
+      const startX = (W - ln.length * charW) / 2
+      for (let i = 0; i < ln.length; i++) {
+        const ch = ln[i]
+        if (ch === ' ') continue
+        const cx = startX + i * charW + charW / 2
+        if (ch === '●' || ch === '⬤') {
+          ctx.beginPath()
+          ctx.arc(cx, y, charW * (ch === '⬤' ? 0.5 : 0.42), 0, Math.PI * 2)
+          ctx.fill()
+        } else {
+          ctx.fillText(ch, cx, y)
+        }
+      }
+    } else {
+      ctx.fillText(ln, W / 2, y, W - 10)
+    }
+    y += lineH
+  }
 }
 
 // Add a glowing canvas "screen" plane over the OLED model's largest face and store

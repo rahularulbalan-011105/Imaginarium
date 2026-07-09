@@ -174,6 +174,9 @@ export default function CodeEditor() {
   const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo']
   const hasConnections  = Object.keys(connections).length > 0
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
+  // Count ANY controllable component (sensors/buzzer/OLED included), not just
+  // motors/LEDs/servos — otherwise a scene with only an OLED or sensor wrongly
+  // shows "add an electronics component" and disables Run.
   const hasControllable = objects.some(o => CONTROLLABLE.includes(o.type))
   // SUBO has on-board peripherals (matrix / buzzer / buttons) that run with no
   // external component or wiring — so a SUBO board alone is runnable.

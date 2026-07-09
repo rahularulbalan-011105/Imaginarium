@@ -50,6 +50,37 @@ const MODEL_PATHS = {
 const _cache = {}
 let _done = false
 
+// ── Weapons (lazy-loaded on arena entry, NOT preloaded at boot) ───────────────
+const WEAPON_PATHS = {
+  weapon_autocannon: `${BASE}models/weapon_autocannon.glb`,
+  weapon_shotgun:    `${BASE}models/weapon_shotgun.glb`,
+  weapon_rocket:     `${BASE}models/weapon_rocket.glb`,
+  weapon_flame:      `${BASE}models/weapon_flame.glb`,
+}
+const WEAPON_SCALE = { weapon_autocannon: 3.2, weapon_shotgun: 2.6, weapon_rocket: 3.0, weapon_flame: 2.8 }
+
+// Load a weapon model on demand; cached (and shares cloneModel with everything).
+// Resolves to the THREE.Group or null (missing → weapon still works, just no mesh).
+export function loadWeaponModel(key) {
+  if (key in _cache) return Promise.resolve(_cache[key])
+  const path = WEAPON_PATHS[key]
+  if (!path) { _cache[key] = null; return Promise.resolve(null) }
+  return new Promise((resolve) => {
+    loader.load(
+      path,
+      (gltf) => {
+        const root = gltf.scene
+        root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+        if (WEAPON_SCALE[key]) scaleAndCenter(root, WEAPON_SCALE[key])
+        _cache[key] = root
+        resolve(root)
+      },
+      undefined,
+      () => { _cache[key] = null; resolve(null) },
+    )
+  })
+}
+
 export async function preloadModels() {
   const jobs = Object.entries(MODEL_PATHS).map(([key, path]) =>
     new Promise((resolve) => {

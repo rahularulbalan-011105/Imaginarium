@@ -28,31 +28,40 @@ const clamp8  = (v) => clamp(Math.round(Number(v) || 0), 0, 255)
 const num     = (v) => (v != null && !Number.isNaN(Number(v))) ? Number(v) : null
 const valueAt = (store, key) => (key != null ? store?.sensorValues?.[key] : undefined)
 
+// id == null means the sensor is not correctly wired/powered (not resolved from
+// the pin map) → return a DISCONNECTED reading, not a simulated default. This is
+// what makes wrong wiring actually fail instead of silently "working".
+
 // LDR: virtual ambient-light level, 0 (dark) … 1023 (bright).
 export function readLDR(store, id) {
+  if (id == null) return 0                          // floating input reads ~dark
   const m = num(valueAt(store, id))
   return clamp(Math.round(m ?? DEFAULTS.ldrRaw), 0, 1023)
 }
 
 // LDR helper: light as a 0–100 % of full scale.
 export function readLDRPercentage(store, id) {
+  if (id == null) return 0
   return Math.round((readLDR(store, id) / 1023) * 100)
 }
 
 // DHT11: temperature in °C.
 export function readTemperature(store, id) {
+  if (id == null) return NaN                        // real DHT returns NaN on fault
   const m = num(valueAt(store, id))
   return m ?? DEFAULTS.tempC
 }
 
 // DHT11: relative humidity in %.
 export function readHumidity(store, id) {
+  if (id == null) return NaN
   const m = num(valueAt(store, id != null ? `${id}:hum` : null))
   return m ?? DEFAULTS.humidity
 }
 
-// Color sensor: reflected colour as { r, g, b } (0–255).
+// Color sensor: reflected colour as { r, g, b } (0–255), or null if disconnected.
 export function readColorRGB(store, id) {
+  if (id == null) return null                       // no power/signal → no reading
   const m = valueAt(store, id != null ? `${id}:rgb` : null)
   if (m && typeof m === 'object') return { r: clamp8(m.r), g: clamp8(m.g), b: clamp8(m.b) }
   return { ...DEFAULTS.rgb }

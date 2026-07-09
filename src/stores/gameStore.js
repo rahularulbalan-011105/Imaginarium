@@ -4,12 +4,19 @@ import { create } from 'zustand'
 // `front`: +z (default) | +x | -z | -x — fixes "W drives sideways" when the
 // robot's modelled front isn't its +Z face.
 const DEFAULT_CONTROLS = {
-  p1: { up: 'w', down: 's', left: 'a', right: 'd', front: '+z' },
-  p2: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', front: '+z' },
+  p1: { up: 'w', down: 's', left: 'a', right: 'd', front: '+z', fire: ' ' },
+  p2: { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight', front: '+z', fire: 'Enter' },
 }
 const CTRL_KEY = 'subo.controls'
 function loadControls() {
-  try { const s = JSON.parse(localStorage.getItem(CTRL_KEY)); if (s?.p1 && s?.p2) return s } catch (_) {}
+  try {
+    const s = JSON.parse(localStorage.getItem(CTRL_KEY))
+    if (s?.p1 && s?.p2) {
+      s.p1.fire = s.p1.fire || ' '        // backfill fire for pre-arena saved configs
+      s.p2.fire = s.p2.fire || 'Enter'
+      return s
+    }
+  } catch (_) {}
   return DEFAULT_CONTROLS
 }
 function saveControls(c) { try { localStorage.setItem(CTRL_KEY, JSON.stringify(c)) } catch (_) {} }

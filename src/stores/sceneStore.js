@@ -21,8 +21,10 @@ export const useSceneStore = create((set, get) => ({
     const isElectronics = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw']
     const isMech = mechTypes.includes(type)
+    const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
     const count = get().objects.filter(o => o.type === type).length
-    const defaultPos = type === 'arduino'  ? { x: count * 8 - 4, y: 0.15, z: -5 }
+    const defaultPos = isWeapon             ? { x: count * 4 - 2, y: 2, z: -3 }
+      : type === 'arduino'                  ? { x: count * 8 - 4, y: 0.15, z: -5 }
       : type === 'subo'                   ? { x: count * 8 - 4, y: 0.15, z: -5 }
       : type === 'motor_bo'               ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'motor_dc'               ? { x: count * 8 - 4, y: 0.15, z: 8  }
@@ -32,6 +34,7 @@ export const useSceneStore = create((set, get) => ({
       : { x: 0, y: 1, z: 0 }
     const pos = position ?? defaultPos
     const color = isElectronics ? '#556677'
+      : isWeapon                ? '#8a94a3'
       : isMech                  ? '#9ca3af'
       : PALETTE[paletteIdx++ % PALETTE.length]
     const displayCount = count + 1
@@ -47,7 +50,7 @@ export const useSceneStore = create((set, get) => ({
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
       color,
-      material: isMech ? 'metallic' : 'standard',
+      material: (isMech || isWeapon) ? 'metallic' : 'standard',
       visible: true,
       metadata: {
         createdAt: new Date().toISOString(),

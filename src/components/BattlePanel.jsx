@@ -4,6 +4,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { battleManager } from '../managers/BattleManager.js'
+import { combatManager } from '../managers/CombatManager.js'
 import { robotOptions } from '../utils/robotAssembly.js'
 
 function HPBar({ side, name, hp, lives, color, you }) {
@@ -101,6 +102,15 @@ export default function BattlePanel() {
             disabled={!(p1Id && p2Id && p1Id !== p2Id)}
             className="w-full py-2.5 mt-1 rounded-lg text-sm font-bold disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'linear-gradient(90deg,#ef4444,#b91c1c)', color: 'white' }}>⚔ Start Battle</button>
+          <button onClick={() => combatManager.startArena([p1Id, p2Id])}
+            disabled={!(p1Id && p2Id && p1Id !== p2Id)}
+            className="w-full py-2 mt-1 rounded-lg text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ background: 'linear-gradient(90deg,#6366f1,#4338ca)', color: 'white' }}>
+            🤖 Physics Arena <span className="opacity-70 font-normal">(beta)</span>
+          </button>
+          <div className="text-[10px] leading-snug px-1" style={{ color: 'rgb(var(--g-500))' }}>
+            Tip: add a <b>⚔ Weapon</b> part (Electronics → Weapons) and attach it to your robot to arm it. No weapon = ram only.
+          </div>
           <ControlsLegend online={false} />
         </>
       ) : (
@@ -259,3 +269,4 @@ function PlayerPick({ label, value, onChange, candidates, accent }) {
     </div>
   )
 }
+

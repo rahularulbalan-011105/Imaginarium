@@ -9,4 +9,15 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['@dimforge/rapier3d-compat'],
   },
+  build: {
+    // Multi-page: the app (index.html) + the standalone UTM analytics dashboard.
+    // Declaring both as inputs is the supported way to emit a second HTML page
+    // (a public/*.html with inline <style> collides with Vite's inline-css proxy).
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        utm:  'utm-dashboard.html',
+      },
+    },
+  },
 })

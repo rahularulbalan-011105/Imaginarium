@@ -15,6 +15,8 @@ import MechanicalLibrary from './components/MechanicalLibrary.jsx'
 import JointPanel from './components/JointPanel.jsx'
 import WiringPanel from './components/WiringPanel.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
+import DiscordGate from './components/DiscordGate.jsx'
+import ConstructaLogo from './components/ConstructaLogo.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
@@ -37,6 +39,9 @@ import { resetBaseline } from './managers/history/editorDispatch.js'
 import { jointManager } from './managers/JointManager.js'
 import { battleManager } from './managers/BattleManager.js'
 import { useGameStore } from './stores/gameStore.js'
+import { combatManager } from './managers/CombatManager.js'
+import { useCombatStore } from './stores/combatStore.js'
+import CombatHUD from './components/combat/CombatHUD.jsx'
 import { sceneManager } from './managers/SceneManager.js'
 import { objectManager } from './managers/ObjectManager.js'
 import { storageManager } from './managers/StorageManager.js'
@@ -51,9 +56,12 @@ const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', '
 
 function LoadingScreen() {
   return (
-    <div className="flex h-screen items-center justify-center bg-gray-950 text-slate-700 flex-col gap-3">
-      <div className="text-2xl animate-spin">⚙</div>
-      <div className="text-sm text-gray-400">Loading 3D models…</div>
+    <div className="flex h-screen items-center justify-center flex-col gap-6" style={{ background: '#121212' }}>
+      <ConstructaLogo width={440} style={{ maxWidth: '78vw' }} />
+      <div className="flex items-center gap-2.5">
+        <div className="text-2xl animate-spin" style={{ color: '#ff7a18' }}>⚙</div>
+        <div className="text-base" style={{ color: '#9096a0' }}>Loading your workshop…</div>
+      </div>
     </div>
   )
 }
@@ -174,9 +182,12 @@ function AppEditor() {
       // Robo-sumo battle — moves whole robot assemblies rigidly.
       const battleOn = useGameStore.getState().battleActive
       if (battleOn) battleManager.step()
+      // Physics Arena (combat) — CombatManager owns robot part positions too.
+      const arenaOn = useCombatStore.getState().arenaActive
+      if (arenaOn) combatManager.step()
       // Propagate rigid bonds every frame — bonds are live constraints.
-      // Skipped during battle (BattleManager owns robot part positions).
-      const bonds = battleOn ? [] : Object.values(useRigidStore.getState().bonds)
+      // Skipped during battle/arena (that manager owns robot part positions).
+      const bonds = (battleOn || arenaOn) ? [] : Object.values(useRigidStore.getState().bonds)
       if (bonds.length > 0) {
         // Skip propagating a bond whose child is currently being dragged by the
         // transform gizmo — otherwise the frame loop fights the user's drag.
@@ -299,8 +310,8 @@ function AppEditor() {
       const tag = e.target.tagName.toLowerCase()
       const isTyping = tag === 'input' || tag === 'textarea'
 
-      // During a battle, BattleManager owns WASD / arrows — block editor shortcuts.
-      if (useGameStore.getState().battleActive) return
+      // During a battle/arena, the combat manager owns WASD / arrows — block editor shortcuts.
+      if (useGameStore.getState().battleActive || useCombatStore.getState().arenaActive) return
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
@@ -542,6 +553,10 @@ function AppEditor() {
       {/* Mirrors onboarding flags into the overlay coordinator so the View Cube
           yields to the welcome card / tour / coach / reference modals. */}
       <OverlayBridge />
+      {/* Blocking join-Discord gate — shown above the welcome card on every
+          visit until the user joins (localStorage 'discord_joined_v1'). */}
+      <DiscordGate />
+      <CombatHUD />
       <WelcomeOverlay />
       <ProductTour />
       <GuidedCoach />
