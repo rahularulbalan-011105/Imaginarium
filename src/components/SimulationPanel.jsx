@@ -1,6 +1,7 @@
 import { useUiStore } from '../stores/uiStore.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import Icon from './ui/Icon.jsx'
+import { trackEvent } from '../utils/utmTracking.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SimulationPanel — a single home for the simulation entry points that used to
@@ -42,7 +43,7 @@ export default function SimulationPanel() {
         <SectionTitle>Simulation</SectionTitle>
         <button
           data-tour="simulate"
-          onClick={() => setSimActive(!simActive)}
+          onClick={() => { if (!simActive) trackEvent('sim_started'); setSimActive(!simActive) }}
           className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 ${simActive ? 'animate-pulse' : 'hover:brightness-110'}`}
           style={simActive
             ? { background: '#eab308', color: '#1a1a1a', boxShadow: '0 2px 10px rgba(234,179,8,0.4)' }

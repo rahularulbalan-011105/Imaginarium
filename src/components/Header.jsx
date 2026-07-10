@@ -3,6 +3,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { buildShareUrl, readShareFromHash, clearShareHash } from '../utils/share.js'
+import { trackEvent } from '../utils/utmTracking.js'
 import { exportSTL, analyzePrintability } from '../utils/printExport.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
@@ -89,6 +90,8 @@ export default function Header() {
       await storageManager.saveProject(getSnapshot())
       setSaveFlash(true)
       setTimeout(() => setSaveFlash(false), 1200)
+      trackEvent('project_saved', { parts: objects.length })
+      window.dispatchEvent(new Event('constructa:saved'))   // → soft email capture
     } finally {
       setSaving(false)
     }
@@ -139,6 +142,7 @@ export default function Header() {
     try {
       const { url } = await buildShareUrl(getSnapshot())
       try { await navigator.clipboard.writeText(url) } catch { /* clipboard may be blocked */ }
+      trackEvent('share_link_created', { parts: objects.length })
       history.replaceState(null, '', url)   // reflect the shareable URL in the address bar
       setShareMsg(url.length > 12000
         ? `Link copied (~${Math.round(url.length / 1024)} KB). It's long — for big projects, Export JSON is more reliable.`

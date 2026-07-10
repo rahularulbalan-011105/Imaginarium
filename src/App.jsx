@@ -17,6 +17,7 @@ import WiringPanel from './components/WiringPanel.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
 import DiscordGate from './components/DiscordGate.jsx'
 import ConstructaLogo from './components/ConstructaLogo.jsx'
+import EmailCapture from './components/EmailCapture.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
@@ -50,17 +51,24 @@ import { driveManager } from './managers/DriveManager.js'
 import { wireManager } from './managers/WireManager.js'
 import { buildProjectSnapshot, snapRotationToAxes } from './utils/helpers.js'
 import { preloadModels } from './utils/modelLoader.js'
+import { trackEvent } from './utils/utmTracking.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
 const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo']
 
-function LoadingScreen() {
+function LoadingScreen({ progress = 0 }) {
+  const pct = Math.max(4, Math.min(100, Math.round(progress * 100)))   // min 4% so the bar is visible
   return (
     <div className="flex h-screen items-center justify-center flex-col gap-6" style={{ background: '#121212' }}>
       <ConstructaLogo width={440} style={{ maxWidth: '78vw' }} />
-      <div className="flex items-center gap-2.5">
-        <div className="text-2xl animate-spin" style={{ color: '#ff7a18' }}>⚙</div>
-        <div className="text-base" style={{ color: '#9096a0' }}>Loading your workshop…</div>
+      <div style={{ width: 'min(320px, 70vw)' }}>
+        <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#ff7a18,#ffa94d)', transition: 'width 220ms ease' }} />
+        </div>
+        <div className="flex items-center justify-between" style={{ marginTop: 8, fontSize: 13, color: '#9096a0' }}>
+          <span>Loading your workshop…</span>
+          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+        </div>
       </div>
     </div>
   )
@@ -547,6 +555,7 @@ function AppEditor() {
       {/* Blocking join-Discord gate — shown above the welcome card on every
           visit until the user joins (localStorage 'discord_joined_v1'). */}
       <DiscordGate />
+      <EmailCapture />
       <CombatHUD />
       <WelcomeOverlay />
       <ProductTour />
@@ -560,7 +569,13 @@ function AppEditor() {
 // ── Loader shell — waits for GLB models before mounting the editor ────────────
 export default function App() {
   const [modelsReady, setModelsReady] = useState(false)
-  useEffect(() => { preloadModels().then(() => setModelsReady(true)) }, [])
-  if (!modelsReady) return <LoadingScreen />
+  const [progress, setProgress] = useState(0)   // 0..1 real model-load progress
+  useEffect(() => {
+    preloadModels((done, total) => setProgress(total ? done / total : 0)).then(() => {
+      setModelsReady(true)
+      trackEvent('app_loaded', { device: navigator.userAgentData?.mobile ? 'mobile' : 'desktop' })
+    })
+  }, [])
+  if (!modelsReady) return <LoadingScreen progress={progress} />
   return <AppEditor />
 }

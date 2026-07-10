@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import ConstructaLogo from './ConstructaLogo.jsx'
-import { recordPopupAction } from '../utils/utmTracking.js'
+import { recordPopupAction, trackEvent } from '../utils/utmTracking.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DiscordGate — the "join our beta community" card.
@@ -39,6 +39,7 @@ export default function DiscordGate() {
 
   const join = () => {
     recordPopupAction('join')
+    trackEvent('discord_join')
     window.open(INVITE, '_blank', 'noopener,noreferrer')
     try { localStorage.setItem(KEY, '1') } catch { /* private mode */ }
     setJoined(true)

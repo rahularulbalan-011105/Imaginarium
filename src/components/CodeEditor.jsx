@@ -3,6 +3,7 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { simulationManager } from '../managers/SimulationManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
+import { trackEvent } from '../utils/utmTracking.js'
 
 const TEMPLATES = [
   {
@@ -108,6 +109,7 @@ export default function CodeEditor() {
   const handleRun = () => {
     setError(null)
     setSerialLog('')
+    trackEvent('code_run', { parts: objects.length })
 
     simulationManager.configure(
       connections,

@@ -5,6 +5,7 @@ import { networkManager } from './NetworkManager.js'
 import { useGameStore } from '../stores/gameStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
+import { trackEvent } from '../utils/utmTracking.js'
 
 // ── Tunable game physics ──────────────────────────────────────────────────────
 const RING_RADIUS  = 24      // bigger ring → harder to push out
@@ -231,6 +232,7 @@ class BattleManager {
     if (!p1Id || !p2Id || p1Id === p2Id) return false
     const i1 = this.getRobotInfo(p1Id), i2 = this.getRobotInfo(p2Id)
     if (!i1 || !i2) return false
+    trackEvent('battle_started', { mode: 'local' })
     this._mode = 'local'
     this._a = this._robotFromMesh(objectManager.getMesh(p1Id), i1,  RING_RADIUS * 0.55, p1Id)
     this._b = this._robotFromMesh(objectManager.getMesh(p2Id), i2, -RING_RADIUS * 0.55, p2Id)

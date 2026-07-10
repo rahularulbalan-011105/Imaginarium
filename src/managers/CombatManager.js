@@ -15,6 +15,7 @@ import { weaponManager } from './WeaponManager.js'
 import { projectileManager } from '../combat/ProjectileManager.js'
 import { explosionSystem } from '../combat/ExplosionSystem.js'
 import { weaponForType, isWeaponType } from '../combat/weaponRegistry.js'
+import { trackEvent } from '../utils/utmTracking.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -66,6 +67,7 @@ class CombatManager {
     const ids = (robotIds || []).filter(Boolean)
     if (ids.length < 2) { console.warn('[Combat] need at least 2 robots'); return }
     if (this._active || useCombatStore.getState().arenaActive) this.stop()   // no re-entry orphans
+    trackEvent('arena_started', { robots: ids.length })
     useCombatStore.getState().sync({ arenaActive: true, status: 'loading', message: '', winnerTeam: null })
     physicsManager.init().then(() => {
       if (!useCombatStore.getState().arenaActive) return   // cancelled meanwhile

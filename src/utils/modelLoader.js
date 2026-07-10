@@ -78,8 +78,13 @@ export function loadWeaponModel(key) {
   })
 }
 
-export async function preloadModels() {
-  const jobs = Object.entries(MODEL_PATHS).map(([key, path]) =>
+// onProgress(done, total) fires as each model resolves — drives the load bar.
+export async function preloadModels(onProgress) {
+  const entries = Object.entries(MODEL_PATHS)
+  const total = entries.length
+  let done = 0
+  const tick = () => { done++; if (onProgress) { try { onProgress(done, total) } catch { /* ignore */ } } }
+  const jobs = entries.map(([key, path]) =>
     new Promise((resolve) => {
       loader.load(
         path,
@@ -92,10 +97,10 @@ export async function preloadModels() {
           // centred in Blender). Otherwise normalise the longest dim to target.
           if (MODEL_SCALE_TARGET[key]) scaleAndCenter(root, MODEL_SCALE_TARGET[key])
           _cache[key] = root
-          resolve()
+          tick(); resolve()
         },
         undefined,
-        () => { _cache[key] = null; resolve() }   // 404 → procedural fallback
+        () => { _cache[key] = null; tick(); resolve() }   // 404 → procedural fallback
       )
     })
   )

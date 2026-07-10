@@ -162,6 +162,42 @@ export function recordPopupAction(action) {
   localUpsert(_session)
 }
 
+// ── In-app event logging (engagement funnel) ──────────────────────────────────
+// Fire a named event (app_loaded, code_run, sim_started, arena_started,
+// share_link_created, project_saved, discord_join, email_submitted, …) to the
+// collector. Correlated to the visit via the session id, so the Sheet builds a
+// real funnel — not just a click count. Sent as text/plain (no CORS preflight).
+export function trackEvent(name, meta = {}) {
+  if (!name) return
+  const secs = _startMs ? Math.round((nowMs() - _startMs) / 1000) : 0
+  const rec = {
+    type: 'event',
+    event: String(name).slice(0, 60),
+    sid: _session?.id || '',
+    ts: new Date().toISOString(),
+    t: secs,                                   // seconds since load (funnel timing)
+    source: _session?.source || '',
+    campaign: _session?.campaign || '',
+    ref: _session?.ref || '',
+    device_type: _session?.device_type || '',
+    ...meta,
+  }
+  if (!COLLECTOR_ENDPOINT) { try { console.debug('[event]', name, meta) } catch {} ; return }
+  try {
+    const payload = JSON.stringify(rec)
+    if (navigator.sendBeacon) navigator.sendBeacon(COLLECTOR_ENDPOINT, new Blob([payload], { type: 'text/plain;charset=UTF-8' }))
+    else fetch(COLLECTOR_ENDPOINT, { method: 'POST', body: payload, mode: 'no-cors', keepalive: true })
+  } catch { /* best-effort */ }
+}
+
+// Lightweight email capture → logged as an event with the email attached.
+export function submitEmail(email, context = 'save') {
+  const clean = String(email || '').trim().slice(0, 160)
+  if (!clean) return false
+  trackEvent('email_submitted', { email: clean, context })
+  return true
+}
+
 // Build a campaign URL from a base + utm fields (used by the dashboard builder).
 export function buildUtmUrl(baseUrl, fields) {
   let url

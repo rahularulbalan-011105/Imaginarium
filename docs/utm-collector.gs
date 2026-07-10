@@ -23,10 +23,21 @@ var HEADERS = ['received', 'ts', 'source', 'campaign', 'ref', 'landing', 'countr
   'device_type', 'is_returning_visitor', 'popup_action', 'session_duration',
   'medium', 'term', 'content', 'referrer', 'language', 'timezone', 'ua'];
 
+// In-app engagement events (app_loaded, code_run, sim_started, share_link_created,
+// project_saved, discord_join, email_submitted, …) land in a separate tab.
+var EVENTS_NAME = 'events';
+var EVENT_HEADERS = ['received', 'ts', 'sid', 'event', 't', 'source', 'campaign', 'ref', 'device_type', 'email', 'extra'];
+
 function sheet_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName(SHEET_NAME);
   if (!sh) { sh = ss.insertSheet(SHEET_NAME); sh.appendRow(HEADERS); }
+  return sh;
+}
+function eventsSheet_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sh = ss.getSheetByName(EVENTS_NAME);
+  if (!sh) { sh = ss.insertSheet(EVENTS_NAME); sh.appendRow(EVENT_HEADERS); }
   return sh;
 }
 
@@ -35,6 +46,17 @@ function doPost(e) {
   try { lock.waitLock(5000); } catch (_) {}
   try {
     var v = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    if (v.type === 'event') {
+      var known = { type:1, event:1, sid:1, ts:1, t:1, source:1, campaign:1, ref:1, device_type:1, email:1 };
+      var extra = {};
+      for (var k in v) if (!known[k]) extra[k] = v[k];
+      eventsSheet_().appendRow([
+        new Date(), v.ts || '', v.sid || '', v.event || '', v.t || 0,
+        v.source || '', v.campaign || '', v.ref || '', v.device_type || '',
+        v.email || '', Object.keys(extra).length ? JSON.stringify(extra) : ''
+      ]);
+      return json_({ ok: true });
+    }
     sheet_().appendRow([
       new Date(), v.ts || '', v.source || '', v.campaign || '', v.ref || '', v.landing || '',
       v.country || '', v.device_type || '', v.is_returning_visitor ? 'returning' : 'new',
@@ -50,6 +72,16 @@ function doPost(e) {
 }
 
 function doGet(e) {
+  // ?events=1 → return the events tab; otherwise the visits tab.
+  if (e && e.parameter && e.parameter.events) {
+    var ev = eventsSheet_().getDataRange().getValues();
+    var evOut = [];
+    for (var j = 1; j < ev.length; j++) {
+      var er = ev[j];
+      evOut.push({ ts: er[1], sid: er[2], event: er[3], t: er[4], source: er[5], campaign: er[6], ref: er[7], device_type: er[8], email: er[9], extra: er[10] });
+    }
+    return reply_(evOut, e);
+  }
   var values = sheet_().getDataRange().getValues();
   var out = [];
   for (var i = 1; i < values.length; i++) {           // row 0 = headers
@@ -62,11 +94,16 @@ function doGet(e) {
       tagged: !!(r[2] && r[2] !== '(direct)')
     });
   }
-  var payload = JSON.stringify(out);
+  return reply_(out, e);
+}
+
+// JSONP (if ?callback=) or plain JSON.
+function reply_(obj, e) {
+  var payload = JSON.stringify(obj);
   var cb = e && e.parameter && e.parameter.callback;
   if (cb) {
     return ContentService.createTextOutput(cb + '(' + payload + ')')
-      .setMimeType(ContentService.MimeType.JAVASCRIPT);   // JSONP for the dashboard
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
   return ContentService.createTextOutput(payload)
     .setMimeType(ContentService.MimeType.JSON);
