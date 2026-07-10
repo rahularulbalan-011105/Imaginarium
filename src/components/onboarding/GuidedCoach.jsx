@@ -215,10 +215,12 @@ export default function GuidedCoach() {
     const selObj = objects.find((o) => o.id === selectedId)
 
     switch (d.type) {
-      case 'objectType':
-        done = objects.some((o) => d.any.includes(o.type))
-        current = `objects=[${objects.map((o) => o.type).join(',') || '∅'}]`
+      case 'objectType': {
+        const n = objects.filter((o) => d.any.includes(o.type)).length
+        done = n >= (d.count || 1)          // optional count: require ≥ N of the type
+        current = `have ${n}/${d.count || 1} of [${d.any.join('/')}]`
         break
+      }
       case 'select':
         done = !!selectedId
         current = `selectedId=${selectedId || 'null'}`

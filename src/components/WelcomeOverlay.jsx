@@ -76,7 +76,7 @@ export default function WelcomeOverlay() {
             className="px-3 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:brightness-110 text-center"
             style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', boxShadow: '0 0 10px rgb(var(--a-500) / 0.3)' }}
           >
-            🎓 Teach me<br /><span className="text-[10px] font-normal opacity-90">guided, step by step</span>
+            🤖 Build a robot<br /><span className="text-[10px] font-normal opacity-90">guided, hands-on</span>
           </button>
           <button
             onClick={startTour}
