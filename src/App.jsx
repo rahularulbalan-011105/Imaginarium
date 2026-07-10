@@ -58,16 +58,31 @@ const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', '
 
 function LoadingScreen({ progress = 0 }) {
   const pct = Math.max(4, Math.min(100, Math.round(progress * 100)))   // min 4% so the bar is visible
+  // Plays public/loading.mp4 (drop your promo/demo clip there). Falls back to the
+  // logo screen if the video is missing or can't autoplay.
+  const [videoOk, setVideoOk] = useState(true)
+  const videoSrc = (import.meta.env.BASE_URL || '/') + 'loading.mp4'
   return (
-    <div className="flex h-screen items-center justify-center flex-col gap-6" style={{ background: '#121212' }}>
-      <ConstructaLogo width={440} style={{ maxWidth: '78vw' }} />
-      <div style={{ width: 'min(320px, 70vw)' }}>
-        <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-          <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#ff7a18,#ffa94d)', transition: 'width 220ms ease' }} />
-        </div>
-        <div className="flex items-center justify-between" style={{ marginTop: 8, fontSize: 13, color: '#9096a0' }}>
-          <span>Loading your workshop…</span>
-          <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+    <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {videoOk
+        ? <video
+            src={videoSrc}
+            autoPlay muted loop playsInline
+            onError={() => setVideoOk(false)}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        : <ConstructaLogo width={440} style={{ maxWidth: '78vw' }} />
+      }
+      {/* Progress overlay (bottom, over a dark gradient so it stays readable) */}
+      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '48px 0 26px', background: 'linear-gradient(transparent, rgba(0,0,0,0.72))' }}>
+        <div style={{ width: 'min(340px, 74vw)', margin: '0 auto' }}>
+          <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#ff7a18,#ffa94d)', transition: 'width 220ms ease' }} />
+          </div>
+          <div className="flex items-center justify-between" style={{ marginTop: 8, fontSize: 13, color: '#e5e7eb' }}>
+            <span>Loading your workshop…</span>
+            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
+          </div>
         </div>
       </div>
     </div>
