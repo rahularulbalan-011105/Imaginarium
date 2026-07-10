@@ -11,7 +11,10 @@ const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 
 
 const PIN_DEFS = {
   arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2'],
-  subo:     ['IO1','IO1_V','IO1_G','IO2','IO2_V','IO2_G','IO3','IO3_V','IO3_G','IO4','IO4_V','IO4_G','IO5','IO5_V','IO5_G','IO6','IO6_V','IO6_G','IO7','IO7_V','IO7_G','IO8','IO8_V','IO8_G'],
+  // Official Subo IO header (Subo.h): IO1..IO21 + power rails. Matches SUBO_PIN_ORDER in
+  // electronicsFactory so panel buttons map to the same pinIds. Motor 1 = IO20/IO21,
+  // Motor 2 = IO19/IO18 (MotorExpansion). IOn → GPIO via SUBO_IO_TO_GPIO.
+  subo:     ['IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12','IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21','5V','GND1','GND2'],
   motor:    ['TERM_A','TERM_B'],
   motor_bo: ['TERM_A','TERM_B'],
   motor_dc: ['TERM_A','TERM_B'],

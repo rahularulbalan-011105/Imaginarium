@@ -11,6 +11,7 @@ const C_TIME   = '#16a085'   // timing
 const C_SERIAL = '#2c98f0'   // serial
 const C_SERVO  = '#9b59b6'   // servo
 const C_SENSOR = '#27ae60'   // sensors
+const C_SUBO   = '#8e44ad'   // SUBO board
 
 const pinField = (name = 'PIN', def = 13) => ({
   type: 'field_number', name, value: def, min: 0, max: 19, precision: 1,
@@ -135,6 +136,45 @@ const CUSTOM_BLOCKS = [
     output: 'String', colour: C_SENSOR,
     tooltip: 'color.readColor() — detected colour name (e.g. "Red").',
   },
+
+  // ── SUBO board blocks (official Subo library API) ─────────────────────────
+  {
+    type: 'subo_matrix_init',
+    message0: 'SUBO matrix init',
+    previousStatement: null, nextStatement: null, colour: C_SUBO,
+    tooltip: 'SuboMatrixInit() — call once in setup before any LED call.',
+  },
+  {
+    type: 'subo_set_all_led',
+    message0: 'SUBO fill matrix  R %1 G %2 B %3',
+    args0: [
+      { type: 'input_value', name: 'R', check: 'Number' },
+      { type: 'input_value', name: 'G', check: 'Number' },
+      { type: 'input_value', name: 'B', check: 'Number' },
+    ],
+    inputsInline: true, previousStatement: null, nextStatement: null, colour: C_SUBO,
+    tooltip: 'setAllLED(r, g, b) — fill all 48 on-board LEDs.',
+  },
+  {
+    type: 'subo_play_tone',
+    message0: 'SUBO buzzer tone %1 Hz for %2 s',
+    args0: [
+      { type: 'input_value', name: 'F', check: 'Number' },
+      { type: 'input_value', name: 'D', check: 'Number' },
+    ],
+    inputsInline: true, previousStatement: null, nextStatement: null, colour: C_SUBO,
+    tooltip: 'playTone(frequency, duration-in-seconds).',
+  },
+  {
+    type: 'subo_run_motor',
+    message0: 'SUBO drive %1 speed %2',
+    args0: [
+      { type: 'field_dropdown', name: 'DIR', options: [['Forward', 'F'], ['Back', 'B'], ['Left', 'L'], ['Right', 'R'], ['Stop', 'S']] },
+      { type: 'input_value', name: 'SPEED', check: 'Number' },
+    ],
+    inputsInline: true, previousStatement: null, nextStatement: null, colour: C_SUBO,
+    tooltip: 'runMotor(dir, speed 0–255) — needs the motor-expansion board.',
+  },
 ]
 
 let _registered = false
@@ -178,6 +218,31 @@ export const ARDUINO_TOOLBOX = {
         { kind: 'block', type: 'arduino_dht_temperature' },
         { kind: 'block', type: 'arduino_dht_humidity' },
         { kind: 'block', type: 'arduino_read_color' },
+      ],
+    },
+    {
+      kind: 'category', name: 'SUBO', colour: C_SUBO,
+      contents: [
+        { kind: 'block', type: 'subo_matrix_init' },
+        {
+          kind: 'block', type: 'subo_set_all_led',
+          inputs: {
+            R: { shadow: { type: 'math_number', fields: { NUM: 0 } } },
+            G: { shadow: { type: 'math_number', fields: { NUM: 128 } } },
+            B: { shadow: { type: 'math_number', fields: { NUM: 0 } } },
+          },
+        },
+        {
+          kind: 'block', type: 'subo_play_tone',
+          inputs: {
+            F: { shadow: { type: 'math_number', fields: { NUM: 523 } } },
+            D: { shadow: { type: 'math_number', fields: { NUM: 0.2 } } },
+          },
+        },
+        {
+          kind: 'block', type: 'subo_run_motor',
+          inputs: { SPEED: { shadow: { type: 'math_number', fields: { NUM: 200 } } } },
+        },
       ],
     },
     {

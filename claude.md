@@ -643,6 +643,20 @@ npm run build:win      # Build + package a Windows app (electron-builder)
 
 ---
 
+## 3D Asset Tooling — MCP (Blender + fal.ai)
+
+Built-in board/sensor models live in `public/models/*.glb` (e.g. `subo.glb`, `arduino_uno.glb`). To **author or regenerate** those assets, two MCP servers are wired up for the Claude Code CLI via a project-scoped config. This is a dev/authoring workflow only — it is **not** part of the app runtime or the Vite build.
+
+- **Config:** `.mcp.json` in the repo parent (`d:\AtumX\imaginarium\toolsapp (2)\`), alongside `.env` (holds `FAL_KEY`, gitignored). Full walkthrough in `MCP_SETUP.md`.
+- **`blender`** — official Blender Lab MCP (stdio). Server: `blender-mcp.exe` (installed via `uv tool install`); needs the **MCP add-on running inside Blender** (Auto-Start, `localhost:9876`). Tools: `execute_blender_code`, `get_objects_summary`, `render_viewport_to_path`, `get_screenshot_of_window_as_image`, `get_python_api_docs`, … → model/inspect/render GLB assets.
+- **`fal-ai`** — hosted HTTP MCP (`https://mcp.fal.ai/mcp`), `Authorization: Bearer ${FAL_KEY}`. Tools: `run_model`, `submit_job`, `search_models`, `check_job` → text/image→3D generation.
+
+**Gotchas:** MCP servers register only in the `claude` **CLI** (trust the project-MCP prompt on first launch; verify with `/mcp` or `claude mcp list`) — not inside the IDE extension. Claude Code does **not** auto-load `.env`; `FAL_KEY` must also be in the process env (`setx FAL_KEY "…"`, then reopen the terminal). If `blender` fails to connect, confirm Blender's add-on panel reads "Server is running" (port 9876).
+
+**Calibration reminder:** GLBs authored/exported here can be mixed-unit or off-scale. The loader normalises each model's longest bbox dim to `MODEL_SCALE_TARGET[type]` (`modelLoader.js`) and `electronicsFactory.js` anchors pins to the real substrate — so a newly generated `subo.glb` gets sized/centred automatically, but re-verify pins/matrix alignment after any re-export (see the SUBO troubleshooting entries).
+
+---
+
 ## Browser Compatibility
 
 | Browser | Support |
@@ -686,9 +700,12 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 - [x] **UI Phase 4.1 — Toolbox simplification:** floating toolbox reduced to transform / surface-extrude-slice / snap+grid+axes / print-bed only; all object/electronics/mechanical creation relocated to dedicated **Library / Electronics / Mechanical** right-panel sections (no duplication); Text + SVG import folded into Library
 - [x] **UI overlay-layering fix:** reusable overlay-priority coordinator (`ui/overlay.js` + `ui/zIndex.js` + `OverlayBridge`); the View Cube auto-fades and disables interaction whenever any dropdown/dialog/modal/tutorial overlay is open
 - [x] **Co-op Physics-Arena combat (Stages 1–4)** — Rapier one-body-per-robot with real knockback; single **DamageManager** funnel (armor→core, crit, stability/heat); **robot classes** from real mass; **stability/stagger + heat/overheat + status effects** modulating movement; **4 weapons** (autocannon/shotgun/rocket/flame) with pooled projectiles + explosions. See the Combat Framework section. (Stages 5–8: teams/co-op, AI, online netcode, polish — pending.)
-- [x] **Constructa branding** — robot-head favicon, logo loading screen, beta-community Discord card
+- [x] **Constructa branding** — robot-head favicon, logo loading screen (plays `public/loading.mp4` if present), beta-community Discord card
 - [x] **Tinkercad-style cyan selection outline** (`EdgesGeometry` on the primary/secondary selection)
-- [x] **Expanded UTM visit analytics** (ref/country/device/returning/popup_action/session_duration) → Google-Sheet collector + dashboard; **custom domain** `constructa.atumx.in`
+- [x] **Expanded UTM visit analytics** (ref/country/device/returning/popup_action/session_duration) → Google-Sheet collector + dashboard; in-app **event funnel** (app_loaded/code_run/sim_started/…); soft email capture; **device split** (mobile → landing page); **custom domain** `constructa.atumx.in`
+- [x] **SUBO GLB calibration:** the official `subo.glb` is the visible board (never procedural). It is a MIXED-UNIT hierarchy — several `*PCB*` meshes span the full board (~6.45×6.8) while others are tiny sub-parts (down to ~0.3). `suboBoardBox()` (`electronicsFactory.js`) anchors pins + LED-matrix panel to the **largest** `/pcb/i` mesh (the real substrate) so they span the board instead of collapsing onto a sub-part. `MODEL_SCALE_TARGET.subo = 6.8` = Arduino, so both normalise to the same footprint; the board is laid flat (rests on the workplane)
+- [x] **Pin reveal system (hidden-until-needed):** pin spheres + label sprites are hidden by default (`WireManager.setReveal`) so every GLB board reads as real hardware, not a cloud of helpers. Pins appear only while the **Wiring** panel is open (all boards) or a board is **selected** (that board); individual pins still brighten on hover, and a live wire-drag reveals all pins as targets. `_raycastPins` only targets active pins. Applies uniformly to Arduino / SUBO / sensors
+- [x] **SUBO Arduino library** (`src/arduino/libraries/Subo/`) — official SUBO API (`SuboMatrixInit`, `setAllLED`, `playTone`, `drive_motors`, note constants, …) available in the code simulator
 
 ### Remaining / Future
 - [ ] Boolean operations on CSG results (nested booleans)
@@ -729,6 +746,12 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 **A panel crashed and took focus**
 → Panels are wrapped in `PanelErrorBoundary`; use its Retry button. The rest of the editor stays alive.
 
+**SUBO board pins/matrix collapse to a tiny dot at the board centre**
+→ `subo.glb` is a mixed-unit hierarchy; the *first* `/pcb/i` mesh is a ~0.3-unit sub-part. `suboBoardBox()` (in `electronicsFactory.js`) must anchor pins + the LED matrix to the **largest** `/pcb/i` mesh (the real substrate). Don't revert to "first pcb mesh."
+
+**SUBO/Arduino pins aren't visible in the viewport**
+→ Pins are hidden until needed. Open the **Wiring** panel (reveals every board's pins) or **select** the board (reveals its pins). See `WireManager.setReveal` — driven by an effect in `App.jsx` keyed on `activePanel` + `selectedId`. Individual pins also brighten on hover; a live wire-drag reveals all pins as targets.
+
 **White/invisible text after a theme change**
 → Colour comes from `--g-*`/`--a-*` tokens; text drawn directly on the always-white 3D canvas uses fixed hex (`slate-*`/`#…`), not the flipping tokens. Inputs are force-darkened via a `globals.css` rule.
 
@@ -743,5 +766,5 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 
 ---
 
-**Last Updated:** 2026-07-08
-**Version:** 1.7.0 (Constructa branding · co-op **Physics Arena** combat framework Stages 1–4: Rapier bodies + damage funnel + robot classes + stability/heat/status + weapons/projectiles/explosions · Tinkercad-style cyan selection outline · expanded UTM visit analytics + Google-Sheet collector · custom domain `constructa.atumx.in`)
+**Last Updated:** 2026-07-10
+**Version:** 1.7.1 (co-op **Physics Arena** combat Stages 1–4 · Constructa branding + video loading screen · cyan selection outline · expanded UTM analytics + in-app event funnel + email capture + mobile device-split · **SUBO GLB calibration + Arduino library + hidden-until-needed pin reveal** · custom domain `constructa.atumx.in`)

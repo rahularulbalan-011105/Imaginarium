@@ -15,7 +15,7 @@ const CATEGORIES = [
     key: 'mcu', label: 'MCUs', icon: '🧠', blurb: 'Controllers that run your code.',
     items: [
       { type: 'arduino', label: 'Arduino', icon: '🟢', desc: 'Microcontroller board', purpose: 'The programmable “brain”. Runs your code and controls everything wired to it.', usage: 'robot brains · automation · reading sensors' },
-      { type: 'subo',    label: 'SUBO',    icon: '🟣', desc: 'Controller w/ I/O ports', purpose: 'A controller board with built-in I/O ports for fast prototyping.', usage: 'plug-and-play wiring · prototyping' },
+      { type: 'subo',    label: 'SUBO',    icon: '🟣', desc: 'ESP32 board (AtumX)', purpose: 'AtumX SUBO — an ESP32 board with an on-board 48-LED matrix, buzzer, 2 buttons and IO1–IO21 header pins. Programmed with the official Subo library.', usage: 'robotics · 48-LED matrix · buzzer · buttons · motor expansion' },
     ],
   },
   {

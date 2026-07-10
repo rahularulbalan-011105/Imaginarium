@@ -163,6 +163,32 @@ G['arduino_read_color'] = function (block, gen) {
   return [`color_pin${pin}.readColor()`, Order.ATOMIC]
 }
 
+// ── SUBO board (official Subo library) ───────────────────────────────────────
+G['subo_matrix_init'] = function (block, gen) {
+  gen.includes_.add('<Subo.h>')
+  return 'SuboMatrixInit();\n'
+}
+G['subo_set_all_led'] = function (block, gen) {
+  gen.includes_.add('<Subo.h>')
+  const r = gen.valueToCode(block, 'R', Order.NONE) || '0'
+  const g = gen.valueToCode(block, 'G', Order.NONE) || '0'
+  const b = gen.valueToCode(block, 'B', Order.NONE) || '0'
+  return `setAllLED(${r}, ${g}, ${b});\n`
+}
+G['subo_play_tone'] = function (block, gen) {
+  gen.includes_.add('<Subo.h>')
+  const f = gen.valueToCode(block, 'F', Order.NONE) || '0'
+  const d = gen.valueToCode(block, 'D', Order.NONE) || '0'
+  return `playTone(${f}, ${d});\n`
+}
+G['subo_run_motor'] = function (block, gen) {
+  gen.includes_.add('<Subo.h>')
+  gen.includes_.add('<MotorExpansion.h>')
+  const dir = block.getFieldValue('DIR')
+  const speed = gen.valueToCode(block, 'SPEED', Order.NONE) || '0'
+  return `runMotor("${dir}", ${speed});\n`
+}
+
 // ── Logic ───────────────────────────────────────────────────────────────────
 G['controls_if'] = function (block, gen) {
   let n = 0, code = ''

@@ -146,6 +146,7 @@ export default function DrivePanel() {
   const sensors   = objects.filter(o => SENSOR_TYPES.has(o.type))
   const hasOled   = objects.some(o => o.type === 'oled')
   const hasBuzzer = objects.some(o => o.type === 'buzzer')
+  const hasSubo   = objects.some(o => o.type === 'subo')
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/97 border-t border-yellow-700/40 shadow-2xl">
@@ -205,8 +206,8 @@ export default function DrivePanel() {
         )}
       </div>
 
-      {/* ── Peripherals: live sensor inputs + OLED + buzzer ───────────────────── */}
-      {(sensors.length > 0 || hasOled || hasBuzzer) && (
+      {/* ── Peripherals: live sensor inputs + OLED + buzzer + SUBO on-board ───── */}
+      {(sensors.length > 0 || hasOled || hasBuzzer || hasSubo) && (
         <div className="flex flex-wrap items-end gap-4 px-4 py-2 bg-gray-950/60 border-b border-gray-800/60">
           {sensors.some(s => s.type === 'ir_sensor' || s.type === 'ultrasonic') && (
             <div className="flex flex-col">
@@ -228,6 +229,27 @@ export default function DrivePanel() {
               <div className="text-[9px] text-gray-500 mb-0.5">🔔 Buzzer</div>
               <div className={`px-2 py-1 rounded text-[10px] font-mono ${buzzFreq > 0 ? 'bg-amber-700 text-white animate-pulse' : 'bg-gray-800 text-gray-500'}`}>
                 {buzzFreq > 0 ? `♪ ${Math.round(buzzFreq)} Hz` : 'silent'}
+              </div>
+            </div>
+          )}
+          {hasSubo && (
+            <div className="flex flex-col">
+              <div className="text-[9px] text-gray-500 mb-0.5">🟣 SUBO buttons</div>
+              <div className="flex gap-1.5">
+                {[['SUBO_BTN_L', 'L (GPIO1)'], ['SUBO_BTN_R', 'R (GPIO47)']].map(([key, label]) => (
+                  <button
+                    key={key}
+                    title={`Hold to press — digitalRead reads LOW while held (${label})`}
+                    onMouseDown={() => setSensorValue(key, 1)}
+                    onMouseUp={() => setSensorValue(key, 0)}
+                    onMouseLeave={() => setSensorValue(key, 0)}
+                    onTouchStart={() => setSensorValue(key, 1)}
+                    onTouchEnd={() => setSensorValue(key, 0)}
+                    className={`px-2 py-1 rounded text-[10px] font-semibold select-none transition-colors ${sensorValues[key] ? 'bg-purple-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             </div>
           )}

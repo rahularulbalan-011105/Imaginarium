@@ -5,6 +5,19 @@ import { createSensorLibraries } from '../arduino/sensorLibs.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
 
+// NOTE_* frequency constants — mirrors src/arduino/libraries/Subo/pitches.h so
+// official SUBO melody sketches (playTone(NOTE_C5, …)) compile unchanged.
+const SUBO_NOTES = {
+  NOTE_B0:31,NOTE_C1:33,NOTE_CS1:35,NOTE_D1:37,NOTE_DS1:39,NOTE_E1:41,NOTE_F1:44,NOTE_FS1:46,NOTE_G1:49,NOTE_GS1:52,NOTE_A1:55,NOTE_AS1:58,NOTE_B1:62,
+  NOTE_C2:65,NOTE_CS2:69,NOTE_D2:73,NOTE_DS2:78,NOTE_E2:82,NOTE_F2:87,NOTE_FS2:93,NOTE_G2:98,NOTE_GS2:104,NOTE_A2:110,NOTE_AS2:117,NOTE_B2:123,
+  NOTE_C3:131,NOTE_CS3:139,NOTE_DB3:139,NOTE_D3:147,NOTE_DS3:156,NOTE_EB3:156,NOTE_E3:165,NOTE_F3:175,NOTE_FS3:185,NOTE_G3:196,NOTE_GS3:208,NOTE_A3:220,NOTE_AS3:233,NOTE_B3:247,
+  NOTE_C4:262,NOTE_CS4:277,NOTE_D4:294,NOTE_DS4:311,NOTE_E4:330,NOTE_F4:349,NOTE_FS4:370,NOTE_G4:392,NOTE_GS4:415,NOTE_A4:440,NOTE_AS4:466,NOTE_B4:494,
+  NOTE_C5:523,NOTE_CS5:554,NOTE_D5:587,NOTE_DS5:622,NOTE_E5:659,NOTE_F5:698,NOTE_FS5:740,NOTE_G5:784,NOTE_GS5:831,NOTE_A5:880,NOTE_AS5:932,NOTE_B5:988,
+  NOTE_C6:1047,NOTE_CS6:1109,NOTE_D6:1175,NOTE_DS6:1245,NOTE_E6:1319,NOTE_F6:1397,NOTE_FS6:1480,NOTE_G6:1568,NOTE_GS6:1661,NOTE_A6:1760,NOTE_AS6:1865,NOTE_B6:1976,
+  NOTE_C7:2093,NOTE_CS7:2217,NOTE_D7:2349,NOTE_DS7:2489,NOTE_E7:2637,NOTE_F7:2794,NOTE_FS7:2960,NOTE_G7:3136,NOTE_GS7:3322,NOTE_A7:3520,NOTE_AS7:3729,NOTE_B7:3951,
+  NOTE_C8:4186,NOTE_CS8:4435,NOTE_D8:4699,NOTE_DS8:4978,REST:0,
+}
+
 // Names that are injected as closure variables — skip any user #define with these
 // names to avoid "Identifier already declared" errors in strict mode.
 const BUILTIN_NAMES = new Set([
@@ -27,6 +40,8 @@ const BUILTIN_NAMES = new Set([
   'SSD1306_SWITCHCAPVCC','SSD1306_EXTERNALVCC','SCREEN_WIDTH','SCREEN_HEIGHT',
   // New sensor libraries (LDR / DHT11 / ColorSensor) + their pin macros
   'LDR','DHT11','ColorSensor','RGB','S0','S1','S2','S3','OUT',
+  // SUBO pitches.h note constants
+  ...Object.keys(SUBO_NOTES),
 ])
 
 class SimulationManager {
@@ -163,9 +178,19 @@ class SimulationManager {
     }
     const digitalRead = (pin) => {
       const s = sensorMap[pin]
-      if (!s) return 0
-      if (s.type === 'ir_sensor')  return _read(s) ? 1 : 0
-      if (s.type === 'gas_sensor') return (_read(s) > 512) ? 1 : 0    // DO threshold
+      if (s) {
+        if (s.type === 'ir_sensor')  return _read(s) ? 1 : 0
+        if (s.type === 'gas_sensor') return (_read(s) > 512) ? 1 : 0    // DO threshold
+        return 0
+      }
+      // SUBO on-board push buttons (GPIO 47 = right, 1 = left). Real hardware
+      // uses internal pull-ups → idle HIGH (1), pressed LOW (0). State comes from
+      // the sim's SUBO panel; only active when a SUBO board is in the scene.
+      if (self._objects.some(o => o.type === 'subo')) {
+        const sv = _store().sensorValues
+        if (pin === 47) return sv['SUBO_BTN_R'] ? 0 : 1
+        if (pin === 1)  return sv['SUBO_BTN_L'] ? 0 : 1
+      }
       return 0
     }
     const analogRead = (pin) => {
@@ -304,14 +329,31 @@ class SimulationManager {
     const _mexSet = (a, b, c, d) => {
       _write(9, a, false); _write(3, b, false); _write(10, c, false); _write(11, d, false)
     }
-    const SuboMatrixInit = () => {}
-    const stripclear     = () => { if (self._onSuboMatrix) self._onSuboMatrix('clear') }
-    const setAllLED      = (r, g, b) => { if (self._onSuboMatrix) self._onSuboMatrix('all', r, g, b) }
-    const setSingleLED   = (n, r, g, b) => { if (self._onSuboMatrix) self._onSuboMatrix('one', n, r, g, b) }
-    const playLEDSeq     = () => {}
-    const playTone       = (f, dur) => { if (self._onSerialOut) self._onSerialOut(`♪ ${Math.round(f)}Hz ${dur}s\n`) }
-    const stopBuzzer     = () => {}
-    const playBuzSeq     = () => {}
+    // On-board 48-LED NeoPixel matrix — drive every SUBO board's 3D matrix.
+    const _matrixSet = (mode, ...args) => {
+      for (const o of self._objects) if (o.type === 'subo') objectManager.setSuboMatrix(o.id, mode, ...args)
+    }
+    const SuboMatrixInit = () => { _matrixSet('clear') }
+    const stripclear     = () => { _matrixSet('clear') }
+    const setAllLED      = (r, g, b) => { _matrixSet('all', +r || 0, +g || 0, +b || 0) }
+    const setSingleLED   = (n, r, g, b) => { _matrixSet('one', +n || 1, +r || 0, +g || 0, +b || 0) }
+    const playLEDSeq     = (id) => { _matrixSet('seq', +id || 1) }
+    // On-board buzzer — real Web-Audio tone. NOTE: SUBO's dur is in SECONDS.
+    const playTone       = (f, dur) => {
+      _beep(+f || 440, dur ? +dur : 0)
+      if (self._onSerialOut) self._onSerialOut(`♪ ${Math.round(+f || 0)}Hz\n`)
+    }
+    const stopBuzzer     = () => { _silence() }
+    const playBuzSeq     = (id) => {
+      // Simplified built-in melodies (ids 1–5) played through the buzzer.
+      const seqs = {
+        1: [523, 659, 784, 1047], 2: [1047, 784, 659, 523], 3: [440, 554, 659, 880],
+        4: [659, 659, 0, 659, 0, 523, 659, 784], 5: [523, 587, 659, 698, 784, 880],
+      }
+      const notes = seqs[Math.round(id)] || seqs[1]
+      let t = 0
+      for (const n of notes) { const nn = n; setTimeout(() => { if (self._running) { nn ? _beep(nn, 0.16) : _silence() } }, t); t += 190 }
+    }
     const start_motors   = () => {}
     const drive_motors   = (m1a, m1b, m2a, m2b) => _mexSet(+m1a || 0, +m1b || 0, +m2a || 0, +m2b || 0)
     const runMotor       = (dir, speed) => {
@@ -332,6 +374,9 @@ class SimulationManager {
     // A sketch that DOES #define them has those skipped (see BUILTIN_NAMES) and
     // uses these instead — harmless because the simulated reading is pin-agnostic.
     const SENSOR_CONSTS = `const S0=4,S1=5,S2=6,S3=7,OUT=8;`
+
+    // pitches.h NOTE_* constants for SUBO buzzer melody sketches.
+    const SUBO_NOTE_DEFS = 'const ' + Object.entries(SUBO_NOTES).map(([k, v]) => `${k}=${v}`).join(',') + ';'
 
     // ── Parse + transpile ─────────────────────────────────────────────────────
 
@@ -357,6 +402,7 @@ class SimulationManager {
     const script = `
 ${SUBO_CONSTS}
 ${SENSOR_CONSTS}
+${SUBO_NOTE_DEFS}
 ${jsCode}
 if (typeof setup === 'function') await setup();
 while (true) {
@@ -413,6 +459,7 @@ while (true) {
     this._running = false
     if (this._stopOsc) this._stopOsc()        // silence the buzzer
     for (const o of this._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, '')   // blank OLED screens
+    for (const o of this._objects) if (o.type === 'subo') objectManager.setSuboMatrix(o.id, 'clear')  // blank SUBO matrix
     if (this._onOled) this._onOled('')         // blank the panel HUD
     for (const [id] of Object.entries(this.ledBrightness)) {
       if (this._onLedBrightness) this._onLedBrightness(id, 0)

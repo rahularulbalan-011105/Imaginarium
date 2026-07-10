@@ -7,7 +7,10 @@ const loader = new GLTFLoader()
 // Scale to use for each model type (longest bounding-box dimension → this value)
 export const MODEL_SCALE_TARGET = {
   arduino:  6.8,
-  subo:     null,   // sized in Blender (public/models/subo.glb) — use as-is
+  // NOTE: 'subo' intentionally has NO entry here. The SUBO board GLB (subo.glb) is
+  // authored to its correct final size in Blender (a real 6.45 × 6.8 PCB, longest side
+  // 6.8 = Arduino Uno), so the loader renders it at native GLB size with no rescale /
+  // normalisation / compensation. Do not add a subo scale target.
   motor_bo: 5.0,
   motor_dc: 5.0,
   led:      1.2,

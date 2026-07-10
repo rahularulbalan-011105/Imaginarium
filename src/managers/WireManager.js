@@ -9,6 +9,17 @@ import {
 const PIN_COLOR_HOVER   = 0xffffff
 const HANDLE_RADIUS     = 0.14
 const PREVIEW_COLOR     = 0x44ddff
+// Baseline opacities when a pin/label is REVEALED (0 = fully hidden).
+const PIN_BASE_OPACITY   = 0.55
+const LABEL_BASE_OPACITY = 0.62
+
+// Visual cleanup: hide ALL connector pin spheres + labels from the 3D viewport for every
+// electronics component (present and future). Wiring is done through the Wiring panel.
+// This ONLY gates the on-screen opacity — pins stay in the scene with full metadata and
+// remain raycast-targetable when active (see _raycastPins → _pinActive), so wiring,
+// selection, connection logic and wire rendering are completely unchanged.
+// Flip to true to bring the in-viewport connector visuals back for every component.
+const SHOW_PIN_VISUALS = false
 
 class WireManager {
   constructor() {
@@ -38,6 +49,13 @@ class WireManager {
     // Hovered handle connId
     this._hoveredHandle  = null
 
+    // Pin reveal state. Pins/labels are HIDDEN by default so the GLB boards read as
+    // real hardware instead of a cloud of helper spheres. A pin is "active" (visible
+    // + click-targetable) only when its component is revealed, when everything is
+    // revealed (Wiring panel open), or during an active wire drag.
+    this._revealAll = false
+    this._revealed  = new Set()   // componentIds whose pins are currently shown
+
     // Callbacks → set by App
     this.onWireCreated = null   // (fromPinId, toPinId, connId) => void
     this.onWireRemoved = null   // (connId) => void
@@ -60,6 +78,34 @@ class WireManager {
         this.pinLabels.set(child.userData.pinId, child)
       }
     })
+    this._refreshPins()   // apply current reveal state (new pins default to hidden)
+  }
+
+  // ── Pin reveal (called by the app on selection / panel change) ───────────────
+  // Reveal ALL pins (wiring mode) or only a specific set of components' pins.
+  setReveal({ all = false, components = [] } = {}) {
+    this._revealAll = !!all
+    this._revealed  = new Set(components)
+    this._refreshPins()
+  }
+
+  _pinActive(sphere) {
+    if (this._dragging || this._revealAll) return true
+    return this._revealed.has(sphere?.userData.componentId)
+  }
+
+  // Re-apply baseline opacity to every pin/label from the current reveal state.
+  // The hovered pin is skipped — its highlight is owned by _setHoveredPin.
+  _refreshPins() {
+    for (const [id, sphere] of this.pinSpheres) {
+      if (id === this._hoveredPinId) continue
+      const on = SHOW_PIN_VISUALS && this._pinActive(sphere)   // raycasting still uses _pinActive directly
+      sphere.material.opacity = on ? PIN_BASE_OPACITY : 0
+      sphere.material.emissive.set(0x000000)
+      sphere.scale.setScalar(1)
+      const label = this.pinLabels.get(id)
+      if (label) label.material.opacity = on ? LABEL_BASE_OPACITY : 0
+    }
   }
 
   unregisterComponent(componentId) {
@@ -269,6 +315,7 @@ class WireManager {
     this.scene.add(line)
     this._previewLine = line
     this._previewMid.copy(from)
+    this._refreshPins()   // dragging makes every pin an eligible target → show them
   }
 
   _finishWire(toSphere) {
@@ -330,6 +377,7 @@ class WireManager {
     }
     this._dragging   = false
     this._fromSphere = null
+    this._refreshPins()   // drag ended → return pins to their reveal-state baseline
   }
 
   _removeWireMesh(connId) {
@@ -360,7 +408,8 @@ class WireManager {
     const rc = new THREE.Raycaster()
     rc.params.Points = { threshold: 0.3 }
     rc.setFromCamera(mouse, this.camera)
-    const spheres = Array.from(this.pinSpheres.values())
+    // Only hidden-until-needed pins that are currently active can be targeted.
+    const spheres = Array.from(this.pinSpheres.values()).filter(s => this._pinActive(s))
     const hits    = rc.intersectObjects(spheres)
     return hits.length > 0 ? hits[0].object : null
   }
@@ -402,24 +451,25 @@ class WireManager {
   _setHoveredPin(sphere) {
     const id = sphere?.userData.pinId ?? null
     if (id === this._hoveredPinId) return
-    // Un-hover previous
+    // Un-hover previous → restore to its reveal-state baseline (hidden = 0)
     if (this._hoveredPinId) {
       const prev = this.pinSpheres.get(this._hoveredPinId)
+      const on   = SHOW_PIN_VISUALS && (prev ? this._pinActive(prev) : false)
       if (prev) {
-        prev.material.opacity = 0.55
+        prev.material.opacity = on ? PIN_BASE_OPACITY : 0
         prev.material.emissive.set(0x000000)
         prev.scale.setScalar(1)
       }
       const prevLabel = this.pinLabels.get(this._hoveredPinId)
-      if (prevLabel) prevLabel.material.opacity = 0.65
+      if (prevLabel) prevLabel.material.opacity = on ? LABEL_BASE_OPACITY : 0
     }
-    // Hover new
+    // Hover new — highlight only when connector visuals are enabled (kept invisible otherwise)
     if (sphere) {
-      sphere.material.opacity = 1.0
-      sphere.material.emissive.set(PIN_COLOR_HOVER)
-      sphere.scale.setScalar(1.6)
+      sphere.material.opacity = SHOW_PIN_VISUALS ? 1.0 : 0
+      sphere.material.emissive.set(SHOW_PIN_VISUALS ? PIN_COLOR_HOVER : 0x000000)
+      sphere.scale.setScalar(SHOW_PIN_VISUALS ? 1.6 : 1)
       const label = this.pinLabels.get(id)
-      if (label) label.material.opacity = 1.0
+      if (label) label.material.opacity = SHOW_PIN_VISUALS ? 1.0 : 0
     }
     this._hoveredPinId = id
   }
