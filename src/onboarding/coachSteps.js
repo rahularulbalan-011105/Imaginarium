@@ -44,12 +44,12 @@ export const COACH_STEPS = [
   {
     id: 'flatten-chassis', selector: 'viewport', icon: '⤢', demo: 'scale',
     title: 'Step 2 — Shape it into a flat chassis',
-    why: 'A real chassis is a flat plate, not a cube — so parts sit on top of it.',
-    how: 'Select the cube, press R for Scale, then drag the TOP handle down to flatten it into a thin, wide plate.',
+    why: 'A real chassis is a flat, wide rectangular plate — not a cube — so motors and the brain sit on top of it.',
+    how: 'Select the cube and press R (Scale). Drag the TOP handle DOWN to flatten it, then drag the side handles OUT to make it wider/longer. Aim for a thin, clear rectangle. (Tip: the Properties → Dimensions box lets you type exact W/H/D.)',
     shortcut: 'R',
-    cta: 'Flatten the cube into a chassis.',
-    success: 'Now it looks like a chassis! ⤢',
-    detect: { type: 'scaled' },
+    cta: 'Make it a flat, wide rectangle (thin height, wide base).',
+    success: 'Perfect — that’s a real chassis plate! ⤢',
+    detect: { type: 'flatChassis' },
   },
   {
     id: 'add-motors', selector: 'elec-motor_bo', icon: '⚙',

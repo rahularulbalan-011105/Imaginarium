@@ -42,6 +42,7 @@ const describe = (d) => {
     case 'connection': return `${d.count || 1} new wire connection(s)`
     case 'attach':     return 'a part is attached to a motor shaft'
     case 'bond':       return 'a surface bond joined two parts'
+    case 'flatChassis': return 'the box is a flat, wide chassis plate'
     case 'codeRunning': return 'code is running (simulation.running === true)'
     case 'simActive':  return 'simulation mode active (simActive === true)'
     case 'sim':        return 'a simulation is running'
@@ -260,6 +261,15 @@ export default function GuidedCoach() {
         done = objects.some((o) => changed3(o.scale, baseline.current.scale[o.id]))
         current = 'scale Δ'
         break
+      case 'flatChassis': {
+        // A proper chassis is a FLAT, WIDE plate: thin in Y, and both footprint
+        // dims (X,Z) clearly larger than the thickness. A cube (1,1,1) fails.
+        const isPlate = (s) => s && s.y < 0.6 && Math.min(s.x, s.z) >= 1.8 * s.y
+        done = objects.some((o) => o.type === 'box' && isPlate(o.scale))
+        const b = objects.find((o) => o.type === 'box')
+        current = b ? `box scale=(${b.scale.x.toFixed(2)},${b.scale.y.toFixed(2)},${b.scale.z.toFixed(2)})` : 'no box'
+        break
+      }
       case 'panel':
         current = `activePanel="${activePanel}"`
         if (activePanel === d.value) {
