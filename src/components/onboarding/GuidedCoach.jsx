@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useOnboardingStore } from '../../onboarding/onboardingStore.js'
 import { useSceneStore } from '../../stores/sceneStore.js'
 import { useElectronicsStore } from '../../stores/electronicsStore.js'
+import { useRigidStore } from '../../stores/rigidStore.js'
 import { useUiStore } from '../../stores/uiStore.js'
 import { sceneManager } from '../../managers/SceneManager.js'
 import { COACH_STEPS } from '../../onboarding/coachSteps.js'
@@ -38,7 +39,9 @@ const describe = (d) => {
     case 'rotated':    return 'selected object rotation changed'
     case 'scaled':     return 'selected object scale changed'
     case 'panel':      return `activePanel === "${d.value}"`
-    case 'connection': return 'a new wire connection exists'
+    case 'connection': return `${d.count || 1} new wire connection(s)`
+    case 'attach':     return 'a part is attached to a motor shaft'
+    case 'bond':       return 'a surface bond joined two parts'
     case 'codeRunning': return 'code is running (simulation.running === true)'
     case 'simActive':  return 'simulation mode active (simActive === true)'
     case 'sim':        return 'a simulation is running'
@@ -132,6 +135,8 @@ export default function GuidedCoach() {
   const objects     = useSceneStore((s) => s.objects)
   const selectedId  = useSceneStore((s) => s.selectedId)
   const connections = useElectronicsStore((s) => s.connections)
+  const attachments = useElectronicsStore((s) => s.attachments)
+  const bonds       = useRigidStore((s) => s.bonds)
   const simRunning  = useElectronicsStore((s) => s.simulation.running)
   const activePanel = useUiStore((s) => s.activePanel)
   const simActive   = useUiStore((s) => s.simActive)
@@ -161,6 +166,8 @@ export default function GuidedCoach() {
       rot:   Object.fromEntries(objs.map((o) => [o.id, { ...o.rotation }])),
       scale: Object.fromEntries(objs.map((o) => [o.id, { ...o.scale }])),
       conn:  Object.keys(useElectronicsStore.getState().connections).length,
+      attach: Object.keys(useElectronicsStore.getState().attachments || {}).length,
+      bonds:  Object.keys(useRigidStore.getState().bonds || {}).length,
       mode:  useUiStore.getState().transformMode,
       panel: useUiStore.getState().activePanel,
       cam: (cam && oc) ? {
@@ -260,9 +267,19 @@ export default function GuidedCoach() {
           else { needManual = true; current += ' (already open)' }
         }
         break
-      case 'connection':
-        done = Object.keys(connections).length > baseline.current.conn
-        current = `connections=${Object.keys(connections).length} (baseline ${baseline.current.conn})`
+      case 'connection': {
+        const need = d.count || 1
+        done = Object.keys(connections).length >= baseline.current.conn + need
+        current = `connections=${Object.keys(connections).length} (need +${need} over ${baseline.current.conn})`
+        break
+      }
+      case 'attach':      // a wheel/part mounted on a motor shaft
+        done = Object.keys(attachments || {}).length > baseline.current.attach
+        current = `attachments=${Object.keys(attachments || {}).length} (baseline ${baseline.current.attach})`
+        break
+      case 'bond':        // a surface bond joined two parts
+        done = Object.keys(bonds || {}).length > baseline.current.bonds
+        current = `bonds=${Object.keys(bonds || {}).length} (baseline ${baseline.current.bonds})`
         break
       case 'codeRunning':              // Run Code (Arduino program executing)
         done = simRunning

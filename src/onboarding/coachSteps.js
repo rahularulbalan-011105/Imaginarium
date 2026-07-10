@@ -2,128 +2,150 @@
 // attribute), explains WHY + HOW, and defines a read-only `detect` rule so the
 // coach waits for the user to actually perform the action before advancing.
 //
-// Pedagogy: tool ACTIVATION and skill EXECUTION are taught as separate steps.
-//   "Activate Move" → transformMode === 'translate'
-//   "Move the cube" → the cube's position actually changed
-//
 // detect.type:
 //   'cam'        — camera move; mode: 'orbit' | 'zoom' | 'pan'
-//   'objectType' — an object of one of `any` types now exists
-//   'select'     — anything is selected
-//   'selectType' — the selected object is one of `any` types
-//   'activate'   — transformMode === mode (set by toolbar OR keyboard)
+//   'objectType' — ≥ `count` objects of one of `any` types exist (count default 1)
+//   'select' | 'selectType' — selection
+//   'activate'   — transformMode === mode (toolbar OR keyboard)
 //   'moved' | 'rotated' | 'scaled' — selected object's transform changed
 //   'panel'      — the right panel shows `value`
-//   'connection' — a new wire connection was made
-//   'sim'        — a simulation is running
-//   'simStopped' — simulation has been stopped
+//   'connection' — ≥ `count` NEW wire connections were made (count default 1)
+//   'attach'     — a part was attached to a motor shaft (electronicsStore.attachments)
+//   'bond'       — a surface bond joined two parts (rigidStore.bonds)
+//   'codeRunning'| 'simActive' | 'simStopped'
 //   'ack'        — an understanding beat; advances on the “Continue” button
 //
 // `demo` ('move' | 'rotate' | 'scale') shows a small animated illustration.
 
-// ── "Build your first robot" mission ─────────────────────────────────────────
-// A goal-driven build (a 2-wheel rover) instead of feature exploration: every
-// step adds a real part or wires/programs it, ending with a robot that drives.
-// Uses only detect types the GuidedCoach implements (objectType[+count], moved,
-// panel, connection, codeRunning, simActive, simStopped, ack).
+// ── "Build your first robot" mission — a REAL, working 2-wheel rover ──────────
+// Chassis → shape it → motors → bond to chassis → wheels → attach → brain →
+// wire BOTH motors → code → drive. Every step detects real state, so the tutorial
+// actually produces a robot that moves (not a pile of loose parts).
 export const COACH_STEPS = [
   {
     id: 'mission-start', selector: 'viewport', icon: '🤖',
-    title: "Let's build your first robot!",
-    why: 'The fastest way to learn Constructa is to build something real.',
-    how: "We'll make a little 2-wheel rover together — add a body, a brain, motors, wire them, program it, and drive it. Follow the highlights!",
-    cta: 'Ready? Click Continue to start building.',
+    title: "Let's build a real robot!",
+    why: 'The best way to learn Constructa is to build a working robot end to end.',
+    how: "We'll make a 2-wheel rover: a chassis, two motors bonded on, wheels, a brain, wiring, code — then drive it. Follow the highlights!",
+    cta: 'Click Continue to start building.',
     success: "Let's go! 🚀",
     detect: { type: 'ack' },
   },
   {
-    id: 'build-body', selector: 'shape-box', icon: '⬛',
-    title: 'Step 1 — Add the body',
-    why: "Every robot needs a chassis — the base everything mounts on.",
-    how: 'Open the Library section on the right and click Cube (or press 3). It drops in as your robot body.',
+    id: 'add-chassis', selector: 'shape-box', icon: '⬛',
+    title: 'Step 1 — Add the chassis',
+    why: 'Every robot needs a base body that everything mounts onto.',
+    how: 'In the Library section, click Cube (or press 3).',
     shortcut: '3',
-    cta: 'Add a Cube — your robot chassis.',
-    success: 'Nice — there is your chassis! ⬛',
+    cta: 'Add a Cube.',
+    success: 'There is your robot body! ⬛',
     detect: { type: 'objectType', any: ['box'] },
   },
   {
-    id: 'build-brain', selector: 'elec-arduino', icon: '🧠',
-    title: 'Step 2 — Add the brain',
-    why: 'The Arduino is the brain — it runs your code and controls the motors.',
-    how: 'In the Elec (Electronics) section, click Arduino. Place it on the body.',
-    cta: 'Add an Arduino — the robot brain.',
+    id: 'flatten-chassis', selector: 'viewport', icon: '⤢', demo: 'scale',
+    title: 'Step 2 — Shape it into a flat chassis',
+    why: 'A real chassis is a flat plate, not a cube — so parts sit on top of it.',
+    how: 'Select the cube, press R for Scale, then drag the TOP handle down to flatten it into a thin, wide plate.',
+    shortcut: 'R',
+    cta: 'Flatten the cube into a chassis.',
+    success: 'Now it looks like a chassis! ⤢',
+    detect: { type: 'scaled' },
+  },
+  {
+    id: 'add-motors', selector: 'elec-motor_bo', icon: '⚙',
+    title: 'Step 3 — Add two motors',
+    why: 'Two motors = differential drive: the robot can go forward AND steer.',
+    how: 'In the Elec section, click BO Motor twice. Move them to the left and right edges of the chassis.',
+    cta: 'Add TWO motors and place them on the sides.',
+    success: 'Two motors mounted! ⚙⚙',
+    detect: { type: 'objectType', any: ['motor', 'motor_bo', 'motor_dc'], count: 2 },
+  },
+  {
+    id: 'bond-motor', selector: 'toolbar', icon: '🧲',
+    title: 'Step 4 — Attach a motor to the chassis',
+    why: 'Bonding fixes a motor to the body so they move together as one robot.',
+    how: 'Click the Surface tool in the floating toolbox (top-left). Click a face of the motor, then a face of the chassis — they snap together. Do both motors.',
+    cta: 'Surface-attach a motor to the chassis.',
+    success: 'Motor bonded to the body! 🧲 (attach the other one too)',
+    detect: { type: 'bond' },
+  },
+  {
+    id: 'add-wheel', selector: 'tab-library', icon: '⭕',
+    title: 'Step 5 — Add a wheel',
+    why: 'Wheels are what the motors spin to roll the robot.',
+    how: 'Open the Library section and click Cylinder — that will be a wheel. (Make two.)',
+    cta: 'Add a Cylinder as a wheel.',
+    success: 'You have a wheel! ⭕',
+    detect: { type: 'objectType', any: ['cylinder', 'model'] },
+  },
+  {
+    id: 'attach-wheel', selector: 'viewport', icon: '🛞',
+    title: 'Step 6 — Attach the wheel to a motor',
+    why: 'A wheel only rolls the robot once it is mounted on a motor’s spinning shaft.',
+    how: 'Drag the wheel onto the motor’s black shaft (the round nub) until it snaps on. Do the other side too.',
+    cta: 'Drop a wheel onto a motor shaft.',
+    success: 'Wheel mounted — it will spin with the motor! 🛞',
+    detect: { type: 'attach' },
+  },
+  {
+    id: 'add-brain', selector: 'elec-arduino', icon: '🧠',
+    title: 'Step 7 — Add the brain',
+    why: 'The Arduino runs your code and drives the motors.',
+    how: 'In the Elec section, click Arduino. Place it on the chassis.',
+    cta: 'Add an Arduino.',
     success: 'Brain installed! 🧠',
     detect: { type: 'objectType', any: ['arduino', 'subo'] },
   },
   {
-    id: 'build-motors', selector: 'elec-motor_bo', icon: '⚙',
-    title: 'Step 3 — Add two motors (wheels)',
-    why: 'Two motors give a robot differential drive — it can go forward and turn.',
-    how: 'In the Elec section, click BO Motor twice to add TWO motors.',
-    cta: 'Add TWO motors.',
-    success: 'Two motors ready — those are your wheels! ⚙⚙',
-    detect: { type: 'objectType', any: ['motor', 'motor_bo', 'motor_dc'], count: 2 },
-  },
-  {
-    id: 'place-motor', selector: 'viewport', icon: '✛', demo: 'move',
-    title: 'Step 4 — Position a wheel',
-    why: 'Parts start stacked at the center — you position them to build the shape you want.',
-    how: 'Click a motor to select it, then drag one of the colored arrows to move it to the side of the body.',
-    shortcut: 'W',
-    cta: 'Drag a motor to the side of the chassis.',
-    success: 'You positioned a wheel! Do the other side too if you like. ✛',
-    detect: { type: 'moved' },
-  },
-  {
     id: 'open-wiring', selector: 'tab-wiring', icon: '⚡',
-    title: 'Step 5 — Open Wiring',
-    why: 'Motors only spin once wired to the brain. The Wiring panel makes connections.',
-    how: 'Click the ⚡ Wiring tab on the right rail.',
+    title: 'Step 8 — Open Wiring',
+    why: 'Motors only spin once wired to the brain.',
+    how: 'Click the ⚡ Wiring tab.',
     cta: 'Open the Wiring panel.',
     success: 'This is where you connect parts. ⚡',
     detect: { type: 'panel', value: 'wiring' },
   },
   {
-    id: 'wire-motor', selector: 'panel', icon: '🔌',
-    title: 'Step 6 — Wire a motor to the brain',
-    why: 'A wire lets the Arduino send power/signals to the motor so your code can drive it.',
-    how: 'Click a pin on a motor, then a pin on the Arduino, to join them with a wire.',
-    cta: 'Connect a motor pin to an Arduino pin.',
-    success: 'Wired! The brain can now reach the motor. 🔌',
-    detect: { type: 'connection' },
+    id: 'wire-both', selector: 'panel', icon: '🔌',
+    title: 'Step 9 — Wire BOTH motors',
+    why: 'A robot needs both wheels driven. Wire each motor to its own pin so your code can control both.',
+    how: 'Wire the left motor to pin D5 and the right motor to pin D6 (drag motor pin → Arduino pin). That’s two wires — one per motor.',
+    cta: 'Connect both motors to the Arduino (2 wires).',
+    success: 'Both motors wired to the brain! 🔌',
+    detect: { type: 'connection', count: 2 },
   },
   {
     id: 'open-code', selector: 'tab-code', icon: '{ }',
-    title: 'Step 7 — Open the Code panel',
-    why: 'Code tells the Arduino what to do — like how fast to spin the motors.',
-    how: 'Open the { } Code tab. Prefer no typing? The Blocks tab does the same with drag-and-drop.',
+    title: 'Step 10 — Open the Code panel',
+    why: 'Code tells the Arduino how fast to spin each motor.',
+    how: 'Open the { } Code tab. (Prefer no typing? The Blocks tab does the same with drag-and-drop.)',
     cta: 'Open the Code tab.',
-    success: 'This is your robot’s instructions. { }',
+    success: 'Your robot’s instructions live here. { }',
     detect: { type: 'panel', value: 'code' },
   },
   {
     id: 'run-code', selector: 'code-run', icon: '▶',
-    title: 'Step 8 — Program & run it',
-    why: 'The brain must run its program before it can drive anything.',
-    how: 'Open the Templates menu, pick “Motor ramp” (or similar), then click ▶ Run.',
-    cta: 'Load a Template, then click ▶ Run.',
-    success: 'Code is running — your motors have orders! ▶',
+    title: 'Step 11 — Program & run it',
+    why: 'The brain must run its program to drive the motors — and the pins in the code must match your wiring (D5 & D6).',
+    how: 'Load a motor Template (or write analogWrite(5, 200); analogWrite(6, 200);), then click ▶ Run.',
+    cta: 'Load a motor template and click ▶ Run.',
+    success: 'Code running — motors have orders! ▶',
     detect: { type: 'codeRunning' },
   },
   {
     id: 'drive-it', selector: 'simulate', icon: '🚗',
-    title: 'Step 9 — Bring it to life',
-    why: 'Simulation adds real physics (gravity, friction) so your rover actually drives.',
-    how: 'Open the Sim section and click Start Simulation (▶). Watch your robot move!',
-    cta: 'Start Simulation and watch it drive.',
-    success: 'It’s ALIVE — your robot is driving! 🚗💨',
+    title: 'Step 12 — Bring it to life',
+    why: 'Simulation adds real physics so your rover actually drives.',
+    how: 'Open the Sim section and click Start Simulation (▶). Then use the arrow keys / drive HUD to steer!',
+    cta: 'Start Simulation and drive your robot.',
+    success: 'It’s ALIVE — your robot drives! 🚗💨',
     detect: { type: 'simActive' },
   },
   {
     id: 'mission-done', selector: 'simulate', icon: '🏆',
-    title: 'You built a robot! 🏆',
-    why: 'You just designed, wired, programmed and simulated a working robot — the whole Constructa workflow.',
-    how: 'Click Stop Simulation to go back to editing. Next: add sensors, try the Blocks coder, or build a battle-bot in the Arena!',
+    title: 'You built a working robot! 🏆',
+    why: 'Chassis → motors → wheels → brain → wiring → code → drive: that’s the full Constructa workflow.',
+    how: 'Click Stop Simulation to keep editing. Next: add sensors, try Blocks coding, or build a battle-bot in the Arena!',
     cta: 'Click ⏹ Stop Simulation to finish.',
     success: 'Tutorial complete — go build something awesome! 🎉',
     detect: { type: 'simStopped' },
