@@ -2,6 +2,26 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Device split: the app is desktop-only, so mobile visitors of the live
+         app are sent to the landing page (video + Discord + email), carrying the
+         UTM query along. Runs FIRST, before the bundle downloads, so mobile users
+         don't pull the heavy app. Desktop falls through and loads the editor.
+         Only fires on the production host; add ?app=1 to force the app on mobile. -->
+    <script>
+      (function () {
+        try {
+          var LANDING = 'https://constructa-page.atumx.in';
+          var ua = navigator.userAgent || '';
+          var isMobile = /Mobi|Android|iPhone|iPod|Windows Phone|BlackBerry|IEMobile|Opera Mini/i.test(ua)
+            || (navigator.userAgentData && navigator.userAgentData.mobile === true);
+          var onApp = /(^|\.)constructa\.atumx\.in$/i.test(location.hostname);
+          var optOut = /[?&]app=1(?:&|$)/.test(location.search);
+          if (isMobile && onApp && !optOut) {
+            location.replace(LANDING + location.search + location.hash);
+          }
+        } catch (e) {}
+      })();
+    </script>
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <link rel="apple-touch-icon" href="./constructa-logo.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -23,8 +43,8 @@
         document.documentElement.style.background = (t === 'light') ? '#F7F7F7' : '#121212';
       })();
     </script>
-    <script type="module" crossorigin src="./assets/main-chDouwai.js"></script>
-    <link rel="stylesheet" crossorigin href="./assets/main-C0mYhQne.css">
+    <script type="module" crossorigin src="./assets/main-D-o5USii.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/main-09ZhZTkr.css">
   </head>
   <body>
     <div id="root"></div>
