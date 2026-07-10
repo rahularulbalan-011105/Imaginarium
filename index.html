@@ -2,6 +2,28 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+
+    <!-- ── Security ──────────────────────────────────────────────────────────
+         Content-Security-Policy: restrict where code/data can come from. The app
+         is self-contained (no external scripts), but the Arduino simulator uses
+         eval and Rapier uses WASM, so script-src needs 'unsafe-eval'/'wasm-
+         unsafe-eval'; inline theme/redirect scripts + Tailwind need 'unsafe-
+         inline'. object-src 'none' + base-uri 'self' + form-action 'self' block
+         the common injection payloads; connect-src is https/wss-only (blocks
+         cleartext exfiltration). Real headers (HSTS, X-Frame-Options) are set on
+         Netlify/Vercel/Cloudflare — GitHub Pages can't send them. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' https: wss:; worker-src 'self' blob:; frame-src https://accounts.google.com https://content.googleapis.com; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <!-- Clickjacking guard (meta CSP can't set frame-ancestors on GH Pages): if
+         we're framed by another site, break out. Cloudflare/Netlify add a real
+         X-Frame-Options header on top. -->
+    <script>
+      if (window.top !== window.self) {
+        try { window.top.location = window.self.location; }
+        catch (e) { document.documentElement.style.display = 'none'; }
+      }
+    </script>
+
     <!-- Device split: the app is desktop-only, so mobile visitors of the live
          app are sent to the landing page (video + Discord + email), carrying the
          UTM query along. Runs FIRST, before the bundle downloads, so mobile users
