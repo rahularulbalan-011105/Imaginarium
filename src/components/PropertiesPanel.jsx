@@ -622,6 +622,7 @@ export default function PropertiesPanel() {
                 Click "Pick" then click the exact spot on the prop that should touch the motor shaft.
               </div>
               <button
+                data-tour="pick-attach"
                 onClick={() => attachPointEvents.dispatchEvent(new CustomEvent('startPick', { detail: { id: selectedId } }))}
                 className="w-full py-1.5 text-[10px] text-white bg-orange-700 hover:bg-orange-600 rounded font-medium transition-colors"
               >

@@ -43,6 +43,7 @@ const describe = (d) => {
     case 'panel':      return `activePanel === "${d.value}"`
     case 'connection': return `${d.count || 1} new wire connection(s)`
     case 'attach':     return 'a part is attached to a motor shaft'
+    case 'attachPoint': return `${d.count || 1} attachment point(s) picked`
     case 'bond':       return `${d.count || 1} new surface bond(s)`
     case 'flatChassis': return 'the box is a flat, wide chassis plate'
     case 'codeRunning': return 'code is running (simulation.running === true)'
@@ -294,6 +295,13 @@ export default function GuidedCoach() {
         done = Object.keys(attachments || {}).length > baseline.current.attach
         current = `attachments=${Object.keys(attachments || {}).length} (baseline ${baseline.current.attach})`
         break
+      case 'attachPoint': {   // ≥ count objects have a picked attachment point
+        const need = d.count || 1
+        const n = objects.filter((o) => o.attachmentOffset).length
+        done = n >= need
+        current = `attachPoints=${n}/${need}`
+        break
+      }
       case 'bond': {      // ≥ count NEW surface bonds joined two parts
         const need = d.count || 1
         done = Object.keys(bonds || {}).length >= baseline.current.bonds + need
