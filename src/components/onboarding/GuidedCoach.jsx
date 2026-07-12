@@ -5,6 +5,8 @@ import { useElectronicsStore } from '../../stores/electronicsStore.js'
 import { useRigidStore } from '../../stores/rigidStore.js'
 import { useUiStore } from '../../stores/uiStore.js'
 import { sceneManager } from '../../managers/SceneManager.js'
+import { objectManager } from '../../managers/ObjectManager.js'
+import * as THREE from 'three'
 import { COACH_STEPS } from '../../onboarding/coachSteps.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -41,7 +43,7 @@ const describe = (d) => {
     case 'panel':      return `activePanel === "${d.value}"`
     case 'connection': return `${d.count || 1} new wire connection(s)`
     case 'attach':     return 'a part is attached to a motor shaft'
-    case 'bond':       return 'a surface bond joined two parts'
+    case 'bond':       return `${d.count || 1} new surface bond(s)`
     case 'flatChassis': return 'the box is a flat, wide chassis plate'
     case 'codeRunning': return 'code is running (simulation.running === true)'
     case 'simActive':  return 'simulation mode active (simActive === true)'
@@ -262,12 +264,17 @@ export default function GuidedCoach() {
         current = 'scale Δ'
         break
       case 'flatChassis': {
-        // A proper chassis is a FLAT, WIDE plate: thin in Y, and both footprint
-        // dims (X,Z) clearly larger than the thickness. A cube (1,1,1) fails.
-        const isPlate = (s) => s && s.y < 0.6 && Math.min(s.x, s.z) >= 1.8 * s.y
-        done = objects.some((o) => o.type === 'box' && isPlate(o.scale))
+        // Measure the box's REAL world size: the two footprint dims must be > 4
+        // and the thickness < 3 — a big flat plate (also gives room to draw a
+        // surface patch on it later). Uses the actual bounding box, not scale.
         const b = objects.find((o) => o.type === 'box')
-        current = b ? `box scale=(${b.scale.x.toFixed(2)},${b.scale.y.toFixed(2)},${b.scale.z.toFixed(2)})` : 'no box'
+        const mesh = b && objectManager.getMesh(b.id)
+        if (mesh) {
+          const sz = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3())
+          const d = [sz.x, sz.y, sz.z].sort((a, z) => a - z)   // ascending: [thin, mid, long]
+          done = d[0] < 3 && d[1] > 4 && d[2] > 4
+          current = `dims=${sz.x.toFixed(1)}×${sz.y.toFixed(1)}×${sz.z.toFixed(1)} (need 2 dims >4, 1 <3)`
+        } else current = 'no box'
         break
       }
       case 'panel':
@@ -287,10 +294,12 @@ export default function GuidedCoach() {
         done = Object.keys(attachments || {}).length > baseline.current.attach
         current = `attachments=${Object.keys(attachments || {}).length} (baseline ${baseline.current.attach})`
         break
-      case 'bond':        // a surface bond joined two parts
-        done = Object.keys(bonds || {}).length > baseline.current.bonds
-        current = `bonds=${Object.keys(bonds || {}).length} (baseline ${baseline.current.bonds})`
+      case 'bond': {      // ≥ count NEW surface bonds joined two parts
+        const need = d.count || 1
+        done = Object.keys(bonds || {}).length >= baseline.current.bonds + need
+        current = `bonds=${Object.keys(bonds || {}).length} (need +${need} over ${baseline.current.bonds})`
         break
+      }
       case 'codeRunning':              // Run Code (Arduino program executing)
         done = simRunning
         current = `simulation.running=${simRunning}`
