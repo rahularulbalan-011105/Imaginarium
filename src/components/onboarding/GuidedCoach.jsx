@@ -281,8 +281,8 @@ export default function GuidedCoach() {
         if (mesh) {
           const sz = new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3())
           const d = [sz.x, sz.y, sz.z].sort((a, z) => a - z)   // ascending: [thin, mid, long]
-          done = d[0] < 3 && d[1] > 4 && d[2] > 4
-          current = `dims=${sz.x.toFixed(1)}×${sz.y.toFixed(1)}×${sz.z.toFixed(1)} (need 2 dims >4, 1 <3)`
+          done = d[0] < 1 && d[1] > 4 && d[2] > 4               // thin plate: thickness < 1
+          current = `dims=${sz.x.toFixed(1)}×${sz.y.toFixed(1)}×${sz.z.toFixed(1)} (need 2 dims >4, 1 <1)`
         } else current = 'no box'
         break
       }
