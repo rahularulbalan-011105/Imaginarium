@@ -214,7 +214,7 @@ export default function AssetLibrary() {
             {group.items.map(({ type, label, icon }) => (
               <button
                 key={type}
-                data-tour={type === 'box' ? 'shape-box' : undefined}
+                data-tour={`shape-${type}`}
                 onClick={() => addShape(type)}
                 title={label}
                 className="flex flex-col items-center gap-0.5 py-2 rounded bg-gray-800 hover:bg-indigo-900/30 hover:text-indigo-100 transition-colors"

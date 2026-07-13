@@ -162,6 +162,14 @@ export default function GuidedCoach() {
     if (!active || !step) return
     setStuck(false)
     setManualReady(false)
+    // Leaving a viewport-tool step (e.g. Surface bond) → turn the tool off so its
+    // banner/mode doesn't linger into the next step.
+    if (step.exitTools) {
+      const ui = useUiStore.getState()
+      if (ui.surfaceToolActive) ui.setSurfaceTool(false)
+      if (ui.extrudeToolActive) ui.setExtrudeTool(false)
+      if (ui.sliceToolActive)   ui.setSliceTool(false)
+    }
     const objs = useSceneStore.getState().objects
     const cam = sceneManager.camera
     const oc  = sceneManager.orbitControls
