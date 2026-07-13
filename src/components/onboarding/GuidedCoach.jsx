@@ -303,11 +303,12 @@ export default function GuidedCoach() {
         done = Object.keys(attachments || {}).length > baseline.current.attach
         current = `attachments=${Object.keys(attachments || {}).length} (baseline ${baseline.current.attach})`
         break
-      case 'attachPoint': {   // ≥ count objects have a picked attachment point
+      case 'attachPoint': {   // ≥ count wheels have an attach point picked OR are attached
         const need = d.count || 1
-        const n = objects.filter((o) => o.attachmentOffset).length
+        const att = attachments || {}
+        const n = objects.filter((o) => o.attachmentOffset || att[o.id]).length
         done = n >= need
-        current = `attachPoints=${n}/${need}`
+        current = `attach-progress=${n}/${need}`
         break
       }
       case 'bond': {      // ≥ count NEW surface bonds joined two parts
@@ -415,7 +416,9 @@ export default function GuidedCoach() {
     cardStyle = { top: p.top, left: p.left, width: CARD_W }
     arrow = arrowFor(p.side, rect, p, cardSize.w, cardSize.h)
   } else {
-    cardStyle = { top: '50%', left: '50%', transform: 'translate(-50%,-50%)', width: CARD_W }
+    // Anchor not on screen → tuck the card in the bottom-left corner (clear of the
+    // right panel + any centre prompt) instead of covering the middle of the app.
+    cardStyle = { left: 20, bottom: 70, width: CARD_W }
   }
 
   return (
