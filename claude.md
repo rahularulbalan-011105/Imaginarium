@@ -1,769 +1,497 @@
-# 3D Design Editor (Tinkercad Clone) — Project Documentation
+# Constructa (Imaginarium) — Project Documentation
 
-## Project Overview
+> **What it is:** a browser-based 3D robotics design → simulation → combat-gaming platform.
+> Started as a Tinkercad-style 3D editor; grew into a full robotics studio with electronics
+> wiring, Arduino/Blockly programming, physics simulation, wheeled + legged robots, a
+> Robo-Sumo game, and a physics-driven co-op **Combat Arena** with a third-person PvP layer.
+> **Brand = Constructa**; internal repo/build name = **Imaginarium**.
 
-A web-based 3D object design and manipulation tool inspired by Tinkercad. Users can create, edit, and manage 3D objects in a browser-based editor without any login or authentication. Projects are stored locally in the browser using IndexedDB.
+**Stack:** React 18 · Three.js 0.168 · Zustand 5 · Tailwind 3.4 · Vite 5 · Electron shell.
+**No login / no backend** — projects persist to IndexedDB; sharing is URL-hash / Google Drive.
+**Status:** post-MVP full robotics platform · studio UI · light/dark theme · onboarding.
+**Platform:** desktop web (responsive) + Electron; base path `/Imaginarium/`.
 
-The editor has expanded well beyond a basic 3D modeller into a full robotics design, simulation, and gaming platform. It supports: parametric solid editing (extrude, fillet/chamfer, boolean CSG, slice, geometry bending), mechanical joints, electronics wiring with both **text (Arduino C++)** and **visual (Blockly)** programming, wheeled and legged robot simulation with physics, a **Robo-Sumo "Battle" game mode** (local + online P2P), a **physics-driven co-op Combat "Arena"** (Rapier-based weapons/armor/heat/stability — Stages 1–4 built), an asset library with external 3D model import, the custom **SUBO ESP32 board**, a robot blueprint/AI runtime, and Google Drive / share-link / STL-print export. Branded as **Constructa**.
+---
 
-The interface has been reworked into a **modern robotics design studio** (Tinkercad / Onshape / Figma / Blender-simplified feel): the 3D viewport is the primary surface, tools live in a compact **floating glass toolbox**, an **interactive View Cube** sits top-right, and a single **right-side icon-rail workspace** hosts every panel as a collapsible section.
-
-**Status:** Post-MVP — full robotics platform · studio UI · light/dark theme · interactive onboarding
-**Target Users:** Hobbyists, educators, makers, 3D-printing enthusiasts, robotics learners
-**Platform:** Web (browser-based, responsive desktop) + Electron desktop shell, built with Vite
+## Table of Contents
+1. [Technology Stack](#technology-stack)
+2. [Complete File Structure](#complete-file-structure)
+3. [UI Shell & Layout](#ui-shell--layout)
+4. [Design System / Theme](#design-system--theme)
+5. [State Management (stores)](#state-management-stores)
+6. [Managers](#managers)
+7. [Utilities](#utilities)
+8. [Subsystems](#subsystems) — CAD · Electronics · Arduino/Blockly · Sensors · Physics · Robots · Battle · **Combat Arena** · Onboarding · Alignment · Analytics
+9. [Data Models](#data-models)
+10. [Key Architecture Decisions](#key-architecture-decisions)
+11. [Controls & Keyboard Shortcuts](#controls--keyboard-shortcuts)
+12. [Setup, Build & Deploy](#setup-build--deploy)
+13. [MCP Asset Tooling](#mcp-asset-tooling-blender--falai)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Technology Stack
 
-### Frontend Architecture
-
-```
-React 18 + Three.js + Zustand + Tailwind CSS + Vite  (+ Electron shell)
-```
-
-### Core Dependencies
-
 | Package | Purpose |
-|---------|---------|
-| **React 18** | Component-based UI framework |
-| **Three.js** (0.168) | 3D rendering engine |
-| **Zustand** (5) | Lightweight state management |
-| **Tailwind CSS** (3.4) | Styling (theme-token driven) |
-| **three-bvh-csg** | Boolean CSG operations (union, subtract, intersect) |
-| **three-mesh-bvh** | BVH acceleration (raycasting, CSG) |
-| **@dimforge/rapier3d-compat** | WASM rigid-body physics engine |
-| **three-stdlib** | OrbitControls, TransformControls, GLTFLoader, STLLoader, etc. |
-| **blockly** (11) | Visual drag-and-drop Arduino programming (Blocks panel) |
-| **peerjs** | WebRTC peer connections for online robo-sumo battles |
-| **uuid** | Unique ID generation |
-| **Vite** (5) | Dev server and bundler |
-| **electron** / **electron-builder** (dev) | Desktop app packaging (`build:win`) |
-| **playwright** (dev) | Headless screenshots for UI/theme verification |
+|---|---|
+| **React 18** | Component UI |
+| **Three.js** (0.168) | 3D rendering (`three-stdlib` for OrbitControls/TransformControls/loaders) |
+| **Zustand** (5) | State stores |
+| **Tailwind CSS** (3.4) | Styling (theme-token driven; `postcss.config.js`, `tailwind.config.js`) |
+| **three-bvh-csg** / **three-mesh-bvh** | Boolean CSG + BVH acceleration |
+| **@dimforge/rapier3d-compat** | WASM rigid-body physics |
+| **blockly** (11) | Visual Arduino programming |
+| **peerjs** | WebRTC P2P (online Robo-Sumo) |
+| **uuid** | IDs |
+| **Vite** (5) | Dev server + bundler |
+| **electron** / **electron-builder** (dev) | Desktop shell / packaging |
+| **playwright** (dev) | Headless UI/theme verification |
 | **gh-pages** (dev) | GitHub Pages deploy |
 
-> **Install note:** new dependencies may need `npm install --legacy-peer-deps` (three-bvh-csg has a peer-dep conflict).
-
-### Icons — no icon dependency
-
-There is **no external icon library** (offline / strict-CSP / Electron safe). Every UI icon is either an inline SVG from the in-house set (`src/components/ui/Icon.jsx`, Lucide/Phosphor-style, `currentColor`) or an emoji/Unicode glyph inside content panels.
+> **Install:** new deps sometimes need `npm install --legacy-peer-deps` (three-bvh-csg peer conflict).
+> **Icons:** no external icon lib — every icon is an inline SVG (`components/ui/Icon.jsx`) or an emoji. Offline / strict-CSP / Electron safe.
 
 ---
 
-## Actual Project Structure
+## Complete File Structure
 
 ```
-src/
-├── App.jsx                         # Root — layout shell, render loop, keyboard shortcuts, bond propagation, right icon-rail
-├── main.jsx
-├── components/
-│   ├── Viewport.jsx                # Three.js canvas, raycasting, gizmo wiring, attachment sync; hosts floating toolbox + view cube
-│   ├── ViewportToolbox.jsx         # FLOATING glass toolbox (top-left): transform / surface-extrude-slice / snap+grid+axes / print bed
-│   ├── ViewGizmo.jsx               # Interactive View Cube (top-right); fades out when any overlay opens
-│   ├── Toolbar.jsx                 # DEPRECATED (old docked left sidebar) — no longer imported/mounted
-│   ├── Header.jsx                  # Top bar: project name, theme toggle, Help(?), Save, File menu, Drive/share/STL
-│   ├── PropertiesPanel.jsx         # Selected-object editor (transform, color, material, bend, fillet, dimensions, save-as-asset)
-│   ├── DimensionEditorPanel.jsx    # Typed W/H/D bounding-box resize (center / one-sided locked-face)
-│   ├── DimensionOverlay.jsx        # On-canvas size labels for selected objects
-│   ├── ObjectList.jsx              # Scene hierarchy list, multi-select, visibility toggles
-│   ├── AssetLibrary.jsx            # Library section: shapes (Basic/Polyhedra) + Text + Models + import (GLB/GLTF/STL/SVG) + saved assets
-│   ├── ElectronicsLibrary.jsx      # Electronics section: MCUs (Arduino/SUBO) + Actuators (Servo/DC/BO/LED) + coming-soon; hosts elec-* anchors
-│   ├── MechanicalLibrary.jsx       # Mechanical section: Gear / Bolt / Screw / Star creation
-│   ├── BooleanPanel.jsx            # CSG boolean UI (union/subtract/intersect) — injected tab when two objects selected
-│   ├── FilletPanel.jsx             # Chamfer/fillet edges of a selected mesh
-│   ├── ExtrudePanel.jsx            # Face-extrude tool floating UI (Merge / Keep both / Cancel)
-│   ├── SurfaceAttachPrompt.jsx     # Surface-patch selection / bonding prompt
-│   ├── SlicePolylineOverlay.jsx    # Editable cut-line overlay for the Slice tool
-│   ├── WiringPanel.jsx             # Pin-level wiring UI (per-component pin maps, state machine)
-│   ├── ElectronicsPanel.jsx        # Legacy wire-connections editor (kept)
-│   ├── JointPanel.jsx              # Mechanical joint editor (fixed/hinge/revolute/slider/ball/servo) + feature-pick
-│   ├── RobotPanel.jsx              # Robot blueprint / module UI
-│   ├── BlocksPanel.jsx             # Blockly visual coding workspace → Arduino C++ (lazy-loaded)
-│   ├── CodeEditor.jsx              # Arduino C++ code editor + Templates + Run (hosts code-run anchor)
-│   ├── SimulationPanel.jsx         # Sim section: Start/Stop simulation (hosts simulate anchor), environment, battle entry
-│   ├── DrivePanel.jsx              # In-viewport sim HUD (wheeled + legged robot drive controls, serial log)
-│   ├── BattlePanel.jsx             # Robo-sumo HUD (HP/lives bars, local + online setup)
-│   ├── SettingsPanel.jsx           # Settings section: theme, grid/axes, snap, print bed (mirrors existing store actions)
-│   ├── StatusBar.jsx               # Bottom status bar (object count, shortcut cheat-sheet)
-│   ├── PanelErrorBoundary.jsx      # Wraps panels so a crash can't kill the editor
-│   ├── WelcomeOverlay.jsx          # First-run entry card (Teach me / Tour / Explore)
-│   ├── OverlayBridge.jsx           # Headless: mirrors onboarding flags into the overlay-priority coordinator (read-only)
-│   ├── ui/
-│   │   ├── Icon.jsx                # Inline-SVG icon set (~45 glyphs, currentColor) — the only iconography source
-│   │   ├── surfaces.js             # Shared glassmorphism tokens (GLASS class + glassStyle) + icon-button styles
-│   │   ├── overlay.js              # Reusable overlay-priority coordinator (useOverlay / useAnyOverlay)
-│   │   └── zIndex.js               # Central z-index hierarchy constants (Z.*)
-│   └── onboarding/                 # GuidedCoach, ProductTour, HelpMenu, KeyboardShortcutsModal, BeginnerGuideModal, PanelHint, MissionTracker(legacy)
-├── stores/
-│   ├── sceneStore.js               # Objects, selection, CSG objects, grid/axes, project meta
-│   ├── uiStore.js                  # activePanel, transformMode, simActive, snap, print bed, surface/extrude/slice tool flags
-│   ├── electronicsStore.js         # Components, connections, servo/motor attachments, Arduino code, simulation.running
-│   ├── physicsStore.js             # Environment, gravity, wind, ground, legged robot control state
-│   ├── rigidStore.js               # Rigid-body / surface-bond definitions (relativeMatrix)
-│   ├── surfaceStore.js             # Surface-patch relationships
-│   ├── jointStore.js               # Mechanical joints (type, axis, limits, motor settings)
-│   ├── assetStore.js               # User-saved assets (localStorage-backed)
-│   ├── gameStore.js                # Robo-sumo battle state + remappable controls (P1/P2 keys + fire)
-│   ├── combatStore.js              # Physics-Arena combat: per-robot actors (armor/core/heat/stability/team/state), keyed by rootId
-│   ├── gearStore.js                # Gear mesh pairings (meshPairs)
-│   ├── robotStore.js               # Robot blueprint / module state
-│   └── historyStore.js             # Reactive mirror of undo/redo stacks (debug panel)
-├── managers/
-│   ├── SceneManager.js             # Three.js scene, renderer, camera, lighting, grid, named views, transform gizmo, snap, print bed
-│   ├── ObjectManager.js            # Add/remove/update meshes; animateServo/Motor/Led, setBend, reattachLocal, gear chains, bonds
-│   ├── DriveManager.js             # Enters/exits simulation; routes to wheeled or legged path
-│   ├── SimulationManager.js        # Runs Arduino/SUBO code via arduinoParser transpiler; motorSpeeds/servoAngles/ledBrightness
-│   ├── WireManager.js              # Renders wire connections in 3D; drag-to-connect interaction
-│   ├── JointManager.js             # Joint markers + constraint solving / child driving; createFeatureJoint
-│   ├── ExtrudeTool.js              # Face extrusion on BufferGeometry
-│   ├── FilletTool.js               # Vertex-chamfer / bevel on sharp edges
-│   ├── BattleManager.js            # Robo-sumo simulation (arcade top-down ring physics, HP, hits)
-│   ├── CombatManager.js            # Physics-Arena orchestrator: one Rapier dynamic body/robot, velocity-driven, ram+weapon damage
-│   ├── WeaponManager.js            # Per-robot weapon runtime (equip/reload/heat/fire strategies + mounted weapon GLB + VFX)
-│   ├── NetworkManager.js           # WebRTC P2P transport (PeerJS) for online battles
-│   ├── StorageManager.js           # IndexedDB persistence + auto-save
-│   ├── PatchManager.js             # Surface patches, face picking, extrude hover preview
-│   ├── history/
-│   │   ├── HistoryManager.js       # Command-stack undo/redo (transactions, MAX 1000)
-│   │   ├── Command.js              # Command / CompositeCommand / SnapshotCommand primitives
-│   │   └── editorDispatch.js       # Single sanctioned facade for recording undoable edits
-│   ├── physics/
-│   │   ├── PhysicsManager.js       # Rapier WASM world, rigid bodies, joints
-│   │   ├── PhysicsIntegrator.js    # Kinematic fallback integrator (inertia, drag, friction, wind)
-│   │   ├── MassCalculator.js       # Volume-based mass, moment of inertia, frontal area
-│   │   └── EnvironmentConfig.js    # Environment presets (Earth, Moon, Mars, Zero-G)
-│   └── robot/
-│       ├── LeggedSystem.js         # Auto-detect + drive hexapod/quadruped/biped robots
-│       ├── GaitEngine.js           # Tripod / trot / alternating gait phases
-│       ├── IKSolver.js             # Inverse kinematics for leg foot targets
-│       └── DifferentialDrive.js    # Wheeled differential drive math
-├── robot/                          # Robot blueprint / module / AI system
-│   ├── ModuleLoader.js · ModuleHost.js · RobotBlueprint.js · RobotRuntime.js
-│   ├── PowerSystem.js · componentRegistry.js · modules.js
-│   ├── autoBlueprint.js · blueprintBuilder.js
-│   └── ai/ (AIRuntime.js, behaviors.js)
-├── combat/                         # Co-op Physics-Arena combat framework (see Combat section)
-│   ├── CombatStats.js              # Robot class (light/medium/heavy) + stat block from real mass
-│   ├── DamageManager.js            # THE single damage funnel (armor→core, crit, stability/heat, friendly-fire hook)
-│   ├── StabilitySystem.js          # Stability meter → stumble/stagger (reduced move/turn)
-│   ├── HeatSystem.js               # Heat meter → overheat (speed penalty, hysteresis)
-│   ├── StatusEffectSystem.js       # Timed debuffs (burning/slow/disabled) → move multiplier + burn ticks
-│   ├── weaponRegistry.js           # Data-driven weapon defs (autocannon/shotgun/rocket/flame) — add = one call
-│   ├── ProjectileManager.js        # Pooled swept-raycast rockets → ExplosionSystem
-│   └── ExplosionSystem.js          # Radial damage + impulse falloff + pooled flash + camera shake
-├── blockly/
-│   ├── arduinoBlocks.js            # Custom Arduino hardware blocks + toolbox
-│   └── arduinoGenerator.js         # Blockly → Arduino C++ code generator
-├── onboarding/
-│   ├── onboardingStore.js          # UI-only onboarding state (welcome/tour/coach/modal flags), localStorage
-│   ├── coachSteps.js               # Guided-coach step data (27 steps)
-│   ├── tourSteps.js                # Passive product-tour data (10 highlights)
-│   └── missions.js                 # Legacy mission checklist (superseded)
-├── hooks/
-│   ├── useHistory.js               # Delegates to editorDispatch (legacy snapshot() bridge)
-│   ├── useScene.js
-│   └── useSelection.js
-├── theme/
-│   └── theme.js                    # getTheme / toggleTheme — sets data-theme on <html>, persists to localStorage
-├── utils/
-│   ├── geometryFactory.js          # Primitive geometry creators + applyBendDeform
-│   ├── csg.js                      # runBoolean() — CSG with gizmo-correct positioning
-│   ├── arduinoParser.js            # Full Arduino C++ lexer + parser + JS transpiler
-│   ├── electronicsFactory.js       # Create electronics component meshes
-│   ├── modelLoader.js              # GLTF/GLB/STL import + built-in GLB preloading/cloning
-│   ├── svgImport.js                # svgTextToGeometry — extrude an SVG drawing into a solid
-│   ├── sliceTool.js                # Plane/polyline slice of a mesh into two pieces
-│   ├── robotAssembly.js            # Union-find grouping of bonded/attached parts into robots
-│   ├── export.js                   # JSON/STL/GLTF export + import
-│   ├── printExport.js              # STL export + printability analysis
-│   ├── share.js                    # Share-link build/read (project packed into URL hash)
-│   ├── utmTracking.js              # Backend-free visit analytics (source/campaign/ref/country/device/popup_action/session_duration) → Google Sheet
-│   └── helpers.js                  # Utilities + buildProjectSnapshot (save/load) + snapRotationToAxes
-└── styles/
-    └── globals.css                 # Theme CSS variables (--g-* / --a-*), scrollbars, focus rings, theme-anim
+toolsapp/
+├── index.html                      # App entry (Vite); loading screen
+├── utm-dashboard.html              # 2nd Vite page — visit-analytics dashboard (JSONP → Google Sheet)
+├── vite.config.js                  # base path /Imaginarium/, 2 HTML inputs, VITE_BASE override
+├── tailwind.config.js              # remaps gray→--g-*, indigo→--a-* (accent), slate→text channels
+├── postcss.config.js · package.json · netlify.toml · vercel.json
+│
+├── electron/
+│   ├── main.cjs                    # Electron main process (desktop window)
+│   └── preload.cjs                 # preload bridge
+│
+├── docs/
+│   ├── UTM-SETUP.md                # how to wire the Google-Sheet analytics collector
+│   └── utm-collector.gs            # Google Apps Script — appends visit records to a Sheet
+│
+├── public/
+│   ├── favicon.svg                 # robot-head tab icon
+│   ├── constructa-logo.png         # brand wordmark
+│   ├── CNAME                       # custom domain constructa.atumx.in
+│   └── models/                     # built-in GLBs (preloaded/cloned by modelLoader)
+│       ├── arduino_uno.glb · subo.glb · servo.glb · motor_dc.glb · motor_bo.glb · led.glb · free_wheels.glb
+│       ├── ultrasonic.glb · ir_sensor.glb · gas_sensor.glb · oled.glb · buzzer.glb · ldr.glb · dht11.glb
+│       ├── weapon_autocannon.glb · weapon_shotgun.glb · weapon_rocket.glb · weapon_flame.glb   # combat weapons (lazy)
+│       └── subo_*.glb              # SUBO board backups/variants (see SUBO notes)
+│
+└── src/
+    ├── App.jsx                     # Root shell: layout, render-loop hook, keyboard shortcuts, bond propagation,
+    │                               #   right icon-rail, mounts CombatHUD; onAnimationTick drives sim/battle/arena
+    ├── main.jsx                    # React root
+    │
+    ├── components/                 # ── React UI ───────────────────────────────────────────────
+    │   ├── Viewport.jsx            # Three.js canvas, raycasting, gizmo wiring, attachment sync; hosts toolbox + view cube
+    │   ├── ViewportToolbox.jsx     # FLOATING glass toolbox (top-left): transform / surface-extrude-slice / snap-grid-axes / print bed
+    │   ├── ViewGizmo.jsx           # Interactive View Cube (top-right); fades under overlays
+    │   ├── Header.jsx              # Top bar: project name, theme toggle, Help, Save, File menu, Drive/share/STL
+    │   ├── StatusBar.jsx           # Bottom bar: object count + shortcut cheat-sheet
+    │   ├── Toolbar.jsx             # DEPRECATED old left sidebar (kept, unmounted)
+    │   ├── PropertiesPanel.jsx     # Selected-object editor (transform/color/material/bend/fillet/dims/save-as-asset)
+    │   ├── DimensionEditorPanel.jsx# Typed W/H/D bounding-box resize (center / locked-face)
+    │   ├── DimensionOverlay.jsx    # On-canvas size labels
+    │   ├── ObjectList.jsx          # Scene hierarchy, multi-select, visibility
+    │   ├── AssetLibrary.jsx        # Library section: shapes + Text + Models + import(GLB/GLTF/STL/SVG) + saved assets
+    │   ├── ElectronicsLibrary.jsx  # Electronics section: MCUs (Arduino/SUBO) + actuators + sensors + weapons; elec-* anchors
+    │   ├── MechanicalLibrary.jsx   # Gear / Bolt / Screw / Star creation
+    │   ├── BooleanPanel.jsx        # CSG union/subtract/intersect (injected when 2 selected)
+    │   ├── FilletPanel.jsx         # Chamfer/fillet edges
+    │   ├── ExtrudePanel.jsx        # Face-extrude tool UI (Merge / Keep both / Cancel)
+    │   ├── SurfaceAttachPrompt.jsx # Surface-patch selection / bonding prompt
+    │   ├── SlicePolylineOverlay.jsx# Editable cut-line overlay for Slice
+    │   ├── WiringPanel.jsx         # Pin-to-pin wiring UI (state machine, PIN_DEFS per component)
+    │   ├── WiringWorkbench.jsx     # Drag-to-connect 2D wiring workbench (Fritzing-style); shares electronicsStore.connections
+    │   ├── ElectronicsPanel.jsx    # Legacy wire-connections editor (kept)
+    │   ├── JointPanel.jsx          # Mechanical joint editor + feature-pick
+    │   ├── RobotPanel.jsx          # Robot blueprint / module UI
+    │   ├── BlocksPanel.jsx         # Blockly workspace → Arduino C++ (lazy-loaded)
+    │   ├── CodeEditor.jsx          # Arduino C++ editor + Templates + Run (code-run anchor); pre-flight compiler diagnostics gate
+    │   ├── CompilerOutput.jsx      # Arduino-IDE-style compiler report panel (errors/warnings/success + snippet+caret + clickable jump)
+    │   ├── SimulationPanel.jsx     # Start/Stop sim (simulate anchor), environment, battle entry
+    │   ├── DrivePanel.jsx          # In-viewport sim HUD (wheeled + legged drive controls, serial log)
+    │   ├── BattlePanel.jsx         # Robo-Sumo HUD + setup (local/online) + Physics-Arena launch (You vs AI)
+    │   ├── SettingsPanel.jsx       # Theme, grid/axes, snap, print bed
+    │   ├── PanelErrorBoundary.jsx  # Wraps each panel so a crash can't kill the editor
+    │   ├── WelcomeOverlay.jsx      # First-run card (Teach me / Tour / Explore)
+    │   ├── OverlayBridge.jsx       # Headless: mirrors onboarding flags into overlay coordinator
+    │   ├── ConstructaLogo.jsx      # Brand wordmark (img w/ text fallback), BASE_URL-aware
+    │   ├── DiscordGate.jsx         # "Join beta community" card (post-load, localStorage-gated) → UTM popup_action
+    │   ├── combat/
+    │   │   └── CombatHUD.jsx       # Third-person PvP HUD: player L / enemy R cards, crosshair, hit marker, ability bar, camera legend
+    │   ├── ui/
+    │   │   ├── Icon.jsx            # ~45-glyph inline-SVG icon set (currentColor) — the only iconography source
+    │   │   ├── surfaces.js         # GLASS glassmorphism tokens + icon-button styles
+    │   │   ├── overlay.js          # useOverlay / useAnyOverlay — overlay-priority registry
+    │   │   └── zIndex.js           # central z-index hierarchy (Z.*)
+    │   └── onboarding/             # GuidedCoach · ProductTour · HelpMenu · KeyboardShortcutsModal · BeginnerGuideModal · PanelHint · MissionTracker(legacy)
+    │
+    ├── stores/                     # ── Zustand state (declarative) ───────────────────────────
+    │   ├── sceneStore.js           # Objects, selection, CSG objects, grid/axes, project meta
+    │   ├── uiStore.js              # activePanel, transformMode, simActive, snap, print bed, tool flags
+    │   ├── electronicsStore.js     # Components, connections, servo/motor attachments, Arduino code, sensorValues, simulation.running
+    │   ├── physicsStore.js         # Environment, gravity, wind, ground, legged control state
+    │   ├── rigidStore.js           # Rigid-body / surface-bond definitions (relativeMatrix)
+    │   ├── surfaceStore.js         # Surface-patch relationships
+    │   ├── jointStore.js           # Mechanical joints (type/axis/limits/motor)
+    │   ├── assetStore.js           # User-saved assets (localStorage)
+    │   ├── gameStore.js            # Robo-Sumo + remappable controls (P1/P2 keys + fire + front)
+    │   ├── combatStore.js          # Physics-Arena actors (armor/core/heat/stability/team/state) + player/enemy ids + camera mode
+    │   ├── gearStore.js            # Gear mesh pairings (meshPairs)
+    │   ├── robotStore.js           # Robot blueprint / module state
+    │   └── historyStore.js         # Reactive mirror of undo/redo stacks
+    │
+    ├── managers/                   # ── Imperative logic (Three.js / physics / net) ───────────
+    │   ├── SceneManager.js         # Scene/renderer/camera/lights/grid, render loop (onAnimationTick), named views, gizmo, snap, print bed
+    │   ├── ObjectManager.js        # Add/remove/update meshes; animateServo/Motor/Led, setBend, reattachLocal, gear chains, bonds
+    │   ├── AlignmentManager.js     # Smart alignment + dynamic guide lines while dragging (Canva/Figma/Fusion-style, placement-only)
+    │   ├── DriveManager.js         # Enter/exit simulation; routes wheeled vs legged
+    │   ├── SimulationManager.js    # Runs Arduino/SUBO code via arduinoParser transpiler; motorSpeeds/servoAngles/ledBrightness; sensor + SUBO shims
+    │   ├── WireManager.js          # Renders 3D wires; drag-to-connect; hidden-until-needed pin reveal
+    │   ├── JointManager.js         # Joint markers + constraint solving / child driving; createFeatureJoint
+    │   ├── ExtrudeTool.js          # Face extrusion on BufferGeometry
+    │   ├── FilletTool.js           # Vertex-chamfer / bevel
+    │   ├── PatchManager.js         # Surface patches, face picking, extrude hover preview
+    │   ├── StorageManager.js       # IndexedDB persistence + auto-save
+    │   ├── BattleManager.js        # Robo-Sumo sim (arcade 2D disc physics, HP, ring-out) + WebRTC netcode
+    │   ├── NetworkManager.js       # WebRTC P2P transport (PeerJS) for online battles
+    │   ├── CombatManager.js        # Physics-Arena orchestrator: 1 Rapier body/robot, player-vs-AI, drive, ram damage, camera+effects+audio wiring, chassis lean
+    │   ├── WeaponManager.js        # Per-robot weapons — primary+secondary SLOTS (ray/rocket/flame), reload/heat, mounts GLB, VFX, onFire hook
+    │   ├── arena/                  # ── Third-person PvP layer (arena-only) ──
+    │   │   ├── ArenaCameraManager.js   # Camera lifecycle, F1–F4 mode keys, F3 orbit mouse, owns CameraShake; snapshots+restores editor camera
+    │   │   ├── ArenaCameraRig.js       # Spring-arm chase: smoothed follow → arm → collision raycast → SmoothDamp → look target + drive bob
+    │   │   ├── ArenaCameraModes.js     # Data: Default / F1 Shoulder / F2 Tactical / F3 Orbit / F4 Top-Down (300ms blends)
+    │   │   ├── CameraShake.js          # trauma² procedural shake (small=recoil, medium=explosion, heavy=destruction)
+    │   │   ├── smoothing.js            # critically-damped SmoothDamp (scalar/vec3/angle), frame-rate independent
+    │   │   ├── ArenaAIController.js     # Easy 1v1 AI → {fwd,turn,primary,secondary} (seek/face/fire, ~70% acc, reaction cadence)
+    │   │   ├── CombatEffectsManager.js  # Feedback seam: fans damage/fire/detonate → HitEffects + DamageNumbers + audio + shake
+    │   │   ├── HitEffects.js           # Pooled sparks/smoke/debris/hit-flash/armor-shards/destroyed fire+smoke
+    │   │   ├── DamageNumbers.js        # Floating damage numbers (imperative DOM overlay, same-target aggregation)
+    │   │   └── ArenaAudio.js           # WebAudio placeholder combat sounds (event→generator registry)
+    │   ├── history/
+    │   │   ├── HistoryManager.js   # Command-stack undo/redo (transactions, 1000-cap)
+    │   │   ├── Command.js          # Command / CompositeCommand / SnapshotCommand
+    │   │   └── editorDispatch.js   # Single sanctioned mutation facade
+    │   ├── physics/
+    │   │   ├── PhysicsManager.js   # Rapier WASM world; bodies/joints; combat: createCombatBody/impulse/raycast/contact events
+    │   │   ├── PhysicsIntegrator.js# Kinematic fallback (inertia, drag, friction, wind)
+    │   │   ├── MassCalculator.js   # Volume×density mass, inertia, frontal area
+    │   │   └── EnvironmentConfig.js# Earth/Moon/Mars/Zero-G presets
+    │   └── robot/
+    │       ├── LeggedSystem.js     # Auto-detect + drive hexapod/quadruped/biped
+    │       ├── GaitEngine.js       # Tripod/trot/alternating gaits
+    │       ├── IKSolver.js         # Leg IK foot targets
+    │       └── DifferentialDrive.js# Wheeled diff-drive math
+    │
+    ├── combat/                     # ── Combat framework (physics-independent logic) ──────────
+    │   ├── CombatStats.js          # Robot class (light/medium/heavy) + stat block from real mass (HP/mobility/resist)
+    │   ├── DamageManager.js        # THE single damage funnel (armor→core, crit, stability/heat, friendly-fire hook)
+    │   ├── StabilitySystem.js      # Stability meter → stumble/stagger
+    │   ├── HeatSystem.js           # Heat meter → overheat (hysteresis)
+    │   ├── StatusEffectSystem.js   # Timed debuffs (burning/slow/disabled)
+    │   ├── weaponRegistry.js       # Data-driven weapon defs (autocannon/shotgun/rocket/flame + built-in melee)
+    │   ├── ProjectileManager.js    # Pooled swept-raycast rockets → ExplosionSystem
+    │   └── ExplosionSystem.js      # Radial damage + impulse falloff + flash + onDetonate hook
+    │
+    ├── robot/                      # ── Robot blueprint / module / AI runtime ────────────────
+    │   ├── RobotBlueprint.js · RobotRuntime.js · ModuleLoader.js · ModuleHost.js
+    │   ├── PowerSystem.js · componentRegistry.js · modules.js
+    │   ├── autoBlueprint.js · blueprintBuilder.js   # derive a blueprint from the scene
+    │   └── ai/ (AIRuntime.js · behaviors.js)
+    │
+    ├── blockly/
+    │   ├── arduinoBlocks.js        # Custom Arduino hardware blocks + toolbox
+    │   └── arduinoGenerator.js     # Blockly → Arduino C++ generator
+    │
+    ├── arduino/                    # ── Simulator sensor libs + genuine Arduino sources ───────
+    │   ├── sensorSim.js            # Single reusable sensor-reading interface (scene-driven / manual values)
+    │   ├── sensorLibs.js           # Runtime LDR/DHT11/ColorSensor/RGB classes injected into sketches (like Servo)
+    │   └── libraries/              # REAL Arduino library sources (source of truth, shipped for users)
+    │       ├── Subo/ (Subo.h/.cpp, MotorExpansion.h/.cpp, pitches.h, keywords.txt, library.properties, README)
+    │       ├── LDR/ · DHT11/ · ColorSensor/ (each .h/.cpp)
+    │       └── examples/ (*.ino per library)
+    │
+    ├── onboarding/
+    │   ├── onboardingStore.js      # UI-only onboarding state (welcome/tour/coach/modal flags), localStorage
+    │   ├── coachSteps.js           # 27 guided-coach steps (selector + copy + read-only detect rule)
+    │   ├── tourSteps.js            # 10 passive product-tour highlights
+    │   └── missions.js             # Legacy mission checklist (superseded)
+    │
+    ├── hooks/
+    │   ├── useHistory.js           # Delegates to editorDispatch (legacy snapshot() bridge)
+    │   ├── useScene.js · useSelection.js
+    │
+    ├── theme/theme.js              # getTheme/toggleTheme — data-theme on <html>, persisted, default dark
+    │
+    ├── utils/
+    │   ├── geometryFactory.js      # Primitive geometry + applyBendDeform
+    │   ├── csg.js                  # runBoolean() — CSG with gizmo-correct positioning
+    │   ├── arduinoParser.js        # Full Arduino C++ lexer + parser + JS transpiler
+    │   ├── arduinoDiagnostics.js   # Compiler-style pre-flight analyzer (Arduino-IDE diagnostics: errors/warnings/suggestions/stats)
+    │   ├── electronicsFactory.js   # Electronics component meshes + pin spheres/labels (SUBO substrate anchoring)
+    │   ├── modelLoader.js          # GLTF/GLB/STL import + built-in GLB preload/clone (MODEL_PATHS, MODEL_SCALE_TARGET)
+    │   ├── svgImport.js            # svgTextToGeometry — extrude SVG → solid
+    │   ├── sliceTool.js            # Plane/polyline mesh slice
+    │   ├── robotAssembly.js        # Union-find grouping of bonded/attached parts → robots (rootId, robotOptions)
+    │   ├── export.js               # JSON/STL/GLTF export + import
+    │   ├── printExport.js          # STL export + printability analysis
+    │   ├── share.js                # Share-link build/read (project packed into URL hash)
+    │   ├── utmTracking.js          # Backend-free visit analytics → Google Sheet
+    │   └── helpers.js              # buildProjectSnapshot (save/load), snapRotationToAxes, misc
+    │
+    └── styles/globals.css          # Theme CSS variables (--g-*/--a-*), scrollbars, focus rings, theme-anim
 ```
-
-> `public/models/` ships: `arduino_uno.glb`, `subo.glb`, `servo.glb`, `motor_dc.glb`, `motor_bo.glb`, `led.glb`, `free_wheels.glb`, plus sensor/peripheral models `ultrasonic.glb`, `ir_sensor.glb`, `gas_sensor.glb`, `oled.glb`, `buzzer.glb`, `ldr.glb`, `dht11.glb`, and combat weapon models `weapon_autocannon.glb`, `weapon_shotgun.glb`, `weapon_rocket.glb`, `weapon_flame.glb` (weapons lazy-load on arena entry).
-> `public/` also ships `favicon.svg` (robot-head tab icon), `constructa-logo.png` (brand wordmark), and `CNAME` (custom domain `constructa.atumx.in`).
-> `utm-dashboard.html` (repo root, 2nd Vite page) + `docs/utm-collector.gs` (Google Apps Script) power the visit-analytics dashboard.
-> `electron/` ships `main.cjs` + `preload.cjs` for the desktop shell.
-> **Brand:** the product is **Constructa** (React `ConstructaLogo.jsx`, loading screen, Discord beta-community card in `DiscordGate.jsx`). The internal repo/build name is still `Imaginarium`.
 
 ---
 
-## UI Layout & Shell (current — "robotics design studio")
+## UI Shell & Layout
 
 The app is **viewport-first**. `App.jsx` renders a vertical shell:
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│  Header  (logo · project name · ☀/🌙 theme · ? Help · Save · File) │  ← z-40
+│  Header  (logo · project name · ☀/🌙 · ? Help · Save · File)     │  z-40
 ├───────────────────────────────────────────────────────────────┤
-│                                        ┌──────────────┐ ┌────┐ │
-│  ┌──────────┐          VIEWPORT         │ active right │ │icon│ │
-│  │ floating │        (largest area)     │   section    │ │rail│ │
-│  │ toolbox  │           + View Cube ↗   │  (full-hgt)  │ │    │ │
-│  └──────────┘                           └──────────────┘ └────┘ │
+│  ┌──────────┐          VIEWPORT           ┌──────────────┐ ┌────┐│
+│  │ floating │        (largest area)       │ active right │ │icon││
+│  │ toolbox  │          + View Cube ↗      │   section    │ │rail││
+│  └──────────┘                             └──────────────┘ └────┘│
 ├───────────────────────────────────────────────────────────────┤
 │  StatusBar  (object count · shortcut cheat-sheet)               │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-- **No permanent left sidebar.** The old docked `Toolbar` is removed from the layout (file kept but unmounted). Tools moved into the floating toolbox; object/electronics/mechanical creation moved into the right workspace.
-- **Right workspace** = a full-height section panel + a slim **grouped icon rail** on the far right. Only one section shows at a time; the rail switches sections. The panel is drag-resizable (224–560 px).
+- **No permanent left sidebar** (old `Toolbar` unmounted). Tools live in the floating **ViewportToolbox** (top-left, glass): transform (W/E/R) · surface/extrude/slice · snap/grid/axes · print bed.
+- **View Cube** (`ViewGizmo`, top-right): clickable faces snap the camera; passive — fades out under any overlay.
+- **Right workspace** = full-height section panel + slim grouped **icon rail** (drag-resizable 224–560 px). One section at a time.
 
-### Floating Toolbox (`ViewportToolbox.jsx`) — top-left, glass
-
-Compact (~176 px), glassmorphism (translucent `--g-900`, backdrop blur, rounded, soft shadow, ~200 ms transitions). Contains **only frequently-used modeling tools** (Blender/Fusion viewport-controls style) — it never creates objects:
-
-| Group | Tools |
-|---|---|
-| Transform | **Move** `W` · **Rotate** `E` · **Scale** `R` (equal tiles, active = orange) |
-| Solid edit | **Surface** (attach) · **Extrude** · **Slice** |
-| Snap + View | **Move-snap** (Off/0.5/1/2) · **Rot-snap** (Off/15/45/90) · **Grid** `G` · **Axes** `A` |
-| Print | **Bed** toggle · **Grid Size** (180/220/256/300 mm) |
-
-Carries the `toolbar` container anchor and the `mode-translate|rotate|scale` transform anchors. Always mounted (incl. during simulation).
-
-### Interactive View Cube (`ViewGizmo.jsx`) — top-right, glass
-
-An iso cube whose **clickable faces** snap the camera (Top/Front/Right directly; a chevron pop-out exposes all six faces + Home/Iso). Reuses `sceneManager.setView()` / `getViewLabel()` only — no camera-control change. It is a **passive widget**: whenever any floating overlay is open it fades out (180 ms) and becomes non-interactive (see Overlay Layering).
-
-### Right Workspace — icon rail + sections
-
-Rail buttons carry `tab-<id>` anchors; the active section fills the panel. Grouped:
-
-| Group | Sections (id) |
-|---|---|
-| Design | **Properties** (`properties`) · **Objects** (`objects`) · **Library** (`library`) |
-| Create | **Electronics** (`electronics`) · **Mechanical** (`mechanical`) |
-| Build | **Wiring** (`wiring`) · **Joints** (`joints`) · **Robot** (`robot`) |
-| Program | **Blocks** (`blocks`) · **Code** (`code`) |
-| Run | **Simulation** (`sim`) · **Battle** (`battle`) |
-| Setup | **Settings** (`settings`) |
-
-The **⊕ Boolean** section (`boolean`) is injected at the top of the rail only while two boolean-capable objects are selected (auto-focused; reverts to Properties when the pair is broken).
-
-### Status bar & header
-
-- **Header** (`z-40`): project-name input, **light/dark theme toggle**, Help `?` menu, Save (flash-confirms), File menu (New / Open / Export JSON / Import JSON / Copy Share Link / Export STL), Open-saved dialog.
-- **StatusBar**: object count + inline keyboard cheat-sheet.
+**Right-panel sections** (rail groups → ids):
+Design: Properties · Objects · Library — Create: Electronics · Mechanical — Build: Wiring · Joints · Robot — Program: Blocks · Code — Run: Simulation · Battle — Setup: Settings.
+The **⊕ Boolean** section is injected only when two boolean-capable objects are selected.
 
 ---
 
 ## Design System / Theme
 
-The theme is a **CSS-variable token system** (not a Tailwind ramp hack). All colour flows from custom properties in `globals.css`:
+CSS-variable token system in `globals.css` (not a Tailwind ramp hack):
+- Neutrals `--g-50…--g-950` (space-separated RGB so `<alpha-value>` opacity works); Accent `--a-*` = **orange `#F97316`** both themes.
+- `tailwind.config.js` remaps `gray-*`→`--g-*`, `indigo-*`→`--a-*`, `slate-*`→text channels, so existing classes flip between themes with **no markup edits**.
+- **Light/Dark** in `theme/theme.js` — stamps `data-theme` on `<html>`, persists to localStorage, default dark; `.theme-anim` fades colours ~200 ms.
+- Shared **glass** tokens in `ui/surfaces.js`; inline-SVG icons in `ui/Icon.jsx`.
+- **Caveat:** text drawn directly on the always-white 3D canvas uses fixed hex, not the flipping tokens.
 
-- **Neutrals** `--g-50 … --g-950` (space-separated RGB channels, so Tailwind `<alpha-value>` opacity modifiers keep working).
-- **Accent** `--a-50 … --a-950` — **orange** (`#F97316`) in both themes; only tint/text shades adapt.
-- `tailwind.config.js` remaps `gray-*` → `--g-*`, `indigo-*` → `--a-*` (accent), and `slate-*` → the neutral **text** channels, so every existing `bg-gray-*` / `text-gray-*` / `*-indigo-*` / `slate-*` class flips automatically between themes with **no markup edits**.
-- **Light/Dark toggle** lives in `src/theme/theme.js` (`getTheme`/`toggleTheme`) — it stamps `data-theme="light|dark"` on `<html>` and persists to localStorage. Default is **dark**. A `.theme-anim` class fades colours (~200 ms) around a toggle (colour props only, never transform/layout).
-- **Form-field rule:** `input, textarea, select { color: rgb(var(--g-200)) !important }` keeps field text readable on both themes (buttons excluded so accent labels stay white). The Arduino editor keeps bright-green code text via `textarea.code-text`.
-- **Always-white 3D canvas caveat:** text drawn directly on the viewport uses fixed hex (e.g. `#1E293B`/`#64748B`) instead of the flipping tokens.
-
-### Shared surface tokens (`components/ui/surfaces.js`)
-
-`GLASS` (rounded-2xl, border, shadow, backdrop-blur, 200 ms transition) + `glassStyle` (translucent fill, tinted border) + `ICON_BTN`/`iconBtnStyle` give every floating panel/toolbox/cube one consistent radius/elevation/blur/motion.
-
-### Icon system (`components/ui/Icon.jsx`)
-
-`<Icon name=… size=… />` renders one inline SVG from a ~45-glyph map (24×24, `stroke="currentColor"`, 1.75 px, rounded; play/stop are filled). Lucide/Phosphor-style, dependency-free, theme-inheriting. Used across the toolbox, view cube, right rail and chrome. Content panels (Library/Electronics/Mechanical) still use emoji for part glyphs.
+**Overlay layering** (`ui/overlay.js` + `ui/zIndex.js` + `OverlayBridge`): passive widgets (View Cube) defer to any open popup. Register a new overlay with one line — `useOverlay('id', open)`. Z-scale: viewport 0 · toolbox 20 · viewCube 30 · dropdown 40 · dialog 50 · coach 120 · modal 130 · toast 200. (CombatHUD sits at z-90, its damage-number layer at z-95.)
 
 ---
 
-## Overlay Layering System (reusable)
+## State Management (stores)
 
-A small, reusable **overlay-priority coordinator** ensures passive viewport widgets (the View Cube) always yield to any floating popup/menu/modal.
+~13 Zustand stores hold declarative state; managers hold imperative logic; components subscribe + call managers. Key stores:
 
-- **`components/ui/overlay.js`** — a UI-only Zustand registry:
-  - `useOverlay(id, isOpen)` — an overlay owner registers itself while open (auto-clears on close/unmount).
-  - `useAnyOverlay()` — true when any overlay is registered.
-- **`components/ui/zIndex.js`** — one source of truth for stacking:
-
-  | Level | Constant | z | Examples |
-  |---|---|---|---|
-  | L1 | `viewport` | 0 | 3D canvas |
-  | L2 | `toolbox` | 20 | floating toolbox |
-  | L3 | `viewCube` | 30 | View Cube (yields to overlays) |
-  | L4 | `dropdown` | 40 | header menus, context menus |
-  | L5 | `dialog` | 50 | Open-project dialog |
-  | L6 | `coach` | 120 | guided tutorial coach |
-  | L7 | `modal` | 130 | shortcuts / beginner-guide modals |
-  | L8 | `toast` | 200 | global notifications |
-
-- **`components/OverlayBridge.jsx`** — headless adapter mounted in `App`; it *reads* `onboardingStore` flags (welcome/tour/coach/shortcuts/guide) and registers matching overlay ids, so tutorials suppress the cube **without editing any tutorial component**.
-- **Consumers today:** Help menu, File menu, Open-saved dialog, and (via the bridge) welcome/tour/coach/shortcuts/guide. **Any future dropdown/dialog/modal opts in with one line** — `useOverlay('id', open)` — and the cube steps aside automatically.
-- **View Cube behaviour when suppressed:** `opacity: 0` (180 ms fade) + `pointer-events: none` + `aria-hidden` on its interactive panels + pop-out force-closed. No hover / click / accidental camera move; restores automatically. It stays mounted → **no layout shift**. The header is a `relative z-40` stacking context so its dropdowns sit above the cube even during the fade.
+- **sceneStore** — `objects[]`, selection (`selectedId`/`secondaryId`), CSG add/group/ungroup, grid/axes, project meta, `standaloneIds`.
+- **uiStore** — `activePanel` (free-form string), `transformMode`, `simActive`, snap, print bed, surface/extrude/slice tool flags.
+- **electronicsStore** — components, `connections`, servo/motor `attachments`, Arduino `code`, `sensorValues` (manual/scene sensor inputs), `simulation.running`.
+- **physicsStore** — environment, gravity, air density, friction, wind, `isLeggedRobot`, `leggedControl`.
+- **rigidStore** / **surfaceStore** — surface bonds (`relativeMatrix`) + patch relationships.
+- **jointStore** — mechanical joints. **gearStore** — gear mesh pairings. **robotStore** — blueprint/modules.
+- **gameStore** — Robo-Sumo state + **remappable controls** (`p1`/`p2` keys + `front` + `fire`), persisted to `localStorage['subo.controls']`.
+- **combatStore** — Arena actors keyed by rootId `{armor,core,heat,stability,staggered,overheated,state,team,effects}` + `playerId`/`enemyId`/`hitMarkerAt`/`cameraMode`.
+- **historyStore** / **assetStore** — undo-stack mirror / saved assets.
 
 ---
 
-## Right-Panel Sections (App.jsx `RAIL` / `renderPanelBody`)
+## Managers
 
-`activePanel` (uiStore) is a free-form string. Sections:
+Managers own all Three.js / physics / network mutation. The render loop lives in **SceneManager** (`onAnimationTick`, injected by App). Highlights:
 
-- **Properties** — full object editor: name, transform, color, material, bend, fillet, dimension editor, save-as-asset.
-- **Objects** — scene hierarchy list, multi-select, visibility toggles, delete.
-- **Library** (`AssetLibrary`) — Basic + Polyhedra shapes, **Text**, built-in **Models**, file **import (GLB/GLTF/STL/SVG)**, saved assets. Hosts the `shape-box` anchor (Cube button).
-- **Electronics** (`ElectronicsLibrary`) — MCUs (Arduino/SUBO) + Actuators (Servo/DC/BO Motor/LED) + "coming soon" (Sensors/Power/Comms). Hosts `elec-*` anchors.
-- **Mechanical** (`MechanicalLibrary`) — Gear / Bolt / Screw / Star.
-- **Wiring** — pin-to-pin connection editor.
-- **Joints** — mechanical-joint editor + feature-pick creation.
-- **Robot** — robot blueprint / module UI.
-- **Blocks** — Blockly workspace (lazy-loaded), wrapped in an error boundary.
-- **Code** — Arduino C++ editor + Templates + Run (`code-run` anchor).
-- **Simulation** (`SimulationPanel`) — Start/Stop Simulation (`simulate` anchor), Environment (Earth/Moon/Mars/Zero-G), Robo-Sumo entry.
-- **Battle** — robo-sumo HUD/setup, wrapped in an error boundary.
-- **Settings** (`SettingsPanel`) — theme, grid/axes, snap (move/rot), print bed/size (all mirror existing store actions).
+- **ObjectManager** — the mesh registry; animation of servos/motors/LEDs, gear chains, bond propagation, `reattachLocal`.
+- **AlignmentManager** — magnetic snap + fading guide lines during a Move drag (placement-only).
+- **DriveManager** — enters sim; picks wheeled (≥2 motors wired) vs legged (servo+arm leg pairs) path.
+- **SimulationManager** — transpiles + runs Arduino/SUBO/Blockly-generated C++; exposes motorSpeeds/servoAngles/ledBrightness; injects SUBO library API + sensor libraries.
+- **WireManager** — 3D wire tubes + drag-to-connect; **hidden-until-needed pin reveal** (pins show only when the Wiring panel is open or the board is selected).
+- **BattleManager / NetworkManager** — Robo-Sumo (local + online WebRTC, split-authority, geometry streaming).
+- **CombatManager + arena/** — Physics-Arena (see [Combat Arena](#combat-arena--physics-arena)).
+- **physics/** — Rapier world + kinematic fallback + mass/env config.
+- **history/** — command-stack undo/redo via the single `editorDispatch` facade.
 
 ---
 
-## Implemented Features
+## Utilities
 
-### 3D Viewport & Scene
-- [x] Three.js WebGL renderer with orbit camera (OrbitControls)
-- [x] TransformControls gizmo — move / rotate / scale (`W`/`E`/`R`; scale blocked for electronics)
-- [x] Raycasting object selection (click), shift-click a 2nd object for booleans
-- [x] Toggleable grid (`G`) and coordinate axes (`A`); ambient + directional lighting with shadows
-- [x] Object selection highlight (emissive outline); on-canvas dimension overlay
-- [x] **Interactive View Cube** — clickable faces Top/Front/Right/Back/Left/Bottom + Home (iso); auto-hides under overlays
-- [x] Snap-to-grid (translate + rotate); 3D-print build-plate overlay
-- [x] Drag-and-drop model import onto the canvas
-
-### Shape Creation (right-panel Library)
-- [x] Primitives: Cube, Sphere, Cylinder, Cone, Rect Box, Plane, Torus, Capsule
-- [x] Polyhedra: Tetrahedron, Octahedron, Dodecahedron, Tri-Prism, Hex-Prism, Sq-Pyramid, Pent-Pyramid
-- [x] **Text** solids; **SVG import** → extruded solid; external **GLB/GLTF/STL** import; built-in models (Wheels)
-- [x] Keyboard `1`–`0` add primitives (see shortcuts); saved-asset templates (`assetStore`, localStorage)
-
-### Object Manipulation
-- [x] Real-time transform via Properties (position, rotation, per-axis & uniform scale)
-- [x] **Dimension Editor** — typed W/H/D; center or one-sided (locked-face) scaling
-- [x] Color picker (hex + swatch); Materials: Standard / Metallic / Transparent
-- [x] Rename inline · Duplicate (`Ctrl+D`, smart repeat) · Copy/Paste (`Ctrl+C`/`V`) · Delete · Show/Hide
-- [x] **Geometry bending** — cylindrical bend deform (axis X/Y/Z, −180°→+180°, idempotent, resettable)
-- [x] Nudge with arrow keys (snap step); snap rotation to axes (`Shift+S`)
-
-### Solid Editing / CAD Tools
-- [x] **Boolean CSG**: Union, Subtract A−B, Subtract B−A, Intersect — gizmo-correct centering
-- [x] **Extrude** (`ExtrudeTool`): pick a face → side walls → Merge (CSG union) / Keep both / Cancel
-- [x] **Fillet / Chamfer** (`FilletTool`): vertex-displacement bevel; radius/segments/edge-angle; result becomes CSG
-- [x] **Slice** (`sliceTool` + `SlicePolylineOverlay`): draw a line across a shape to cut it in two
-- [x] **Mechanical Joints** (`JointManager` + `jointStore`): fixed/hinge/revolute/slider/ball/servo; axis, limits, motor; Fusion-style feature picker (corner/edge/face)
-- [x] **Surface bonding** (`surfaceStore` + `SurfaceAttachPrompt`): connect two patches → bond in `rigidStore` (`relativeMatrix`), propagated every frame
-- [x] **Gear pairing** (`gearStore.meshPairs`)
-
-### Scene Management
-- [x] Object list with visibility toggles; multi-select (Shift+click)
-- [x] Undo/redo (`Ctrl+Z`/`Ctrl+Y`) — command-stack history with transactions (1000-action cap)
-- [x] `Ctrl+G` group (CSG combine) / `Ctrl+Shift+G` ungroup
-- [x] Auto-save to IndexedDB (every 30 s); Save / Open / Delete projects
-- [x] Export JSON / STL / GLTF; Import project JSON; **Copy Share Link** (project packed into URL hash)
-
-### Electronics System
-- [x] Arduino, **SUBO**, servo, DC/BO motor, LED, sensor/peripheral models
-- [x] **WiringPanel** — pin-to-pin editor (state machine, GND/5V fan-out); 3D wire tubes (`WireManager`)
-- [x] **CodeEditor** — Arduino C++ panel + Templates + Run/Serial Monitor
-- [x] **BlocksPanel** — Blockly visual programming (lazy ~700 KB) → Arduino C++ via `arduinoGenerator`; persisted as `blocksJson`
-- [x] **Arduino simulation** via full C++ lexer+parser+transpiler (`arduinoParser.js`): variables, functions, control flow, structs; API (`pinMode`, `digitalWrite`, `analogWrite/Read`, `delay`, `Serial.*`, `Servo.write`, `millis()`, …)
-- [x] **SUBO library API** injected into the simulator; board-agnostic simulator maps `D<n>`/`IO<n>` → GPIO
-- [x] Servo attachment (arms animate on `Servo.write()`); LED animation; bond propagation each frame
-
-### Physics Simulation
-- [x] **Rapier WASM** rigid-body physics (`PhysicsManager.js`)
-- [x] **Kinematic fallback integrator** (`PhysicsIntegrator.js`) — inertia lag, air drag, rolling friction, wind
-- [x] **MassCalculator** — volume × material density mass; moment of inertia; frontal area for drag
-- [x] **Environment presets** (`EnvironmentConfig.js`): Earth, Moon, Mars, Zero-G (chosen in the Simulation section)
-- [x] Wind (direction + speed + turbulence). Scale: 1 scene unit = 0.05 m (5 cm)
-
-### Wheeled Robot Simulation
-- [x] Auto-detect differential-drive robots (≥2 motors wired to Arduino)
-- [x] `analogWrite(pin, speed)` → motor speed → `DifferentialDrive` → linear/angular velocity
-- [x] Body moves with physics (friction, drag, gravity); DrivePanel HUD run/stop + serial log
-
-### Legged Robot Simulation
-- [x] Auto-detect hexapod / quadruped / biped from servo+arm pairs
-- [x] **GaitEngine**: tripod (6), trot (4), alternating (2–3); IK foot targets → servo angles
-- [x] DrivePanel legged mode: D-pad + arrow keys (only when `isLeggedRobot`); gait skipped while Arduino code runs so `Servo.write()` wins
-
-### Robo-Sumo "Battle" Game Mode
-- [x] Push opponent out of the ring / drain HP by ramming; 100 HP, 3 lives, best-of-3
-- [x] **Local 2-player** (P1=WASD, P2=arrows) and **online 2-player** via WebRTC/PeerJS (5-char room codes, STUN + free TURN)
-- [x] **Split-authority netcode**: each client simulates its own robot; opponent proxy upgraded to full streamed geometry (one mesh per message, backpressure-paced)
-- [x] **Arcade top-down physics** (discs on ring plane), NOT Rapier; robots detected as assemblies via `robotAssembly.js`
-
-### Robot Blueprint / AI System (`src/robot/`)
-- [x] `RobotBlueprint` / `ModuleLoader` / `ModuleHost` / `RobotRuntime`, `PowerSystem`, `componentRegistry`, `modules`
-- [x] `autoBlueprint` / `blueprintBuilder` (derive a blueprint from the scene) + `ai/` (`AIRuntime`, `behaviors`); surfaced in **RobotPanel** / `robotStore`
-
-### Import / Export / Share
-- [x] Google Drive save/load (`DriveManager` OAuth + Drive API) via Header
-- [x] JSON / STL / GLTF export; STL export with **printability analysis** (`printExport.js`); share links (`share.js`)
-
-### Onboarding, Tutorial & Theme (UI-only)
-- [x] First-run **WelcomeOverlay**, **GuidedCoach** (27 state-detected steps), **ProductTour** (10 highlights), **HelpMenu**, **KeyboardShortcutsModal**, **BeginnerGuideModal**, per-panel **PanelHint**
-- [x] Light/Dark theme toggle (orange accent, CSS-variable tokens, persisted)
-
-### Undo/Redo — Command-Stack History
-- [x] Command-pattern system in `src/managers/history/`; `Command`/`CompositeCommand`/`SnapshotCommand`
-- [x] **`editorDispatch.js`** is the single sanctioned mutation entry point; `historyStore` mirrors the stacks; 1000-action cap
+Pure helpers: `geometryFactory` (primitives + bend), `csg` (boolean w/ gizmo centering), `arduinoParser` (C++ lexer→parser→JS transpiler), `electronicsFactory` (component meshes + pins), `modelLoader` (GLB/GLTF/STL + preloading + `MODEL_SCALE_TARGET`), `svgImport`, `sliceTool`, `robotAssembly` (union-find → robots), `export`/`printExport`/`share`, `utmTracking`, `helpers` (save/load snapshot).
 
 ---
 
-## Onboarding, Tutorial & Overlay layer (UI Layer)
+## Subsystems
 
-> **Hard rule:** everything in this layer is **UI/presentation only**. It *observes*
-> app state (read-only) and never mutates physics, simulation, Arduino/Blockly
-> execution, managers, application stores, save/load, or networking.
+### CAD / Solid editing
+Primitives + polyhedra + Text + SVG→solid + GLB/GLTF/STL import. **Boolean CSG** (union/subtract/intersect, gizmo-correct via `csg.js`), **Extrude** (pick face → walls → merge), **Fillet/Chamfer** (vertex bevel), **Slice** (draw a cut line), **geometry bending** (cylindrical `applyBendDeform`), typed **Dimension Editor**, **mechanical joints** (fixed/hinge/revolute/slider/ball/servo), **surface bonding** (`relativeMatrix`, propagated each frame), **gear pairing**.
 
-### Onboarding module (`src/onboarding/`)
-| File | Purpose |
-|------|---------|
-| `onboardingStore.js` | A **separate** Zustand store for UI-only onboarding state (welcome/tour/coach/modal flags, dismissed hints). Persists "seen" flags to **localStorage**. Never imports a manager. |
-| `coachSteps.js` | Data for the interactive guided coach (27 steps): camera → create → transform → electronics → wiring → code → run → simulate. Each step has `selector` (a `data-tour` anchor), copy, and a read-only `detect` rule. |
-| `tourSteps.js` | Data for the passive product tour (10 highlights). |
-| `missions.js` | Legacy passive checklist data (superseded by the coach; `MissionTracker` not mounted). |
+### Electronics & wiring
+Arduino, **SUBO** (custom ESP32-S3), servo, DC/BO motor, LED, sensors (IR/ultrasonic/gas/OLED/buzzer/LDR/DHT11/color), weapons. Two synced wiring views: **WiringPanel** (pin-to-pin state machine) and **WiringWorkbench** (drag-to-connect 2D). 3D wires via `WireManager`. Registering a new board touches: `modelLoader`, `electronicsFactory`, `ObjectManager`, `sceneStore`, `ElectronicsLibrary`, `WiringPanel`, `CodeEditor`, `App`, `MassCalculator`.
 
-### Onboarding components (`src/components/onboarding/`)
-- **`GuidedCoach.jsx`** — interactive "teacher": spotlights the target element (via `document.querySelector([data-tour])` + `getBoundingClientRect`, re-measured every 400 ms with scroll-into-view), waits for real app state to change, `pointer-events-none` except its card. `[Coach]` debug trace (`window.__COACH_DEBUG`).
-- **`ProductTour.jsx`** — passive step-through; auto-switches right sections.
-- **`HelpMenu.jsx`** — header **?** menu: Start/Restart Tutorial, Product Tour, Keyboard Shortcuts, Beginner Guide. Registers itself as an overlay (`useOverlay('help-menu', open)`).
-- **`KeyboardShortcutsModal.jsx`**, **`BeginnerGuideModal.jsx`** — reference modals.
-- **`PanelHint.jsx`** — one-time banner the first time each section opens.
-- **`WelcomeOverlay.jsx`** (in `components/`) — first-run card (Teach me / Tour / Explore).
+### Arduino / Blockly programming & simulation
+`arduinoParser.js` = full C++ lexer → parser → JS codegen run in a sandboxed eval with Arduino API shims. Any `D<n>`/`IO<n>` pin → GPIO, so **SUBO reuses the parser unchanged** (SUBO constants + library prepended). Blockly programs convert to the same C++ via `arduinoGenerator`. `SimulationManager` injects SUBO API (matrix/buzzer/`MotorExpansion`) + sensor libraries.
 
-### Detection model (read-only)
-Coach steps complete on **actual application state**, never on click/DOM events. Key signals: `uiStore.transformMode`; object position/rotation/scale deltas; `electronicsStore.simulation.running` (Run Code) vs `uiStore.simActive` (Start Simulation); `uiStore.activePanel`; connection count; selection type; camera orbit/zoom/pan.
+**Compiler diagnostics (`arduinoDiagnostics.js` + `CompilerOutput.jsx`)** — a pre-flight analyzer giving Arduino-IDE/PlatformIO-style feedback. On **Run**, CodeEditor + BlocksPanel call `analyzeArduino(code, {board})` *before* the runtime; if it returns blocking **errors**, execution is withheld and a compiler report is shown. **Fully additive** — it does not touch `arduinoParser` or `SimulationManager`; a valid sketch returns zero errors and runs exactly as before (the analyzer is precision-first: anything uncertain is a non-blocking **warning**, never an error).
+- **Own tokenizer** tracks line+column+snippet; collects **multiple** diagnostics per pass (unlike the parser's first-throw).
+- **Errors:** missing `;` (before `}` / new statement), unbalanced/mismatched brackets, unterminated string/char/comment, invalid number, unknown function/identifier (with **Levenshtein "did you mean"** suggestions), wrong argument count, `digitalWrite` arg-2 type check, invalid pin (`IO50` → IO1–IO21), **board mismatch** (SUBO API on an Arduino board → `#include <Subo.h>?`), duplicate function, invalid/misspelled include.
+- **Warnings (non-blocking):** assignment in condition, division by zero, always-true condition, potential infinite loop, unused variable, unreachable/dead code.
+- **Suggestion engine:** case-insensitive exact match first (`pinmode`→`pinMode`), else nearest within an edit budget (`digitalWrte`→`digitalWrite`, `Subbo`→`Subo`).
+- **Success report:** ✓ Compilation Successful + stats (lines/functions/variables/libraries/warnings/time) + "Ready to Execute".
+- **UI (`CompilerOutput`):** red errors / yellow warnings / green success, icons, code snippet with a `^` caret under the offending token, expandable explanations, and click-to-jump (CodeEditor scrolls + selects the offending line). Blockly runs the SAME diagnostics on its generated C++.
 
-### `data-tour` anchors (current homes)
-| Anchor | Lives on |
-|---|---|
-| `viewport` | Viewport container |
-| `toolbar` | Floating **ViewportToolbox** root |
-| `mode-translate` / `mode-rotate` / `mode-scale` | Toolbox transform tiles |
-| `shape-box` | **AssetLibrary** (Library section) Cube button |
-| `elec-arduino` / `elec-motor_bo` / `elec-*` | **ElectronicsLibrary** (Electronics section) |
-| `simulate` | **SimulationPanel** Start/Stop button |
-| `tab-<id>` | Right icon-rail buttons (properties, objects, library, electronics, mechanical, wiring, joints, robot, blocks, code, sim, battle, settings, boolean) |
-| `panel` | Right workspace container |
-| `code-run` | CodeEditor Run button |
-| `header` / `help` | Header / Help-menu wrapper |
+### Sensors (simulation)
+`arduino/sensorSim.js` = the single reusable reading interface (scene-driven or manual `electronicsStore.sensorValues`). `arduino/sensorLibs.js` = runtime LDR/DHT11/ColorSensor/RGB classes injected into sketches like `Servo`. `arduino/libraries/*` ships the **genuine Arduino sources** (Subo, LDR, DHT11, ColorSensor + examples) — the source of truth the sims mirror method-for-method.
 
-**Do not rename these without updating `coachSteps.js` / `tourSteps.js`.** Creation anchors (`shape-box`, `elec-*`, `simulate`) now live in their right-panel sections; the coach re-measures on an interval, so the spotlight attaches once the relevant section is open, and every step still completes via state detection regardless (keyboard/other input).
+### Physics simulation
+**Rapier WASM** (`PhysicsManager`) + kinematic fallback (`PhysicsIntegrator`) — inertia, drag, rolling friction, wind. `MassCalculator` = volume×density mass. Presets: Earth/Moon/Mars/Zero-G. Scale: 1 su = 5 cm. (Rapier needs COOP/COEP headers for SharedArrayBuffer in production.)
+
+### Robots — wheeled & legged
+Wheeled: auto-detect ≥2 motors → `DifferentialDrive`. Legged: auto-detect hexapod/quad/biped from servo+arm pairs → `GaitEngine` (tripod/trot/alternating) + `IKSolver`. `DrivePanel` HUD. Robot **blueprint/AI** system in `src/robot/` (`RobotBlueprint`/`ModuleLoader`/`RobotRuntime`/`autoBlueprint` + `ai/`).
+
+### Robo-Sumo Battle (Mode A)
+Push out of a ring / drain HP by ramming; 100 HP, 3 lives. **Arcade 2D disc physics** (NOT Rapier). Local (P1 WASD / P2 arrows) + **online WebRTC/PeerJS** with split-authority netcode, box-cluster proxy → streamed exact geometry (backpressure-paced), orientation via `geometa`. `BattleManager` + `gameStore`.
+
+### Combat Arena — "Physics Arena"
+A Rapier-based, modular combat engine (distinct from the arcade Sumo). Launched from **Battle → 🤖 Physics Arena — You vs AI**. Ticked from `App.onAnimationTick` when `combatStore.arenaActive`.
+
+**Core (`src/combat/` + CombatManager/WeaponManager/physics):**
+- Each robot = **ONE Rapier dynamic body** (box approximating the assembly), yaw-locked upright, real mass → heavy shoves light. **Body id === assembly rootId** (contacts/raycasts resolve to the actor).
+- **Movement** is impulse-driven (`_drive`): linear impulse toward `input.fwd*maxSpeed` (forward = reverse, `REVERSE_SCALE=1.0`), torque impulse toward a target yaw rate. Tuning: `MAX_SPEED 16`, `ACCEL_GAIN 0.62`, `TURN_RATE 5.0`, `TURN_GAIN 0.9`; per-robot `CombatStats` scales speed/turn with mass.
+- **Damage funnel** (`DamageManager`) — every source emits one `DamageEvent`; armor absorbs → overflow to core → destroyed; crit on exposed core; friendly-fire hook. **CombatStats** = class + stats from real mass. **Stability/Heat/StatusEffect** systems modulate control. **Weapons** (`weaponRegistry` + `WeaponManager`): ray (autocannon/shotgun) · rocket (`ProjectileManager`→`ExplosionSystem`) · flame; **primary+secondary slots** (LMB/RMB; secondary defaults to built-in **Melee Strike**).
+
+**Third-person PvP layer (`src/managers/arena/`)** — makes the arena feel like a mech game (player controls robot[0], AI drives robot[1]):
+- **Player controller** — WASD move (mouse never rotates), **LMB primary / RMB secondary**. **`ArenaAIController`** — easy, beatable AI emitting the same input shape (seek→face→fire, ~70% accuracy, 400–600 ms reaction, strafe/back-off/unstick).
+- **Camera** (arena-only; snapshots + restores the shared editor camera): `ArenaCameraManager` (lifecycle, F1–F4 modes, F3 orbit mouse, owns `CameraShake`) → `ArenaCameraRig` (smoothed follow → spring arm → wall-collision raycast → SmoothDamp position → look target + velocity look-ahead + speed-scaled distance/FOV + engine drive-bob; level horizon). Modes: Default / F1 Shoulder / F2 Tactical / F3 Orbit / F4 Top-Down (300 ms blends). All critically damped (`smoothing.js`), frame-rate independent.
+- **Feedback** — `CombatEffectsManager` fans damage/fire/detonate to `HitEffects` (sparks/smoke/debris/hit-flash/armor-shards/destroyed fire), `DamageNumbers` (DOM overlay, aggregated), `ArenaAudio` (WebAudio placeholder sounds), `CameraShake`. Subtle **chassis lean/sway/suspension** on robots (visual-only, physics untouched).
+- **HUD** (`CombatHUD`) — player L / enemy R (armor/HP/stability/heat + weapon/ammo), crosshair + hit marker, ability bar, camera-mode legend, overheat vignette, Exit.
+
+**Stage status:** Done 1–4 (bodies+HP · damage+classes · stability/heat/status · weapons/projectiles/explosions) + PvP feel pass. Pending 5–8 (teams/co-op · AI archetypes/objectives/hazards · online netcode · polish).
+
+### Onboarding / Tutorial (UI-only, read-only)
+`onboarding/` store + `components/onboarding/`: WelcomeOverlay, GuidedCoach (27 state-detected steps), ProductTour (10), HelpMenu, KeyboardShortcutsModal, BeginnerGuideModal, PanelHint. Steps complete on **actual app state**, never DOM clicks. `data-tour` anchors drive spotlights — don't rename without updating `coachSteps.js`/`tourSteps.js`.
+
+### Alignment guides
+`AlignmentManager` — while Move-dragging, magnetically snaps to nearby centers/edges/faces and draws fading guide lines. Placement-only (like grid snap); never mutates other objects.
+
+### Branding & Analytics
+**Constructa** brand: `ConstructaLogo`, loading screen, `DiscordGate` beta card, favicon, custom domain. **UTM analytics** (`utmTracking.js`) — backend-free, one record/tab-session → `sendBeacon` → Google Apps Script (`docs/utm-collector.gs`) → Sheet; `utm-dashboard.html` reads it via JSONP.
 
 ---
 
 ## Data Models
 
 ### Scene Object (sceneStore)
-```javascript
+```js
 {
-  id: "uuid",
-  name: "Cube_1",
-  type: "box",           // box | sphere | cylinder | cone | torus | plane | capsule | prism | hexagon
-                         //  | tetrahedron | octahedron | dodecahedron | pyramid | pentpyramid | rectprism
-                         //  | text | star | gear | bolt | screw | csg | model | <electronics-type>
-  position: { x, y, z },
-  rotation: { x, y, z },
-  scale:    { x, y, z },
-  color: "#ff6b6b",
-  material: "standard",  // standard | metallic | transparent
-  visible: true,
-  deform: { bend: 45, bendAxis: "y" },     // optional — only when bent
-  attach: { motorId, position, quaternion, scale },  // optional — local transform inside a motor rotor
-  modelKey: "free_wheels",                 // optional — built-in GLB key (survives reload)
-  metadata: { createdAt, updatedAt }
+  id, name, type,            // box|sphere|…|text|gear|bolt|screw|csg|model|<electronics>|weapon_*
+  position:{x,y,z}, rotation:{x,y,z}, scale:{x,y,z},
+  color, material,           // standard|metallic|transparent
+  visible,
+  deform:{bend,bendAxis}?,   // only when bent
+  attach:{motorId,position,quaternion,scale}?,   // inside a motor rotor
+  modelKey?, geometryJSON?, groupMembers?, isHole?,
+  metadata:{createdAt,updatedAt},
 }
 ```
 
-### CSG Object (sceneStore.addCSGObject)
-```javascript
-addCSGObject(name, geometryJSON, color, position)   // position = bounding-box center (gizmo anchor)
+### Combat Actor (combatStore, keyed by rootId)
+```js
+{ id,name,team, armor,armorMax, core,coreMax, heat,heatMax,
+  stability,stabilityMax, staggered, overheated,
+  state:'active'|'downed'|'destroyed', effects:[] }
 ```
 
-### Joint (jointStore)
-```javascript
-{
-  id: "uuid",
-  type: "hinge",          // fixed | hinge | revolute | slider | ball | servo
-  parentId, childId,
-  featureKind: null,      // 'corner' | 'edge' | 'face' — how it was created
-  anchorPoint: { x, y, z },
-  axis: { x: 0, y: 1, z: 0 },
-  limits: { minAngle: -90, maxAngle: 90, minDist: 0, maxDist: 5 },
-  motorSettings: { motorized: false, speed: 45, torque: 1.0, targetAngle: 0 },
-  currentAngle: 0, currentPosition: 0,
-  ballRot: { x, y, z }, visible: true, color: "#f59e0b",
-}
-```
-
-### Physics Store
-```javascript
-{
-  environment: 'earth',        // earth | moon | mars | zero_g
-  gravity: -9.80665, airDensity: 1.225,
-  groundFriction: 0.7, rollingFriction: 0.015,
-  wind: { x, z, speed, turbulence }, groundType: 'concrete',
-  isLeggedRobot: false, leggedControl: { speed: 0, turn: 0 }, leggedGaitType: 'auto',
-}
-```
-
-### UI Store (uiStore)
-```javascript
-{
-  activePanel: 'properties',   // any section id (free-form string)
-  transformMode: 'translate',  // translate | rotate | scale
-  simActive: false,
-  snapTranslate: 0, snapRotateDeg: 0,       // 0 = off
-  printBedVisible: false, printBedSizeMm: 220,
-  surfaceToolActive, extrudeToolActive, sliceToolActive, extrudeState,
-}
-```
+### Joint / Physics / UI stores — see the store files (jointStore, physicsStore, uiStore) for shapes.
 
 ---
 
 ## Key Architecture Decisions
 
-### State ↔ Managers separation
-~12 Zustand **stores** hold declarative state; **managers/** hold imperative Three.js / physics / network logic; **utils/** are pure helpers. Components subscribe to stores and call manager methods. The onboarding + overlay layers are a strictly read-only presentation overlay.
-
-### Overlay layering (reusable)
-Passive viewport widgets defer to any open popup via a central registry (`ui/overlay.js`) and z-scale (`ui/zIndex.js`); `OverlayBridge` mirrors onboarding flags in so tutorials are untouched. Adding a new overlay = one `useOverlay(id, open)` call. (See "Overlay Layering System".)
-
-### Undo/Redo (command-pattern)
-Command-stack under `src/managers/history/`: `Command`/`CompositeCommand`/`SnapshotCommand`; `HistoryManager` (nestable transactions, 1000-cap, mirrors into `historyStore`); **`editorDispatch.js`** is the single dispatch facade (`execute`, `transaction`, `recordSnapshot` legacy bridge, `undo`/`redo`, `captureCanonical`/`restoreCanonical`, `resetBaseline`/`clear`). `useHistory.js` delegates to it so the ~47 legacy `snapshot()` sites keep working. Canonical snapshot = 5 slices (objects, attachments, bonds, patches, joints). Viewport gizmo drag records **one** canonical `recordSnapshot('transform')` after the bond-matrix update. Save/load stays separate on the `'1.0'` format — never write history into project files.
-
-### CSG Gizmo Positioning
-After `evaluator.evaluate()` (three-bvh-csg) vertices are in world space. `csg.js` recenters the geometry at its bounding-box midpoint and returns `position` so the mesh sits at the visual center and the gizmo lands correctly:
-```js
-result.geometry.computeBoundingBox()
-const center = new THREE.Vector3(); result.geometry.boundingBox.getCenter(center)
-result.geometry.translate(-center.x, -center.y, -center.z)
-return { geometryJSON, color, position: { x: center.x, y: center.y, z: center.z } }
-```
-`BooleanPanel`/`FilletPanel`/`ExtrudePanel` pass `result.position` to `addCSGObject`.
-
-### Geometry Bending (`applyBendDeform`)
-Cylindrical bend: `R = H / θ`. Saves original positions in `geometry.userData.origPos` (idempotent). Axis permutation: Y-bend (h=y,a=z,b=x); Z-bend (h=z,a=x,b=y); X-bend (h=x,a=y,b=z). Skipped for CSG objects.
-
-### Legged vs Wheeled Detection (`DriveManager.enter()`)
-1. Count motors wired to Arduino → `≥2` → wheeled path. 2. Else check servo objects with children in `attachments`. 3. If `LeggedSystem.build()` finds ≥2 servo+arm leg pairs → legged path; `setIsLeggedRobot(true)`.
-
-### Robot Assembly Grouping (`robotAssembly.js`)
-Union-find over surface bonds (rigidStore) + motor attachments (electronicsStore) partitions the scene into connected components with a `rootId`. Used by Battle and simulation to move parts as one unit. Bond propagation is **skipped during battle** (BattleManager owns positions).
-
-### Arduino Transpiler & Board-Agnostic Simulator
-Recursive-descent parser in `arduinoParser.js` (lexer → typed tokens → parser → JS codegen, run in a sandboxed eval with Arduino API shims). Any pin named `D<n>`/`IO<n>` → GPIO, so **SUBO** reuses it unchanged (SUBO constants + library prepended). Blockly programs convert to the same C++ via `arduinoGenerator` before running.
-
-### Registering a New Controller Board (e.g. SUBO)
-Files that key off `'arduino'`: `modelLoader` (MODEL_PATHS + scale), `electronicsFactory` (PIN_DEFS + create*Group + addPinSpheres), `ObjectManager` (ELECTRONICS set + createMesh dispatch), `sceneStore` (isElectronics + default pos), `AssetLibrary`/`ElectronicsLibrary` (buttons), `WiringPanel` (ELEC_TYPES + PIN_DEFS + COMP_ICONS), `CodeEditor` (hasArduino), `App` (ELEC_TYPES), `Viewport`/`PropertiesPanel`/`BooleanPanel`/`FilletPanel` (isElectronics lists), `MassCalculator`.
-
-### Online Battle Geometry Streaming
-`getRobotGeo` sends every real leaf mesh (incl. GLB internals) as records (positions+index+normals+per-leaf material+relative matrix); reparented children attributed via `ownerOf`/`memberOf`. Sends are **backpressure-paced** (`_sendPaced` waits for `dataChannel.bufferedAmount` < 64 KB). Receiver requests re-streams (`georeq`) on stalls. Orientation preserved via `geometa` (rest quaternion + front angle + baseY, captured at REST).
+- **State ↔ Managers ↔ Utils** separation; onboarding/overlay is a strictly read-only presentation layer.
+- **Undo/Redo** = command-stack (`history/`), one facade (`editorDispatch`), 1000-cap, 5-slice canonical snapshot; save/load stays on the separate `'1.0'` format.
+- **CSG gizmo** — `csg.js` recenters geometry at its bbox midpoint and returns `position`.
+- **Board-agnostic simulator** — `D<n>`/`IO<n>`→GPIO lets SUBO reuse the Arduino parser unchanged.
+- **Robot assembly** — union-find over bonds + attachments → `rootId`; used by Battle + Arena to move parts as one unit; bond propagation skipped during battle/arena.
+- **Combat** — one physics body per robot (per-part armor is logical, not separate bodies); the damage funnel is the single path; the arena camera/effects are additive over the combat systems.
+- **SUBO GLB** — mixed-unit hierarchy; `suboBoardBox()` anchors pins + LED matrix to the **largest** `/pcb/i` mesh (the real substrate). Don't revert to "first pcb mesh."
 
 ---
 
-## Co-Op Combat Framework — "Physics Arena"
-
-A physics-driven robot-combat game built **on Rapier** (unlike the arcade `BattleManager`), designed as a modular engine so weapons / robots / game modes are added with minimal core changes. **Separate mode** — it never touches DriveManager or the Robo-Sumo battle. Launched from the **Battle** panel → **🤖 Physics Arena (beta)** (pick 2 robots + a weapon each). Gated by `combatStore.arenaActive`; ticked once per frame from `App.onAnimationTick` (`combatManager.step()`), which also skips bond propagation + editor shortcuts while active (same pattern as battle).
-
-### Design decisions (approved)
-- **Physics:** each combat robot = **ONE Rapier dynamic body** (a box approximating the assembly, `PhysicsManager.createCombatBody`), yaw-locked upright (`enabledRotations(false,true,false)`) so it drives without toppling. Real mass (`collider.setMass`) → heavy robots physically shove light ones. **Per-part armor is logical** (raycast/contact returns the hit id), NOT separate bodies — keeps 8p/100AI feasible.
-- **Body id === assembly rootId** so contact-events / raycasts resolve directly to the actor keyed by rootId. (Critical: an earlier `combat_<id>` prefix silently dropped all damage.)
-- **Movement is velocity-driven via impulses** (never teleport): `_drive` applies an impulse toward the desired forward velocity (leaving knockback intact) + a torque impulse for turning; final speed = base × stagger × overheat × slow.
-- **Netcode target:** host-authoritative star (local-first). Not built yet (Stage 7).
-
-### PhysicsManager additions (combat)
-`applyImpulse` · `applyTorqueImpulse` · `raycast(origin,dir,maxToi,excludeId)` · `getLinvel` · a Rapier **EventQueue** + `drainContactEvents(cb)` (both colliders must be registered bodies) · `createCombatBody(...,mass)`. `step()` feeds the event queue.
-
-### Layered health & meters (per-robot actor in `combatStore`, keyed by rootId)
-`{ armor, core, heat, stability, staggered, overheated, state:'active'|'destroyed', team, effects }`. **Armor absorbs first → overflow into core; core ≤ 0 → destroyed.** HUD mirror is `CombatHUD.jsx` (armor/core/stability/heat bars + class badge + STAGGER/OVERHEAT badges + weapon/ammo).
-
-### The systems (each ticked per robot each frame)
-- **DamageManager** — the **single funnel** every source routes through. `DamageEvent { targetId, sourceId, damageType, amounts:{armor,core,stability,heat}, crit }` → armor→core overflow, crit on exposed core, stability/heat accrual, friendly-fire hook (Stage 5), `onApplied` callback (HUD + win check). Weapons/explosions/collisions all emit these — no divergent damage logic anywhere.
-- **CombatStats** — robot **class (light/medium/heavy)** + stat block (armorMax/coreMax, maxSpeed/accel/turn, recoil/explosion resist) derived from **real mass** (`MassCalculator`).
-- **StabilitySystem** — hits add stability; over max → **stumble** (reduced move/turn) for a window, then drains (rate scales with class/mass).
-- **HeatSystem** — action adds heat; at max → **overheat** (speed penalty, hysteresis clears < 50%); overheated weapons can't fire.
-- **StatusEffectSystem** — timed debuffs (burning ticks damage via the funnel; slow/disabled → move multiplier).
-
-### Weapons (Stage 4)
-Data-driven `weaponRegistry` (adding a weapon = one `registerWeapon({...})`). `WeaponManager` runs per-robot reload/cooldown/heat, mounts the weapon GLB on the chassis, and fires via three strategies:
-- **ray** (raycast + tracer VFX) — **Auto Cannon** (sustained, progressive recoil, crit) · **Shotgun** (pellets, spread, knockback).
-- **rocket** (`ProjectileManager` pooled swept-raycast rocket → `ExplosionSystem` radial damage+impulse, self-damage) — **Rocket Pod**.
-- **flame** (cone raycasts + burning status + self-slow) — **Flamethrower**.
-Recoil (self impulse), target knockback, heat, ammo/reload, muzzle flash + tracers all handled here. Fire keys: **P1 Space, P2 Enter** (`gameStore.controls.*.fire`). Focus is blurred on arena start so Space/Enter fire rather than re-clicking the launch button.
-
-### Stage status
-Done: **1** Rapier bodies + HP layers · **2** damage pipeline + classes · **3** stability + heat + status · **4** weapons + projectiles + explosions.
-Next (await per-stage approval): **5** teams + friendly-fire + local co-op · **6** AI archetypes + objectives + arena hazards · **7** host-authoritative online co-op · **8** feedback/perf/polish.
-
----
-
-## Visit Analytics (UTM) — `utmTracking.js` + dashboard
-
-Backend-free, client-side. One record per tab-session: `timestamp · source (utm or referrer-inferred) · campaign · ref (?ref=) · landing_page · country (async ipwho.is) · device_type · is_returning_visitor · popup_action (join/dismiss/ignore, from `DiscordGate`) · session_duration`. Written to `localStorage` immediately, **sent once at session end** (pagehide / tab hidden, via `sendBeacon` text/plain — no CORS preflight) to a **Google Apps Script** (`docs/utm-collector.gs`) that appends to a Sheet. The standalone **`utm-dashboard.html`** (a 2nd Vite page; deploy at `/utm-dashboard.html`) reads the Sheet via JSONP (auto-loads a baked default endpoint), shows tallies + a full table + a UTM/ref link builder. Setup: `docs/UTM-SETUP.md`.
-
----
-
-## Keyboard Shortcuts
+## Controls & Keyboard Shortcuts
 
 | Shortcut | Action |
-|----------|--------|
-| `W` / `E` / `R` | Gizmo Translate / Rotate / Scale (Scale blocked for electronics) |
-| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
-| `Ctrl+C` / `Ctrl+V` | Copy / Paste selected (non-electronics) |
-| `Ctrl+D` | Duplicate selected (smart repeat-array on subsequent presses) |
-| `Ctrl+G` / `Ctrl+Shift+G` | Group (CSG) / Ungroup selected pair |
-| `Delete` / `Backspace` | Delete selected (or selected surface patches) |
-| `1`–`0` | Add primitive: 1 cylinder · 2 cone · 3 cube · 4 sphere · 5 tetrahedron · 6 sq-pyramid · 7 pent-pyramid · 8 octahedron · 9 dodecahedron · 0 rect-prism |
-| `G` / `A` | Toggle grid / axes |
-| `F` | Frame/fit selection (or reset camera) |
-| `Shift+S` | Snap selected rotation to nearest axes |
-| `↑↓←→` | Nudge selected by snap step (Shift = vertical Y); drives legged robot during legged sim |
-| `WASD` / `↑↓←→` | Battle / Arena mode: P1 / P2 drive (editor shortcuts blocked while active) |
-| `Space` / `Enter` | Physics Arena: P1 / P2 fire weapon |
-| `Escape` | Deselect all / cancel active tool pick |
-| Mouse | Wheel = Zoom · Middle-drag = Orbit · Right-drag = Pan |
+|---|---|
+| `W`/`E`/`R` | Gizmo Translate / Rotate / Scale (scale blocked for electronics) |
+| `Ctrl+Z`/`Ctrl+Y` | Undo / Redo |
+| `Ctrl+C`/`V` · `Ctrl+D` | Copy/Paste · Duplicate (smart repeat) |
+| `Ctrl+G`/`Ctrl+Shift+G` | Group (CSG) / Ungroup |
+| `Delete`/`Backspace` | Delete selected / patches |
+| `1`–`0` | Add primitive (1 cyl · 2 cone · 3 cube · 4 sphere · 5 tetra · 6 sq-pyr · 7 pent-pyr · 8 octa · 9 dodeca · 0 rect-prism) |
+| `G`/`A` · `F` · `Shift+S` | Grid/Axes · Frame selection · Snap rotation to axes |
+| `↑↓←→` | Nudge (Shift = Y); drives legged robot during legged sim |
+| **Battle** | P1 WASD / P2 arrows (editor shortcuts blocked while active) |
+| **Arena** | **WASD** move · **LMB** primary · **RMB** secondary · **F1–F4** camera views |
+| `Space`/`Enter` | (legacy Arena fire keys) |
+| Mouse | Wheel zoom · Middle-drag orbit · Right-drag pan (edit mode) |
 
 ---
 
-## Setup & Running
+## Setup, Build & Deploy
 
 ```bash
 npm install            # add --legacy-peer-deps if peer-dep conflicts appear
-npm run dev            # Vite dev server → http://localhost:5173/Imaginarium/  (note the /Imaginarium/ base path)
-npm run build          # Production build
-npm run preview        # Serve the built dist/  (pin a port: npm run preview -- --port 4180)
-npm run deploy         # Build + publish dist/ to gh-pages
-npm run electron       # Launch the Electron desktop shell
-npm run build:win      # Build + package a Windows app (electron-builder)
+npm run dev            # Vite dev → http://localhost:5173/Imaginarium/   (note the base path)
+npm run build          # Production build (dist/)
+npm run preview        # Serve dist/  (pin a port: npm run preview -- --port 4180)
+npm run deploy         # Build + publish to gh-pages
+npm run electron       # Electron desktop shell
+npm run build:win      # Package a Windows app (electron-builder)
 ```
 
-**Note:** Rapier WASM (`@dimforge/rapier3d-compat`) loads asynchronously on startup; physics requires it to initialize before `DriveManager.enter()`. The dev/preview URL includes the `/Imaginarium/` base path from `vite.config.js`.
+- **Don't run `npm run build` while `npm run dev` is live** (build rewrites `dist/` and crashes the Windows dev watcher).
+- Production needs **COOP/COEP headers** for Rapier SharedArrayBuffer. `netlify.toml`/`vercel.json` set host config; GH Pages base path in `vite.config.js`.
+- Requires WebGL 2.0, ES2020+, IndexedDB, SharedArrayBuffer; online battle needs WebRTC.
 
 ---
 
-## 3D Asset Tooling — MCP (Blender + fal.ai)
+## MCP Asset Tooling (Blender + fal.ai)
 
-Built-in board/sensor models live in `public/models/*.glb` (e.g. `subo.glb`, `arduino_uno.glb`). To **author or regenerate** those assets, two MCP servers are wired up for the Claude Code CLI via a project-scoped config. This is a dev/authoring workflow only — it is **not** part of the app runtime or the Vite build.
-
-- **Config:** `.mcp.json` in the repo parent (`d:\AtumX\imaginarium\toolsapp (2)\`), alongside `.env` (holds `FAL_KEY`, gitignored). Full walkthrough in `MCP_SETUP.md`.
-- **`blender`** — official Blender Lab MCP (stdio). Server: `blender-mcp.exe` (installed via `uv tool install`); needs the **MCP add-on running inside Blender** (Auto-Start, `localhost:9876`). Tools: `execute_blender_code`, `get_objects_summary`, `render_viewport_to_path`, `get_screenshot_of_window_as_image`, `get_python_api_docs`, … → model/inspect/render GLB assets.
-- **`fal-ai`** — hosted HTTP MCP (`https://mcp.fal.ai/mcp`), `Authorization: Bearer ${FAL_KEY}`. Tools: `run_model`, `submit_job`, `search_models`, `check_job` → text/image→3D generation.
-
-**Gotchas:** MCP servers register only in the `claude` **CLI** (trust the project-MCP prompt on first launch; verify with `/mcp` or `claude mcp list`) — not inside the IDE extension. Claude Code does **not** auto-load `.env`; `FAL_KEY` must also be in the process env (`setx FAL_KEY "…"`, then reopen the terminal). If `blender` fails to connect, confirm Blender's add-on panel reads "Server is running" (port 9876).
-
-**Calibration reminder:** GLBs authored/exported here can be mixed-unit or off-scale. The loader normalises each model's longest bbox dim to `MODEL_SCALE_TARGET[type]` (`modelLoader.js`) and `electronicsFactory.js` anchors pins to the real substrate — so a newly generated `subo.glb` gets sized/centred automatically, but re-verify pins/matrix alignment after any re-export (see the SUBO troubleshooting entries).
-
----
-
-## Browser Compatibility
-
-| Browser | Support |
-|---------|---------|
-| Chrome | Full (recommended) |
-| Firefox | Full |
-| Safari | Full (macOS 10.11+) |
-| Edge | Full |
-
-Requires: WebGL 2.0, ES2020+, IndexedDB, SharedArrayBuffer (Rapier WASM — needs COOP/COEP headers in production). Online Battle additionally needs WebRTC (and may rely on TURN relays on restrictive networks).
-
----
-
-## Deployment
-
-```bash
-npm run build
-# Deploy dist/ as a static site (npm run deploy publishes to gh-pages)
-```
-
-GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for Rapier WASM SharedArrayBuffer support. `netlify.toml` / `vercel.json` provide host configs; Electron uses a relative base (`build:electron`).
-
----
-
-## Development Roadmap / Changelog
-
-### Completed
-- [x] Core viewport, orbit camera, transform gizmo; all primitives + polyhedra + Text + SVG + GLB/GLTF/STL import
-- [x] Properties (transform/color/material/bend/fillet/dimensions); object list; undo/redo; local + IndexedDB storage
-- [x] Electronics (Arduino/SUBO, servos, motors, LEDs, wiring); Arduino C++ transpiler simulation; Blockly visual coding
-- [x] Boolean CSG (gizmo-correct); geometry bending; **slice**; **fillet/chamfer**; **face extrude**; typed dimension editing
-- [x] Physics (Rapier + kinematic fallback), Earth/Moon/Mars/Zero-G, wind; wheeled + legged (auto-gait) robot sim
-- [x] Robo-sumo battles — local + online P2P (WebRTC/PeerJS); robot assembly grouping
-- [x] Mechanical joints (fixed/hinge/revolute/slider/ball/servo) with limits + motors; surface bonding; gear pairing
-- [x] **Robot blueprint / module / AI system** (`src/robot/`, RobotPanel, robotStore)
-- [x] Google Drive integration; share links; STL/print export with printability check; Electron desktop shell; extra sensor models
-- [x] Command-stack undo/redo (transactions) via `editorDispatch`; per-panel error boundaries
-- [x] **Light/Dark theme** — CSS-variable token system, orange accent, persisted (default dark)
-- [x] **Interactive guided coach** (27 steps), product tour, help menu, beginner guide, panel hints
-- [x] **UI Phase 4 — Studio redesign:** removed the docked left sidebar; added the floating glass **ViewportToolbox**, interactive **View Cube**, in-house **inline-SVG icon set**, shared **glass surface tokens**, and the single right **icon-rail workspace** with grouped sections incl. new **Simulation** + **Settings** sections
-- [x] **UI Phase 4.1 — Toolbox simplification:** floating toolbox reduced to transform / surface-extrude-slice / snap+grid+axes / print-bed only; all object/electronics/mechanical creation relocated to dedicated **Library / Electronics / Mechanical** right-panel sections (no duplication); Text + SVG import folded into Library
-- [x] **UI overlay-layering fix:** reusable overlay-priority coordinator (`ui/overlay.js` + `ui/zIndex.js` + `OverlayBridge`); the View Cube auto-fades and disables interaction whenever any dropdown/dialog/modal/tutorial overlay is open
-- [x] **SUBO GLB calibration:** the official `subo.glb` is the visible board (never procedural). It is a MIXED-UNIT hierarchy — several `*PCB*` meshes span the full board (~6.45×6.8) while others are tiny sub-parts (down to ~0.3). `suboBoardBox()` (`electronicsFactory.js`) anchors pins + LED-matrix panel to the **largest** `/pcb/i` mesh (the real substrate) so they span the board instead of collapsing onto a sub-part. `MODEL_SCALE_TARGET.subo = 6.8` = Arduino, so both normalise to the same footprint; the board is laid flat (rests on the workplane)
-- [x] **Pin reveal system (hidden-until-needed):** pin spheres + label sprites are hidden by default (`WireManager.setReveal`) so every GLB board reads as real hardware, not a cloud of helpers. Pins appear only while the **Wiring** panel is open (all boards) or a board is **selected** (that board); individual pins still brighten on hover, and a live wire-drag reveals all pins as targets. `_raycastPins` only targets active pins. Applies uniformly to Arduino / SUBO / sensors
-- [x] **Co-op Physics-Arena combat (Stages 1–4)** — Rapier one-body-per-robot with real knockback; single **DamageManager** funnel (armor→core, crit, stability/heat); **robot classes** from real mass; **stability/stagger + heat/overheat + status effects** modulating movement; **4 weapons** (autocannon/shotgun/rocket/flame) with pooled projectiles + explosions. See the Combat Framework section. (Stages 5–8: teams/co-op, AI, online netcode, polish — pending.)
-- [x] **Constructa branding** — robot-head favicon, logo loading screen, beta-community Discord card
-- [x] **Tinkercad-style cyan selection outline** (`EdgesGeometry` on the primary/secondary selection)
-- [x] **Expanded UTM visit analytics** (ref/country/device/returning/popup_action/session_duration) → Google-Sheet collector + dashboard; **custom domain** `constructa.atumx.in`
-
-### Remaining / Future
-- [ ] Boolean operations on CSG results (nested booleans)
-- [ ] Online Battle matchmaking / lobby server (currently invite-by-code only)
-- [ ] Object grouping / hierarchy; texture & normal-map support; advanced lighting (point/spot/HDRI)
-- [ ] Full BRep fillet (NURBS kernel) — current fillet is a vertex-chamfer approximation
-- [ ] Mobile responsiveness
-- [ ] SUBO: 3D LED-matrix lighting, buzzer audio, A/B buttons as `digitalRead` inputs
+Dev/authoring only — **not** part of the app runtime/build. Config `.mcp.json` in the repo parent (+ gitignored `.env` with `FAL_KEY`); walkthrough in `MCP_SETUP.md`.
+- **blender** (stdio, `blender-mcp.exe`) — needs the MCP add-on running in Blender (`localhost:9876`). Tools: `execute_blender_code`, `get_objects_summary`, `render_viewport_to_path`, screenshots, API docs → author/inspect/render `public/models/*.glb`.
+- **fal-ai** (HTTP) — text/image→3D generation.
+- Registers only in the `claude` **CLI** (not the IDE extension). New/re-exported GLBs auto-scale via `MODEL_SCALE_TARGET`, but re-verify SUBO pins/matrix after any re-export.
 
 ---
 
 ## Troubleshooting
 
-**View Cube overlaps the Help/Tutorial menu (or any popup)**
-→ Fixed: the cube reads `useAnyOverlay()` and fades out + disables pointer events while any overlay is open. Register new overlays with `useOverlay('id', open)` (see Overlay Layering).
-
-**A tool/feature "disappeared" from the toolbox**
-→ Object/electronics/mechanical creation moved to the right workspace (Library / Electronics / Mechanical sections). The floating toolbox intentionally holds only transform + surface/extrude/slice + snap/grid/axes + print-bed.
-
-**Tutorial arrow points at nothing / step won't advance**
-→ The step's `data-tour` anchor moved or its detection signal changed. Creation anchors (`shape-box`, `elec-*`, `simulate`) live in their right-panel sections — open that section and the spotlight attaches; steps still complete on state detection. Anchors/rules live in `src/onboarding/coachSteps.js`.
-
-**Undo after a gizmo drag wipes the scene**
-→ Fixed: the drag records one canonical `recordSnapshot('transform')` (5-slice).
-
-**Gizmo appears at wrong location after Boolean/Fillet/Extrude**
-→ `csg.js` recenters geometry at the bounding-box origin and returns `position`; the panel passes it to `addCSGObject`.
-
-**Servo arms / attached wheels don't animate or fly apart on reimport**
-→ Arm must be in `attachments` (electronicsStore) with the servo's ID. `propagateAllBonds()` runs every frame; on load, `reattachLocal(objectId, motorId, obj.attach)` restores the exact local transform (retries up to 20× while the GLB loads).
-
-**Online Battle opponent is invisible or upside-down**
-→ Geometry must be streamed per-mesh with backpressure pacing; orientation needs `geometa` (rest quaternion). See Online Battle Geometry Streaming.
-
-**Rapier physics not working**
-→ Rapier WASM must finish loading before simulation; ensure COOP/COEP headers (SharedArrayBuffer) in production.
-
-**A panel crashed and took focus**
-→ Panels are wrapped in `PanelErrorBoundary`; use its Retry button. The rest of the editor stays alive.
-
-**SUBO board pins/matrix collapse to a tiny dot at the board centre**
-→ `subo.glb` is a mixed-unit hierarchy; the *first* `/pcb/i` mesh is a ~0.3-unit sub-part. `suboBoardBox()` (in `electronicsFactory.js`) must anchor pins + the LED matrix to the **largest** `/pcb/i` mesh (the real substrate). Don't revert to "first pcb mesh."
-
-**SUBO/Arduino pins aren't visible in the viewport**
-→ Pins are hidden until needed. Open the **Wiring** panel (reveals every board's pins) or **select** the board (reveals its pins). See `WireManager.setReveal` — driven by an effect in `App.jsx` keyed on `activePanel` + `selectedId`. Individual pins also brighten on hover; a live wire-drag reveals all pins as targets.
-
-**White/invisible text after a theme change**
-→ Colour comes from `--g-*`/`--a-*` tokens; text drawn directly on the always-white 3D canvas uses fixed hex (`slate-*`/`#…`), not the flipping tokens. Inputs are force-darkened via a `globals.css` rule.
-
-**`npm run dev` crashes with `EBUSY … dist/models/free_wheels.glb`**
-→ A `vite preview` (or a build) is holding `dist/`. Stop any preview/build first, then `npm run dev`. Do **not** run `npm run build` while `npm run dev` is live (the build rewrites `dist/` and crashes the Windows dev watcher).
-
-**Dev/preview port keeps climbing (5173→5174…)**
-→ A stopped Vite process is still releasing the port. Harmless — use the port Vite prints, or kill stray `node` processes. Pin with `npm run preview -- --port 4180`.
-
-**Canvas not rendering**
-→ Check WebGL 2.0 support; verify canvas dimensions > 0.
+**View Cube overlaps a menu/popup** → it reads `useAnyOverlay()` and fades out; register new overlays with `useOverlay('id', open)`.
+**A tool "disappeared" from the toolbox** → creation moved to right-panel Library/Electronics/Mechanical sections.
+**Tutorial arrow points at nothing** → the step's `data-tour` anchor moved; open its section, or fix `coachSteps.js`.
+**Undo after a gizmo drag wipes the scene** → fixed: one canonical `recordSnapshot('transform')`.
+**Gizmo at wrong spot after Boolean/Fillet/Extrude** → `csg.js` returns `position`; pass it to `addCSGObject`.
+**Servo arms fly apart on reimport** → arm must be in `attachments`; `reattachLocal` restores the local transform on load.
+**Online Battle opponent invisible/upside-down** → stream per-mesh with backpressure + `geometa` orientation.
+**Rapier physics not working** → WASM must finish loading; ensure COOP/COEP headers.
+**A panel crashed** → wrapped in `PanelErrorBoundary`; use Retry.
+**SUBO pins/matrix collapse to a dot** → `suboBoardBox()` must anchor to the **largest** `/pcb/i` mesh, not the first.
+**SUBO/Arduino pins not visible** → hidden until needed; open Wiring or select the board (`WireManager.setReveal`).
+**White/invisible text after theme change** → 3D-canvas text uses fixed hex, not tokens; inputs force-darkened in `globals.css`.
+**`npm run dev` crashes `EBUSY … dist/…glb`** → a preview/build is holding `dist/`; stop it first.
+**Arena camera stuck / editor camera wrong after leaving Arena** → `ArenaCameraManager` restores it in `stop()`; the HUD Exit button always restores. OrbitControls is disabled during a match (except F3).
+**Arena: LMB/RMB do nothing / robot won't move** → player = robot[0] (first pick); WASD moves, A/D rotate (mouse doesn't); LMB needs a ⚔ weapon part (else no primary), RMB = built-in Melee. Click the viewport if focus was lost.
+**Arena feels like a simulator / no hits or sound** → feedback is `CombatEffectsManager` (fed by `DamageManager.onApplied` + `WeaponManager.onFire` + `ExplosionSystem.onDetonate`); audio unlocks on first click; damage numbers are a DOM overlay.
+**Canvas not rendering** → check WebGL 2.0 and canvas dimensions > 0.
 
 ---
 
-**Last Updated:** 2026-07-09
-**Version:** 1.7.1 (merge of SUBO calibration/pin-reveal branch with the Constructa/combat branch) — SUBO GLB calibration (largest-substrate anchoring for pins/matrix) · hidden-until-needed pin reveal system for all boards · Blender + fal.ai MCP asset-authoring tooling · Constructa branding · co-op **Physics Arena** combat framework Stages 1–4 (Rapier bodies + damage funnel + robot classes + stability/heat/status + weapons/projectiles/explosions) · Tinkercad-style cyan selection outline · expanded UTM visit analytics + Google-Sheet collector · custom domain `constructa.atumx.in`
+**Last Updated:** 2026-07-10 · **Version:** 1.8.0
+Full robotics platform · SUBO board (largest-substrate pin anchoring) · Constructa branding · Robo-Sumo (local+online) · **Physics-Arena combat** Stages 1–4 + third-person **You-vs-AI PvP layer** (chase camera, easy AI, LMB/RMB weapons, hit VFX/damage numbers/audio, chassis lean) · UTM analytics · custom domain `constructa.atumx.in`.

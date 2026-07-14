@@ -15,6 +15,11 @@ import { weaponManager } from './WeaponManager.js'
 import { projectileManager } from '../combat/ProjectileManager.js'
 import { explosionSystem } from '../combat/ExplosionSystem.js'
 import { weaponForType, isWeaponType } from '../combat/weaponRegistry.js'
+import { arenaCameraManager } from './arena/ArenaCameraManager.js'
+import { CombatEffectsManager } from './arena/CombatEffectsManager.js'
+import { ArenaAIController } from './arena/ArenaAIController.js'
+import { arenaAudio } from './arena/ArenaAudio.js'
+import { smoothDampScalar } from './arena/smoothing.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -33,9 +38,12 @@ const UP = new THREE.Vector3(0, 1, 0)
 
 // Tuning (scene units; 1 su = 5 cm). Tweak freely — all combat feel lives here.
 const MAX_SPEED  = 16      // su/s top speed
-const ACCEL_GAIN = 0.55    // fraction of velocity error corrected per frame
-const TURN_RATE  = 3.0     // rad/s target yaw rate at full turn
-const TURN_GAIN  = 0.5
+const ACCEL_GAIN = 0.62    // fraction of velocity error corrected per frame (responsive, weighty)
+const TURN_RATE  = 5.0     // rad/s target yaw rate at full turn (fallback; per-robot stat overrides)
+const TURN_GAIN  = 0.9     // steering responsiveness — how hard we drive toward the target yaw rate
+// Forward/reverse speed. Kept IDENTICAL for balanced testing (retreat as fast as advance).
+// Both multiply the same maxSpeed; tune REVERSE_SCALE down later for real "backpedal" feel.
+const REVERSE_SCALE = 1.0
 const ARENA_HALF = 26      // half-width of the square arena (walls at ±26)
 const SPAWN_X    = 12      // robots spawn at ±SPAWN_X
 
@@ -56,6 +64,12 @@ class CombatManager {
     this._active = false
     this._last = 0
     this._q = new THREE.Quaternion()
+    // Player-vs-AI: the local player owns exactly one robot; the rest are AI.
+    this._playerId = null
+    this._enemyId = null
+    this._mouse = { primary: false, secondary: false }
+    this._effects = new CombatEffectsManager()
+    this._ai = new ArenaAIController()
   }
 
   get isActive() { return this._active }
@@ -100,44 +114,93 @@ class CombatManager {
 
     if (this._robots.length < 2) { this.stop(); return }
 
-    // Route all damage through the single funnel.
+    // ── Player vs AI: robot[0] is the LOCAL PLAYER, robot[1] is the AI enemy.
+    // (Any extra robots idle until multi-AI; the seam already supports N.)
+    this._playerId = this._robots[0].id
+    this._enemyId  = this._robots[1].id
+    for (const id in this._actors) this._actors[id]._prevArmor = this._actors[id].armor
+    this._prevOverheat = {}
+    this._lastCamMode = 'default'
+
+    // Route all damage through the single funnel + fan combat FEEDBACK off it.
     damageManager.configure({
       getActor: (id) => this._actors[id],
-      onApplied: (id, result) => {
+      onApplied: (id, result, evt) => {
         const a = this._actors[id]
         if (!a) return
         useCombatStore.getState().patchActor(id, { armor: a.armor, core: a.core, heat: a.heat, stability: a.stability, state: a.state })
-        if (result.destroyed) this._checkWin()
+        // Effects: impact VFX, damage numbers, hit flash, shake.
+        const body = physicsManager.getBody(id)
+        const pos = new THREE.Vector3()
+        if (body) { const t = body.translation(); pos.set(t.x, t.y + 1, t.z) }
+        const armorBreak = (a._prevArmor > 0 && a.armor <= 0)
+        a._prevArmor = a.armor
+        this._effects.onHit(id, pos, result, evt, { armorBreak, isPlayerTarget: id === this._playerId })
+        // Hit marker when the PLAYER lands damage on someone else.
+        if (evt?.sourceId === this._playerId && id !== this._playerId) {
+          useCombatStore.getState().sync({ hitMarkerAt: performance.now() })
+        }
+        if (result.destroyed) { this._effects.onDestroyed(id); this._checkWin() }
       },
     })
 
-    // Weapons + projectiles + explosions. Each robot fires the weapon PART it was
-    // built with (detected in _captureRobot); robots with no weapon just ram.
+    // Weapons + projectiles + explosions. Primary = built weapon, secondary =
+    // second weapon or the built-in melee; onFire drives recoil audio/shake.
     projectileManager.init(sceneManager.scene)
-    explosionSystem.configure({ scene: sceneManager.scene, camera: sceneManager.camera, getRobots: () => this._robots })
-    weaponManager.configure({ getRobot: (id) => this._robots.find(r => r.id === id), getActor: (id) => this._actors[id] })
-    for (const r of this._robots) if (r.weaponKey) weaponManager.equip(r.id, r.weaponKey, r.weaponMesh)
+    explosionSystem.configure({
+      scene: sceneManager.scene, camera: sceneManager.camera, getRobots: () => this._robots,
+      onDetonate: (pos) => this._effects.onExplosion(pos, this._nearPlayer(pos)),
+    })
+    weaponManager.configure({
+      getRobot: (id) => this._robots.find(r => r.id === id),
+      getActor: (id) => this._actors[id],
+      onFire: (id, def) => this._effects.onFire(id, def, id === this._playerId),
+    })
+    for (const r of this._robots) {
+      weaponManager.equip(r.id, {
+        primaryKey: r.primaryKey, primaryMesh: r.primaryMesh,
+        secondaryKey: r.secondaryKey, secondaryMesh: r.secondaryMesh,
+      })
+    }
+    this._ai.configure()   // easy tier
 
     this._hideNonCombatants()
     this._bindKeys()
 
-    // Publish initial actor state to the HUD.
-    const actors = {}
-    for (const id in this._actors) {
-      const a = this._actors[id]
-      actors[id] = makeActorSnapshot(a)
-    }
-    useCombatStore.getState().sync({ status: 'fighting', actors, message: '' })
+    // Arena camera (third-person chase) + combat effects — snapshots & restores the
+    // shared editor camera itself, so nothing outside arena mode is touched.
+    arenaCameraManager.activate({
+      camera: sceneManager.camera, orbitControls: sceneManager.orbitControls,
+      playerRobot: this._robots[0],
+    })
+    this._effects.configure({
+      scene: sceneManager.scene, camera: sceneManager.camera,
+      canvas: sceneManager.renderer?.domElement, shake: arenaCameraManager.shake,
+      getRobot: (id) => this._robots.find(r => r.id === id),
+    })
+    arenaAudio.resume()
 
-    // Point the camera at the arena (close enough to clearly see robots + weapons).
-    if (sceneManager.orbitControls) {
-      sceneManager.camera.position.set(0, 18, 26)
-      sceneManager.orbitControls.target.set(0, 1, 0)
-      sceneManager.orbitControls.update()
-    }
+    // Publish initial actor state + player/enemy ids to the HUD.
+    const actors = {}
+    for (const id in this._actors) actors[id] = makeActorSnapshot(this._actors[id])
+    useCombatStore.getState().sync({
+      status: 'fighting', actors, message: '',
+      playerId: this._playerId, enemyId: this._enemyId, cameraMode: arenaCameraManager.mode,
+    })
+
     this._last = performance.now()
     this._active = true
   }
+
+  // True if a world point is close to the player (for near-explosion shake).
+  _nearPlayer(pos) {
+    const b = physicsManager.getBody(this._playerId)
+    if (!b) return false
+    const t = b.translation()
+    return Math.hypot(t.x - pos.x, t.z - pos.z) < 16
+  }
+
+  _playerRobot() { return this._robots.find(r => r.id === this._playerId) }
 
   // Capture an assembly as a rigid mover-set + a Rapier dynamic box body.
   _captureRobot(rootId, startX, startZ) {
@@ -149,7 +212,7 @@ class CombatManager {
     const byId = new Map(useSceneStore.getState().objects.map(o => [o.id, o]))
     const box = new THREE.Box3()
     const memberMeshes = []
-    let weaponKey = null, weaponMesh = null
+    const weapons = []   // every weapon PART on this assembly → { def, mesh }
     for (const mid of assemblyMembers(rootId)) {
       if (objectManager.attachedObjects.has(mid)) continue  // wheel → follows its motor (Three child)
       const m = objectManager.getMesh(mid)
@@ -158,8 +221,13 @@ class CombatManager {
       box.expandByObject(m)
       memberMeshes.push(m)
       const t = byId.get(mid)?.type
-      if (!weaponKey && isWeaponType(t)) { const def = weaponForType(t); if (def) { weaponKey = def.key; weaponMesh = m } }
+      if (isWeaponType(t)) { const def = weaponForType(t); if (def) weapons.push({ def, mesh: m }) }
     }
+    // LMB primary = longest-range weapon; RMB secondary = a second (shortest-range)
+    // weapon if the robot carries one, else the built-in melee (assigned later).
+    weapons.sort((a, b) => (b.def.range || 0) - (a.def.range || 0))
+    const primary   = weapons[0] || null
+    const secondary = weapons.length > 1 ? weapons[weapons.length - 1] : null
     if (memberMeshes.length === 0) { memberMeshes.push(rootMesh); box.expandByObject(rootMesh) }
 
     const size   = box.getSize(new THREE.Vector3())
@@ -192,7 +260,12 @@ class CombatManager {
     )
     if (!body) return null
 
-    const robot = { id: rootId, bodyId, movers, stats, weaponKey, weaponMesh, radius: Math.max(size.x, size.z) / 2, mass: body.mass() }
+    const robot = {
+      id: rootId, bodyId, movers, stats,
+      primaryKey: primary?.def.key ?? null, primaryMesh: primary?.mesh ?? null,
+      secondaryKey: secondary?.def.key ?? null, secondaryMesh: secondary?.mesh ?? null,
+      radius: Math.max(size.x, size.z) / 2, mass: body.mass(),
+    }
     this._applyMesh(robot, body)
     return robot
   }
@@ -206,17 +279,20 @@ class CombatManager {
     if (dt <= 0) return
     if (dt > 0.05) dt = 0.05
 
-    const ctrl = useGameStore.getState().controls
-    const inputs = [this._readInput(ctrl.p1), this._readInput(ctrl.p2)]
-
-    // 1. Apply drive impulses to each live robot.
-    this._robots.forEach((r, i) => {
+    // 1. Compute this frame's input per robot: the player robot from WASD + mouse,
+    // the enemy from the AI controller, any extras idle. Then drive.
+    const fireInputs = {}
+    this._robots.forEach((r) => {
       const a = this._actors[r.id]
-      if (a.state === 'destroyed') return
+      if (a.state === 'destroyed') { fireInputs[r.id] = { primary: false, secondary: false }; return }
       const body = physicsManager.getBody(r.bodyId)
       if (!body) return
-      const input = inputs[i] || { fwd: 0, turn: 0 }   // >2 robots idle until AI (later stage)
+      let input
+      if (r.id === this._playerId) input = this._readPlayerInput()
+      else if (r.id === this._enemyId) input = this._ai.update(dt, r, a, this._playerRobot(), now, weaponManager.weaponsFor(r.id))
+      else input = { fwd: 0, turn: 0 }
       this._drive(body, r, input)
+      fireInputs[r.id] = { primary: !!input.primary, secondary: !!input.secondary }
     })
 
     // 2. Step the world ONCE, then resolve ram damage from contact events.
@@ -230,29 +306,40 @@ class CombatManager {
     for (const r of this._robots) {
       const a = this._actors[r.id]
       if (!a) continue
+      const wasOverheated = this._prevOverheat[r.id]
       stabilitySystem.tick(a, r.stats, dt, now)
       heatSystem.tick(a, dt)
       statusEffectSystem.tick(a, now, dt, (id, amt) =>
         damageManager.apply({ targetId: id, damageType: 'burn', amounts: { core: amt } }))
+      if (!wasOverheated && a.overheated) this._effects.onOverheat()   // overheat warning sting
+      this._prevOverheat[r.id] = a.overheated
       useCombatStore.getState().patchActor(r.id, {
         heat: a.heat, stability: a.stability, staggered: a.staggered, overheated: a.overheated,
       })
     }
 
     // 2c. Weapons: fire (raycast damage / spawn rockets), advance rockets +
-    // explosions, and tracer/flame VFX.
-    const fireInputs = {}
-    this._robots.forEach((r, i) => { fireInputs[r.id] = !!inputs[i]?.fire })
+    // explosions, and tracer/flame VFX. fireInputs was computed in step 1.
     weaponManager.step(dt, now, fireInputs)
     projectileManager.step(dt)
     explosionSystem.step(dt)
     weaponManager.stepVFX(dt)
 
-    // 3. Read bodies back → place assembly meshes rigidly; keep robots in-bounds.
+    // 3. Read bodies back → update chassis lean/sway/suspension, then place meshes.
     for (const r of this._robots) {
       const body = physicsManager.getBody(r.bodyId)
-      if (body) this._applyMesh(r, body)
+      if (body) { this._updateLean(r, body, dt); this._applyMesh(r, body) }
     }
+
+    // 4. Arena camera (chase the player), combat VFX/damage-numbers, movement audio.
+    arenaCameraManager.update(dt)
+    this._effects.step(dt)
+    if (arenaCameraManager.mode !== this._lastCamMode) {
+      this._lastCamMode = arenaCameraManager.mode
+      useCombatStore.getState().sync({ cameraMode: arenaCameraManager.mode })
+    }
+    const pb = physicsManager.getBody(this._playerId)
+    if (pb) { const v = pb.linvel(); arenaAudio.move(Math.min(1, Math.hypot(v.x, v.z) / 14)) }
 
     this._checkWin()
   }
@@ -273,8 +360,10 @@ class CombatManager {
 
     // Linear: impulse toward desired forward velocity (leaves Y to gravity, keeps
     // knockback because we only correct a fraction of the error each frame).
-    const desX = fwd.x * input.fwd * maxSpeed
-    const desZ = fwd.z * input.fwd * maxSpeed
+    // Forward and reverse use the SAME speed (REVERSE_SCALE = 1.0) for balanced testing.
+    const dirSpeed = maxSpeed * (input.fwd < 0 ? REVERSE_SCALE : 1)
+    const desX = fwd.x * input.fwd * dirSpeed
+    const desZ = fwd.z * input.fwd * dirSpeed
     physicsManager.applyImpulse(r.bodyId, {
       x: (desX - v.x) * mass * accel,
       y: 0,
@@ -333,28 +422,62 @@ class CombatManager {
     }
   }
 
-  // Rigidly place every captured part from the body's pose.
+  // Compute a subtle VISUAL-ONLY chassis lean from motion: acceleration lean
+  // (nose dips accelerating, rocks back braking), turn/lateral weight-shift (bank
+  // into turns), and a gentle suspension bob while moving. Never touches physics
+  // (the body stays yaw-locked upright) or weapon aim — purely how the robot reads.
+  _updateLean(r, body, dt) {
+    const rot = body.rotation()
+    this._q.set(rot.x, rot.y, rot.z, rot.w)
+    const fwd = new THREE.Vector3(0, 0, 1).applyQuaternion(this._q)
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this._q)
+    const v = body.linvel()
+    const w = body.angvel().y
+    if (!r._prevVel) r._prevVel = new THREE.Vector3(v.x, v.y, v.z)
+    const ax = (v.x - r._prevVel.x) / dt, az = (v.z - r._prevVel.z) / dt
+    r._prevVel.set(v.x, v.y, v.z)
+    const fwdAccel = ax * fwd.x + az * fwd.z          // + accelerating, − braking
+    const latAccel = ax * right.x + az * right.z      // sideways shove
+    const speed = Math.hypot(v.x, v.z)
+    const targetPitch = THREE.MathUtils.clamp(-fwdAccel * 0.010, -0.08, 0.08)
+    const targetRoll  = THREE.MathUtils.clamp(w * 0.045 + latAccel * 0.005, -0.10, 0.10)
+    r._bobT = (r._bobT || 0) + dt * (7 + speed * 0.5)
+    const targetBob = Math.sin(r._bobT) * 0.05 * Math.min(1, speed / 10)
+    if (!r._lean) { r._lean = { pitch: 0, roll: 0, bob: 0 }; r._leanState = { pitch: { v: 0 }, roll: { v: 0 }, bob: { v: 0 } } }
+    r._lean.pitch = smoothDampScalar(r._lean.pitch, targetPitch, r._leanState.pitch, 0.12, dt)
+    r._lean.roll  = smoothDampScalar(r._lean.roll,  targetRoll,  r._leanState.roll,  0.12, dt)
+    r._lean.bob   = smoothDampScalar(r._lean.bob,   targetBob,   r._leanState.bob,   0.05, dt)
+  }
+
+  // Rigidly place every captured part from the body's pose (+ subtle visual lean/bob).
   _applyMesh(r, body) {
     const P = body.translation()
     const rot = body.rotation()
     this._q.set(rot.x, rot.y, rot.z, rot.w)
+    const lean = r._lean
+    let q = this._q, bob = 0
+    if (lean && (lean.pitch || lean.roll || lean.bob)) {
+      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(lean.pitch, 0, lean.roll, 'XYZ'))
+      q = this._q.clone().multiply(tilt)
+      bob = lean.bob
+    }
     for (const mv of r.movers) {
-      const p = mv.off.clone().applyQuaternion(this._q)
-      mv.mesh.position.set(P.x + p.x, P.y + p.y, P.z + p.z)
-      mv.mesh.quaternion.copy(this._q).multiply(mv.quat0)
+      const p = mv.off.clone().applyQuaternion(q)
+      mv.mesh.position.set(P.x + p.x, P.y + bob + p.y, P.z + p.z)
+      mv.mesh.quaternion.copy(q).multiply(mv.quat0)
     }
   }
 
   // ── Input ───────────────────────────────────────────────────────────────────
+  // The player drives with WASD (movement only — mouse never rotates the robot)
+  // and attacks with the mouse: LMB = primary weapon, RMB = secondary. Camera-mode
+  // hotkeys (F1–F4) + free-orbit look are owned by ArenaCameraManager.
   _bindKeys() {
     const ctrl = useGameStore.getState().controls
     this._activeKeys = new Set()
-    ;['up', 'down', 'left', 'right'].forEach(act => {
-      this._activeKeys.add(ctrl.p1[act]); this._activeKeys.add(ctrl.p2[act])
-    })
-    this._activeKeys.add(ctrl.p1.fire || ' ')      // P1 fire: Space
-    this._activeKeys.add(ctrl.p2.fire || 'Enter')  // P2 fire: Enter
+    ;['up', 'down', 'left', 'right'].forEach(act => this._activeKeys.add(ctrl.p1[act]))
     this._keys.clear()
+    this._mouse.primary = this._mouse.secondary = false
     this._onKeyDown = (e) => {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
       if (this._activeKeys.has(k)) { this._keys.add(k); e.preventDefault() }
@@ -363,16 +486,32 @@ class CombatManager {
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
       this._keys.delete(k)
     }
+    // Mouse attacks. Ignore clicks that land on HUD buttons (e.g. Exit).
+    this._onMouseDown = (e) => {
+      if (e.target?.closest?.('button')) return
+      if (e.button === 0) this._mouse.primary = true
+      else if (e.button === 2) this._mouse.secondary = true
+    }
+    this._onMouseUp = (e) => {
+      if (e.button === 0) this._mouse.primary = false
+      else if (e.button === 2) this._mouse.secondary = false
+    }
+    this._onContext = (e) => e.preventDefault()   // RMB is the secondary attack, not a menu
     window.addEventListener('keydown', this._onKeyDown)
     window.addEventListener('keyup', this._onKeyUp)
+    window.addEventListener('mousedown', this._onMouseDown)
+    window.addEventListener('mouseup', this._onMouseUp)
+    window.addEventListener('contextmenu', this._onContext)
   }
 
-  _readInput(c) {
+  _readPlayerInput() {
+    const c = useGameStore.getState().controls.p1
     const has = (k) => this._keys.has(k)
     return {
       fwd:  (has(c.up) ? 1 : 0) - (has(c.down) ? 1 : 0),
       turn: (has(c.right) ? 1 : 0) - (has(c.left) ? 1 : 0),
-      fire: has(c.fire || ' '),
+      primary: this._mouse.primary,
+      secondary: this._mouse.secondary,
     }
   }
 
@@ -437,7 +576,15 @@ class CombatManager {
     this._active = false
     window.removeEventListener('keydown', this._onKeyDown)
     window.removeEventListener('keyup', this._onKeyUp)
+    window.removeEventListener('mousedown', this._onMouseDown)
+    window.removeEventListener('mouseup', this._onMouseUp)
+    window.removeEventListener('contextmenu', this._onContext)
     this._keys.clear()
+    this._mouse.primary = this._mouse.secondary = false
+    // Restore the shared camera + tear down arena camera/effects/audio.
+    arenaCameraManager.stop()
+    this._effects.clear()
+    arenaAudio.clear()
     weaponManager.clear()
     projectileManager.clear()
     explosionSystem.clear()

@@ -37,10 +37,11 @@ export function computeRobotStats(rootId) {
     coreMax:      Math.round(clamp(60 + mass * 8,  60, 300)),
     heatMax:      100,
     stabilityMax: 100,
-    // Mobility: heavier robots are slower and turn lazier.
+    // Mobility: heavier robots are slower and turn lazier — but all robots turn
+    // noticeably faster than before (responsive steering while keeping weight).
     maxSpeed:  clamp(20 - mass * 0.7, 9, 20),           // su/s
-    accelGain: clamp(0.6 - mass * 0.01, 0.32, 0.6),     // velocity-error correction/frame
-    turnRate:  clamp(3.2 - mass * 0.06, 1.6, 3.2),      // rad/s
+    accelGain: clamp(0.66 - mass * 0.01, 0.4, 0.66),    // velocity-error correction/frame
+    turnRate:  clamp(5.4 - mass * 0.09, 3.2, 5.4),      // rad/s target yaw rate (was 1.6–3.2)
     // Resistances (0..1): heavier robots resist knockback + explosions (Stage 4+).
     recoilResist:    clamp(mass / 20, 0.05, 0.9),
     explosionResist: clamp(mass / 25, 0.05, 0.85),

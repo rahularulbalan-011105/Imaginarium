@@ -25,9 +25,10 @@ const UP = new THREE.Vector3(0, 1, 0)
 
 class WeaponManager {
   constructor() {
-    this._weapons = {}       // robotId -> instance
+    this._weapons = {}       // robotId -> { primary: inst|null, secondary: inst|null }
     this._getRobot = null    // (id) -> { id, bodyId, radius, stats }
     this._getActor = null    // (id) -> runtime actor
+    this._onFire = null      // (robotId, def) -> void  (audio / recoil shake)
     this._tracers = []       // active tracer VFX
     this._tracerPool = []
     this._flashes = []       // muzzle flashes
@@ -36,46 +37,64 @@ class WeaponManager {
     this._scene = null
   }
 
-  configure({ getRobot, getActor }) {
+  configure({ getRobot, getActor, onFire = null }) {
     this._scene = sceneManager.scene
-    this._getRobot = getRobot; this._getActor = getActor
+    this._getRobot = getRobot; this._getActor = getActor; this._onFire = onFire
     return this
   }
 
-  // Equip the weapon a robot BUILT (a scene object attached to its assembly).
-  // weaponMesh = that object's mesh; the muzzle rides it, so nothing extra is
-  // mounted and nothing lingers after the match.
-  equip(robotId, weaponKey, weaponMesh = null) {
-    const def = getWeapon(weaponKey)
-    if (!def) return
-    this._weapons[robotId] = {
-      def, weaponMesh, ammo: def.magSize, cooldown: 0, reloading: false, reloadEndsAt: 0,
-      recoilGrow: 0, flameMesh: null,
-    }
-    console.log('[Combat] equipped', def.name, 'on', robotId)
+  _makeInst(def, weaponMesh = null) {
+    return { def, weaponMesh, ammo: def.magSize, cooldown: 0, reloading: false, reloadEndsAt: 0, recoilGrow: 0, flameMesh: null }
   }
+
+  // Equip a robot with a PRIMARY (its built weapon → LMB) and a SECONDARY
+  // (a second built weapon if any, else the built-in Melee Strike → RMB). Slots
+  // are generic so future weapons plug straight in with no per-type code.
+  equip(robotId, { primaryKey, primaryMesh = null, secondaryKey = null, secondaryMesh = null }) {
+    const primary = primaryKey ? getWeapon(primaryKey) : null
+    const secondary = getWeapon(secondaryKey || 'melee')
+    this._weapons[robotId] = {
+      primary: primary ? this._makeInst(primary, primaryMesh) : null,
+      secondary: secondary ? this._makeInst(secondary, secondaryMesh) : null,
+    }
+    console.log('[Combat] armed', robotId, '→ primary:', primary?.name || 'none', '· secondary:', secondary?.name || 'none')
+  }
+
+  weaponsFor(id) { return this._weapons[id] || null }
 
   // ── Per-frame ───────────────────────────────────────────────────────────────
   step(dt, now, fireInputs) {
-    for (const [id, inst] of Object.entries(this._weapons)) {
+    for (const [id, slots] of Object.entries(this._weapons)) {
       const robot = this._getRobot(id)
       const actor = this._getActor(id)
-      if (!robot || !actor || actor.state === 'destroyed') continue
+      if (!robot || !actor || actor.state === 'destroyed') {
+        if (slots.primary?.flameMesh) slots.primary.flameMesh.visible = false
+        if (slots.secondary?.flameMesh) slots.secondary.flameMesh.visible = false
+        continue
+      }
+      // fireInputs[id] may be a boolean (legacy = primary) or { primary, secondary }.
+      const fi = fireInputs[id]
+      const wantPrimary = typeof fi === 'boolean' ? fi : !!fi?.primary
+      const wantSecondary = typeof fi === 'boolean' ? false : !!fi?.secondary
+      if (slots.primary) this._stepSlot(id, robot, actor, slots.primary, wantPrimary, dt, now)
+      if (slots.secondary) this._stepSlot(id, robot, actor, slots.secondary, wantSecondary, dt, now)
 
-      // Reload / cooldown / progressive-recoil decay.
-      if (inst.reloading) { if (now >= inst.reloadEndsAt) { inst.reloading = false; inst.ammo = inst.def.magSize } }
-      inst.cooldown = Math.max(0, inst.cooldown - dt)
-      inst.recoilGrow = Math.max(0, inst.recoilGrow - dt * 6)
-
-      const firing = !!fireInputs[id] && !inst.reloading && inst.cooldown <= 0 && inst.ammo > 0 && !actor.overheated
-      if (firing) this._fire(robot, actor, inst, now)
-      else if (inst.flameMesh) inst.flameMesh.visible = false
-
-      // Mirror weapon state to the HUD.
+      // Mirror weapon state to the HUD (primary is the headline; secondary shown small).
+      const p = slots.primary, s = slots.secondary
       useCombatStore.getState().patchActor(id, {
-        weaponName: inst.def.name, ammo: Math.ceil(inst.ammo), magSize: inst.def.magSize, reloading: inst.reloading,
+        weaponName: p?.def.name ?? null, ammo: p ? Math.ceil(p.ammo) : 0, magSize: p?.def.magSize ?? 0, reloading: !!p?.reloading,
+        secondaryName: s?.def.name ?? null, secondaryReady: s ? (!s.reloading && s.cooldown <= 0) : false,
       })
     }
+  }
+
+  _stepSlot(id, robot, actor, inst, wantFire, dt, now) {
+    if (inst.reloading) { if (now >= inst.reloadEndsAt) { inst.reloading = false; inst.ammo = inst.def.magSize } }
+    inst.cooldown = Math.max(0, inst.cooldown - dt)
+    inst.recoilGrow = Math.max(0, inst.recoilGrow - dt * 6)
+    const firing = wantFire && !inst.reloading && inst.cooldown <= 0 && inst.ammo > 0 && !actor.overheated
+    if (firing) this._fire(robot, actor, inst, now)
+    else if (inst.flameMesh) inst.flameMesh.visible = false
   }
 
   _fire(robot, actor, inst, now) {
@@ -98,6 +117,7 @@ class WeaponManager {
     const mass = body.mass() || 1
 
     if (!this._firedOnce) { this._firedOnce = true; console.log('[Combat] first shot fired:', def.name) }
+    if (this._onFire) this._onFire(robot.id, def)
     this._muzzleFlash(muzzle)
     if (def.strategy === 'ray')          this._fireRay(robot, actor, inst, muzzle, forward, now)
     else if (def.strategy === 'rocket')  this._fireRocket(robot, inst, muzzle, forward)
@@ -226,10 +246,12 @@ class WeaponManager {
   }
 
   clear() {
-    for (const inst of Object.values(this._weapons)) {
+    for (const slots of Object.values(this._weapons)) {
       // No mounted mesh to remove — the weapon is a scene object restored by
-      // CombatManager. Only the flame VFX cone needs disposal.
-      if (inst.flameMesh) { inst.flameMesh.geometry.dispose(); inst.flameMesh.material.dispose(); inst.flameMesh.removeFromParent() }
+      // CombatManager. Only the flame VFX cone needs disposal (per slot).
+      for (const inst of [slots.primary, slots.secondary]) {
+        if (inst?.flameMesh) { inst.flameMesh.geometry.dispose(); inst.flameMesh.material.dispose(); inst.flameMesh.removeFromParent() }
+      }
     }
     for (const t of this._tracers) t.line.removeFromParent()
     for (const l of this._tracerPool) { l.geometry.dispose(); l.material.dispose(); l.removeFromParent() }
@@ -237,7 +259,7 @@ class WeaponManager {
     for (const m of this._flashPool) { m.geometry.dispose(); m.material.dispose(); m.removeFromParent() }
     this._weapons = {}; this._tracers = []; this._tracerPool = []; this._flashes = []; this._flashPool = []
     this._firedOnce = false
-    this._getRobot = this._getActor = null
+    this._getRobot = this._getActor = this._onFire = null
   }
 }
 

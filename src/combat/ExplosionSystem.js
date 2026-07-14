@@ -22,8 +22,9 @@ class ExplosionSystem {
     this._camera = null
   }
 
-  configure({ scene, camera, getRobots }) {
+  configure({ scene, camera, getRobots, onDetonate = null }) {
     this._scene = scene; this._camera = camera; this._getRobots = getRobots
+    this._onDetonate = onDetonate   // (pos) → arena effects hook (audio/shake/VFX)
     this._shake = 0
     return this
   }
@@ -67,6 +68,7 @@ class ExplosionSystem {
 
     this._flash(pos, radius)
     this._shake = Math.min(1.2, this._shake + 0.6)
+    if (this._onDetonate) this._onDetonate(pos)
   }
 
   // Advance flash VFX + decay camera shake. Call each frame.
@@ -109,7 +111,7 @@ class ExplosionSystem {
     for (const f of this._flashes) { f.mesh.geometry.dispose(); f.mesh.material.dispose(); f.mesh.removeFromParent() }
     for (const m of this._pool) { m.geometry.dispose(); m.material.dispose(); m.removeFromParent() }
     this._flashes = []; this._pool = []; this._shake = 0
-    this._getRobots = null
+    this._getRobots = null; this._onDetonate = null
   }
 }
 

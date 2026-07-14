@@ -36,6 +36,12 @@ export const useCombatStore = create((set) => ({
   message: '',
   winnerTeam: null,
   actors: {},          // rootId -> actor
+  // Player-vs-AI HUD context (which actor is the local player vs the enemy),
+  // plus transient combat-feedback signals the HUD reads.
+  playerId: null,
+  enemyId: null,
+  hitMarkerAt: 0,      // ms timestamp of the player's last landed hit (crosshair marker)
+  cameraMode: 'default',
 
   setArena: (v) => set({ arenaActive: v }),
 
@@ -54,5 +60,6 @@ export const useCombatStore = create((set) => ({
 
   reset: () => set({
     arenaActive: false, status: 'idle', message: '', winnerTeam: null, actors: {},
+    playerId: null, enemyId: null, hitMarkerAt: 0, cameraMode: 'default',
   }),
 }))

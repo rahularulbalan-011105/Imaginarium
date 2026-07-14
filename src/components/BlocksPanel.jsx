@@ -7,6 +7,8 @@ import { simulationManager } from '../managers/SimulationManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { defineArduinoBlocks, ARDUINO_TOOLBOX } from '../blockly/arduinoBlocks.js'
 import { arduinoGenerator } from '../blockly/arduinoGenerator.js'
+import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
+import CompilerOutput from './CompilerOutput.jsx'
 
 // A fresh workspace starts with a setup/loop container.
 const STARTER = {
@@ -22,6 +24,7 @@ export default function BlocksPanel() {
   const wsRef      = useRef(null)
   const [code, setLocalCode] = useState('')
   const [error, setError]    = useState(null)
+  const [diag, setDiag]      = useState(null)   // same compiler diagnostics as the Code editor
   const [started, setStarted] = useState(false)   // gate Blockly init behind a click
   const [maximized, setMaximized] = useState(false)
 
@@ -117,6 +120,11 @@ export default function BlocksPanel() {
     setError(null)
     setCode(code)
     const objects = useSceneStore.getState().objects
+    // Same compiler diagnostics as the text editor, run on the generated C++.
+    const board = objects.some(o => o.type === 'subo') ? 'subo' : 'arduino'
+    const report = analyzeArduino(code, { board })
+    setDiag(report)
+    if (!report.ok) return   // blocking errors — withhold execution
     simulationManager.configure(
       connections, objects, setMotorSpeed,
       (errMsg) => { setError(errMsg); stopSimulation() },
@@ -219,9 +227,12 @@ export default function BlocksPanel() {
         </button>
       </div>
 
+      {/* Compiler diagnostics on the generated C++ (line numbers refer to the preview below) */}
+      <CompilerOutput result={diag} />
+
       {error && (
         <div className="mx-3 mb-2 px-2.5 py-2 bg-red-900/30 border border-red-700/50 rounded text-[11px] text-red-300 font-mono shrink-0 leading-snug">
-          <div className="text-red-400 font-semibold text-[10px] uppercase tracking-wide mb-0.5">Error</div>
+          <div className="text-red-400 font-semibold text-[10px] uppercase tracking-wide mb-0.5">⚠ Runtime Error</div>
           {error}
         </div>
       )}

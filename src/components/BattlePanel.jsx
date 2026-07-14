@@ -106,10 +106,11 @@ export default function BattlePanel() {
             disabled={!(p1Id && p2Id && p1Id !== p2Id)}
             className="w-full py-2 mt-1 rounded-lg text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
             style={{ background: 'linear-gradient(90deg,#6366f1,#4338ca)', color: 'white' }}>
-            🤖 Physics Arena <span className="opacity-70 font-normal">(beta)</span>
+            🤖 Physics Arena — You vs AI <span className="opacity-70 font-normal">(beta)</span>
           </button>
           <div className="text-[10px] leading-snug px-1" style={{ color: 'rgb(var(--g-500))' }}>
-            Tip: add a <b>⚔ Weapon</b> part (Electronics → Weapons) and attach it to your robot to arm it. No weapon = ram only.
+            <b>Arena:</b> Player 1 = <b>you</b> (WASD move · LMB primary · RMB secondary · F1–F4 camera). Player 2 = <b>AI enemy</b>.<br />
+            Add a <b>⚔ Weapon</b> part (Electronics → Weapons) to arm your primary — every robot also has a built-in short-range secondary.
           </div>
           <ControlsLegend online={false} />
         </>
