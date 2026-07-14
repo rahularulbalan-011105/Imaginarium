@@ -1,5 +1,8 @@
 import { useState } from 'react'
+import * as THREE from 'three'
 import { useSceneStore } from '../stores/sceneStore.js'
+import { useRigidStore } from '../stores/rigidStore.js'
+import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { runBoolean } from '../utils/csg.js'
 
@@ -85,12 +88,45 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
         return
       }
 
+      // Capture surface bonds touching either source shape so they survive the
+      // boolean (the sources are consumed → their bonds would otherwise be lost).
+      // The bond is re-pointed to the new CSG object with a recomputed relative
+      // matrix (using the union result's position), so the attach stays put.
+      const srcSet = new Set([selectedId, secondaryId])
+      const csgWorld = new THREE.Matrix4().compose(
+        new THREE.Vector3(result.position.x, result.position.y, result.position.z),
+        new THREE.Quaternion(), new THREE.Vector3(1, 1, 1))
+      const bondTransfers = []
+      for (const b of Object.values(useRigidStore.getState().bonds || {})) {
+        const pC = srcSet.has(b.parentId), cC = srcSet.has(b.childId)
+        if (pC === cC) continue                    // both or neither consumed → nothing to re-point
+        if (cC) {                                  // external is parent (e.g. motor), CSG becomes child
+          const pm = objectManager.getMesh(b.parentId); if (!pm) continue
+          pm.updateMatrixWorld(true)
+          const rel = pm.matrixWorld.clone().invert().multiply(csgWorld).toArray()
+          bondTransfers.push({ childIsCsg: true, parentId: b.parentId, rel, n: b.contactLocalNormal, c: b.contactLocalCenter })
+        } else {                                   // CSG becomes parent, external is child
+          const cm = objectManager.getMesh(b.childId); if (!cm) continue
+          cm.updateMatrixWorld(true)
+          const rel = csgWorld.clone().invert().multiply(cm.matrixWorld).toArray()
+          bondTransfers.push({ parentIsCsg: true, childId: b.childId, rel, n: b.contactLocalNormal, c: b.contactLocalCenter })
+        }
+      }
+
       const name = `${OP_NAMES[opId]}_${objA.name}_${objB.name}`
-      addCSGObject(name, result.geometryJSON, result.color, result.position)
+      const csg = addCSGObject(name, result.geometryJSON, result.color, result.position)
 
       // Remove the two source objects then snapshot the post-operation state
       removeObject(selectedId)
       removeObject(secondaryId)
+
+      // Re-create the surface bonds on the new CSG object.
+      const addBond = useRigidStore.getState().addBond
+      for (const t of bondTransfers) {
+        if (t.childIsCsg) addBond(t.parentId, csg.id, t.rel, t.n, t.c)
+        else              addBond(csg.id, t.childId, t.rel, t.n, t.c)
+      }
+
       snapshot()
     } catch (e) {
       setError('Operation failed: ' + e.message)
