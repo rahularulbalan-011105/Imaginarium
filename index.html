@@ -9,10 +9,11 @@
          eval and Rapier uses WASM, so script-src needs 'unsafe-eval'/'wasm-
          unsafe-eval'; inline theme/redirect scripts + Tailwind need 'unsafe-
          inline'. object-src 'none' + base-uri 'self' + form-action 'self' block
-         the common injection payloads; connect-src is https/wss-only (blocks
-         cleartext exfiltration). Real headers (HSTS, X-Frame-Options) are set on
+         the common injection payloads; connect-src allows https/wss/ws + blob:
+         + data: (three.js fetches embedded GLB textures via blob:). Real headers
+         (HSTS, X-Frame-Options) are set on
          Netlify/Vercel/Cloudflare — GitHub Pages can't send them. -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' https: wss: ws:; worker-src 'self' blob:; frame-src https://accounts.google.com https://content.googleapis.com; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' https: wss: ws: blob: data:; worker-src 'self' blob:; frame-src https://accounts.google.com https://content.googleapis.com; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <!-- Clickjacking guard (meta CSP can't set frame-ancestors on GH Pages): if
          we're framed by another site, break out. Cloudflare/Netlify add a real
