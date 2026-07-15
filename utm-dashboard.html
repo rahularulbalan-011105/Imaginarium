@@ -103,6 +103,11 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   </div>
 
   <div class="panel" style="margin-bottom:24px">
+    <h2>Engagement funnel (in-app events)</h2>
+    <div id="events"><div class="empty">Connect the server above to load events.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
     <h2>UTM link builder</h2>
     <div class="builder">
       <div><label>Base URL</label><input id="b_url" placeholder="https://your-site.com/"></div>
@@ -164,6 +169,37 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     return out
   }
 
+  // ── In-app engagement events (funnel) ──
+  var remoteEvents = []
+  var FUNNEL = ['app_loaded','sim_started','code_run','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
+  function loadEvents(url){
+    var cb = 'ev_cb_' + Date.now()
+    var s = document.createElement('script')
+    window[cb] = function(data){ remoteEvents = Array.isArray(data) ? data : []; try{delete window[cb]}catch(e){}; s.remove(); renderEvents() }
+    s.onerror = function(){ s.remove() }
+    s.src = url + (url.indexOf('?')>=0?'&':'?') + 'events=1&callback=' + cb + '&_=' + Date.now()
+    document.body.appendChild(s)
+  }
+  function renderEvents(){
+    var el = document.getElementById('events')
+    if(!remoteEvents.length){ el.innerHTML = '<div class="empty">No events yet.</div>'; return }
+    var counts = {}, users = {}
+    remoteEvents.forEach(function(e){
+      var n = e.event || '?'
+      counts[n] = (counts[n]||0) + 1
+      users[n] = users[n] || {}; if(e.sid) users[n][e.sid] = 1
+    })
+    var names = FUNNEL.filter(function(n){ return counts[n] })
+    Object.keys(counts).forEach(function(n){ if(names.indexOf(n) < 0) names.push(n) })
+    var html = '<table><tbody>'
+    names.forEach(function(n){
+      var u = Object.keys(users[n]||{}).length
+      html += '<tr><td>'+esc(n)+'</td><td style="text-align:right" class="count">'+counts[n]
+            + ' <span style="color:var(--muted);font-weight:400">('+u+' users)</span></td></tr>'
+    })
+    el.innerHTML = html + '</tbody></table>'
+  }
+
   // ── Load everyone's clicks from the Apps Script (JSONP — no CORS) ──
   function loadServer(){
     var url = document.getElementById('endpoint').value.trim()
@@ -180,6 +216,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       status.textContent = 'Connected — ' + remoteVisits.length + ' visit(s) from server (all visitors).'
       try{ delete window[cbName] }catch(e){}; s.remove(); render()
     }
+    loadEvents(url)   // in-app engagement events (separate tab)
     s.onerror = function(){
       status.textContent = 'Could not reach the server. Check the URL and that the Web app is deployed with access = "Anyone".'
       s.remove()
