@@ -4,6 +4,8 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { simulationManager } from '../managers/SimulationManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { trackEvent } from '../utils/utmTracking.js'
+import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
+import CompilerOutput from './CompilerOutput.jsx'
 
 const TEMPLATES = [
   {
@@ -168,11 +170,13 @@ export default function CodeEditor() {
   const setServoAngle   = useElectronicsStore((s) => s.setServoAngle)
   const objects         = useSceneStore((s) => s.objects)
 
-  const [error, setError]                 = useState(null)
+  const [diag, setDiag]                   = useState(null)   // analyzeArduino() report
+  const [runtimeError, setRuntimeError]   = useState(null)   // error thrown while executing
   const [serialLog, setSerialLog]         = useState('')
   const [showTemplates, setShowTemplates] = useState(false)
   const serialRef    = useRef(null)
   const templatesRef = useRef(null)
+  const codeRef      = useRef(null)   // textarea, for jump-to-error
 
   useEffect(() => {
     if (serialRef.current) serialRef.current.scrollTop = serialRef.current.scrollHeight
@@ -203,16 +207,40 @@ export default function CodeEditor() {
   // external component or wiring — so a SUBO board alone is runnable.
   const hasSubo         = objects.some(o => o.type === 'subo')
 
+  // Jump the editor caret to a diagnostic's line/column and scroll it into view.
+  const jumpTo = (line, col) => {
+    const ta = codeRef.current
+    if (!ta) return
+    const lines = code.split('\n')
+    let start = 0
+    for (let i = 0; i < line - 1 && i < lines.length; i++) start += lines[i].length + 1
+    const lineText = lines[line - 1] ?? ''
+    const caret = start + Math.max(0, Math.min(col - 1, lineText.length))
+    ta.focus()
+    ta.setSelectionRange(start, start + lineText.length)     // highlight the offending line
+    // Approximate scroll: line-height × (line-1), centred.
+    const lh = parseFloat(getComputedStyle(ta).lineHeight) || 16
+    ta.scrollTop = Math.max(0, (line - 1) * lh - ta.clientHeight / 2)
+    // Re-place the caret at the column after the browser processes the range.
+    requestAnimationFrame(() => ta.setSelectionRange(caret, caret))
+  }
+
   const handleRun = () => {
-    setError(null)
+    setRuntimeError(null)
     setSerialLog('')
     trackEvent('code_run', { parts: objects.length })
+
+    // ── Compile pass: full diagnostics BEFORE running. Errors withhold execution. ──
+    const board = hasSubo ? 'subo' : 'arduino'
+    const report = analyzeArduino(code, { board })
+    setDiag(report)
+    if (!report.ok) return   // blocking errors — do not start the simulation
 
     simulationManager.configure(
       connections,
       objects,
       setMotorSpeed,
-      (errMsg) => { setError(errMsg); stopSimulation() },
+      (errMsg) => { setRuntimeError(errMsg); stopSimulation() },
       (output) => {
         setSerialLog(prev => {
           const next = prev + output
@@ -225,7 +253,9 @@ export default function CodeEditor() {
 
     const err = simulationManager.start(code)
     if (err) {
-      setError(err.error)
+      // Transpiler safety-net (should be rare once diagnostics pass) — surface it
+      // through the same panel as a single error.
+      setDiag({ ok: false, errors: [{ severity: 'error', kind: 'transpile', line: 1, col: 1, file: 'sketch.ino', message: err.error, explain: 'The code compiled past the analyzer but the transpiler could not process it.', suggestion: '', snippet: code.split('\n')[0] ?? '', caret: '^' }], warnings: report.warnings, stats: report.stats })
     } else {
       startSimulation()
     }
@@ -235,7 +265,7 @@ export default function CodeEditor() {
     simulationManager.stop()
     objectManager.resetAllLeds()
     stopSimulation()
-    setError(null)
+    setRuntimeError(null)
   }
 
   const noArduino    = !hasArduino
@@ -293,8 +323,9 @@ export default function CodeEditor() {
 
       {/* Code textarea */}
       <textarea
+        ref={codeRef}
         value={code}
-        onChange={e => setCode(e.target.value)}
+        onChange={e => { setCode(e.target.value); if (diag) setDiag(null) }}
         spellCheck={false}
         className="code-text flex-1 bg-slate-950 text-green-300 font-mono text-xs p-3 resize-none focus:outline-none border-0 leading-relaxed min-h-0"
         style={{ fontFamily: "'Fira Code', 'Consolas', monospace", tabSize: 2 }}
@@ -320,11 +351,14 @@ export default function CodeEditor() {
         )}
       </div>
 
-      {/* Error display */}
-      {error && (
+      {/* Compiler output — Arduino-IDE-style diagnostics (errors/warnings/success) */}
+      <CompilerOutput result={diag} onJump={jumpTo} />
+
+      {/* Runtime error (thrown while executing) */}
+      {runtimeError && (
         <div className="mx-3 mb-2 px-2.5 py-2 bg-red-900/30 border border-red-700/50 rounded text-[11px] text-red-300 font-mono shrink-0 leading-snug">
-          <div className="text-red-400 font-semibold text-[10px] uppercase tracking-wide mb-0.5">Error</div>
-          {error}
+          <div className="text-red-400 font-semibold text-[10px] uppercase tracking-wide mb-0.5">⚠ Runtime Error</div>
+          {runtimeError}
         </div>
       )}
 

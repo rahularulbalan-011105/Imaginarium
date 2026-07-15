@@ -74,6 +74,20 @@ registerWeapon({
   statusEffects: [], selfStatus: [],
 })
 
+// ── MELEE STRIKE — the built-in short-range SECONDARY every robot has (RMB) ────
+// Not placed as a part; CombatManager assigns it to the secondary slot when a
+// robot has no dedicated second weapon, so RMB always does *something*.
+registerWeapon({
+  key: 'melee', name: 'Melee Strike', class: 'brawl', model: null,
+  strategy: 'ray',
+  damage: { armor: 10, core: 6, stability: 8, heat: 0 },
+  range: 7, fireRateHz: 1.6, magSize: 999, reloadMs: 0,
+  pellets: 1, spreadDeg: 4,
+  heatPerShot: 3, recoil: 0, knockback: 14,
+  crit: true, critMul: 1.5, muzzleY: 1.1,
+  statusEffects: [{ type: 'slow', magnitude: 0.35, durationMs: 400 }], selfStatus: [],
+})
+
 // ── FLAMETHROWER — area denial, burn, close range, slows self while firing ────
 registerWeapon({
   key: 'flame', name: 'Flamethrower', class: 'denial', model: 'weapon_flame',
