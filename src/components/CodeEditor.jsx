@@ -25,6 +25,26 @@ void loop() {
 }`,
   },
   {
+    label: 'Legged: walk',
+    code: `// LEGGED ROBOT — walk it with code.
+// walk(speed) and turn(rate) take -100..100 (%). The built-in gait
+// engine moves the legs; you just steer the body. (You can still use
+// Servo.write() directly for a hand-authored gait instead.)
+void setup() {
+}
+
+void loop() {
+  walk(80);        // walk forward
+  delay(2000);
+  turn(60);        // curve to the right while walking
+  delay(1200);
+  walk(-60);       // walk backward
+  delay(1500);
+  stopWalking();   // stand still
+  delay(1000);
+}`,
+  },
+  {
     label: 'Servo sweep',
     code: `// Servo SIGNAL → Pin ~9, VCC → 5V, GND → GND
 #include <Servo.h>

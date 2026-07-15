@@ -592,6 +592,31 @@ export default function PropertiesPanel() {
               step={0.1}
             />
           )}
+          {/* Electronics don't get the free XYZ scale gizmo (it would skew pins),
+              but a UNIFORM size control lets you resize a BO motor / board / sensor
+              by typing a value or dragging. Applies scale.x=y=z evenly. */}
+          {isElectronics && (
+            <div className="mb-1">
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Size</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="range" min="0.3" max="3" step="0.05"
+                  value={obj.scale?.x ?? 1}
+                  onChange={(e) => { const v = parseFloat(e.target.value); update({ scale: { x: v, y: v, z: v } }) }}
+                  onMouseUp={snapshot}
+                  className="flex-1 accent-orange-500"
+                />
+                <input
+                  type="number" min="0.1" max="5" step="0.1"
+                  value={+(obj.scale?.x ?? 1).toFixed(2)}
+                  onChange={(e) => { const v = Math.max(0.1, parseFloat(e.target.value) || 1); update({ scale: { x: v, y: v, z: v } }) }}
+                  onBlur={snapshot}
+                  className="w-16 bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-xs text-right"
+                />
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1">Uniform size — type a value or drag to resize this component.</div>
+            </div>
+          )}
         </>
       )}
 

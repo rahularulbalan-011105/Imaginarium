@@ -18,7 +18,11 @@ export const useSceneStore = create((set, get) => ({
   unmarkStandalone: (id) => set(s => ({ standaloneIds: s.standaloneIds.filter(i => i !== id) })),
 
   addObject: (type, position) => {
-    const isElectronics = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'].includes(type)
+    // Sensors/peripherals are electronics too — they must be on this list so they
+    // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
+    // one inside the object already at the origin) + the electronics grey colour.
+    const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
+    const isElectronics = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', ...SENSOR_TYPES].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw']
     const isMech = mechTypes.includes(type)
     const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
@@ -31,6 +35,7 @@ export const useSceneStore = create((set, get) => ({
       : type === 'motor'                  ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'led'                    ? { x: count * 3 - 3, y: 0.15, z: 0  }
       : type === 'servo'                  ? { x: count * 5 - 4, y: 0.15, z: 3  }
+      : SENSOR_TYPES.includes(type)       ? { x: count * 4 - 6, y: 1.2,  z: -9 }
       : { x: 0, y: 1, z: 0 }
     const pos = position ?? defaultPos
     const color = isElectronics ? '#556677'

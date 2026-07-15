@@ -33,6 +33,8 @@ const BUILTIN_NAMES = new Set([
   'IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12',
   'IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21',
   'SUBO_BUZZER_PIN','SUBO_LED_PIN','SUBO_LED_NUM','SUBO_BUTTONR','SUBO_BUTTONL',
+  // Legged locomotion API
+  'walk','turn','stopWalking',
   // Sensors / outputs API + constants
   'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
   'A0','A1','A2','A3','A4','A5','A6','A7','INPUT_PULLUP','LED_BUILTIN',
@@ -63,6 +65,13 @@ class SimulationManager {
     this._motorTerminals  = {}   // motorId → { A: 0, B: 0 }
     this.ledBrightness    = {}
     this.servoAngles      = {}   // servoId → angle 0–180°
+    // Legged locomotion drive intent set by the sketch via walk()/turn(). Units
+    // match DrivePanel's drive controls (speed = scene units/s, turn = rad/s) so
+    // DriveManager can use them interchangeably. _leggedCmd flips true the first
+    // time the code issues any walk/turn/stopWalking call — that's the signal to
+    // let the gait engine translate the body instead of skipping it.
+    this.leggedDrive      = { speed: 0, turn: 0 }
+    this._leggedCmd       = false
   }
 
   configure(connections, objects, onMotorSpeed, onRuntimeError, onSerialOut, onLedBrightness, onServoAngle, onOled, onBuzzer) {
@@ -80,6 +89,9 @@ class SimulationManager {
   start(code) {
     this.stop()
     this._running = true
+    // Reset code-driven legged locomotion each run.
+    this.leggedDrive = { speed: 0, turn: 0 }
+    this._leggedCmd  = false
 
     const pinMap    = buildPinToComponentMap(this._connections, this._objects)
     const sensorMap = buildSensorInputMap(this._connections, this._objects)
@@ -156,6 +168,29 @@ class SimulationManager {
     const analogWrite  = (pin, val) => _write(pin, val, false)
     const digitalWrite = (pin, val) => _write(pin, val, true)
     const pinMode      = () => {}
+
+    // ── Legged locomotion API (beginner "just walk it" path) ───────────────────
+    // walk(speed) / turn(rate) / stopWalking() set a drive intent that the gait
+    // engine reads to actually move a legged robot's body. speed & rate are −100…
+    // +100 (%). Raw Servo.write() still animates individual leg servos for hand-
+    // authored gaits — using walk() just takes over the locomotion + auto-gait.
+    const LEGGED_CODE_MAX_SPEED = 8    // matches DrivePanel LEGGED_SPEED (units/s)
+    const LEGGED_CODE_MAX_TURN  = 1.8  // matches DrivePanel LEGGED_TURN  (rad/s)
+    const walk = (speed) => {
+      const p = Math.max(-100, Math.min(100, Number(speed) || 0)) / 100
+      self.leggedDrive.speed = p * LEGGED_CODE_MAX_SPEED
+      self._leggedCmd = true
+    }
+    const turn = (rate) => {
+      const p = Math.max(-100, Math.min(100, Number(rate) || 0)) / 100
+      self.leggedDrive.turn = p * LEGGED_CODE_MAX_TURN
+      self._leggedCmd = true
+    }
+    const stopWalking = () => {
+      self.leggedDrive.speed = 0
+      self.leggedDrive.turn = 0
+      self._leggedCmd = true
+    }
 
     // ── Sensor inputs (sensor → controller) ───────────────────────────────────
     // In AUTO mode the value is measured live from the scene (distance to the
@@ -423,6 +458,7 @@ while (true) {
         'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
         'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
         'LDR','DHT11','ColorSensor','RGB',
+        'walk','turn','stopWalking',
         `"use strict";
          return (async () => {
            try { ${script} }
@@ -444,7 +480,8 @@ while (true) {
         SuboMatrixInit, setAllLED, setSingleLED, playLEDSeq, stripclear,
         playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor,
         delayMicroseconds, pulseIn, tone, noTone, Wire, Adafruit_SSD1306,
-        LDR, DHT11, ColorSensor, RGB
+        LDR, DHT11, ColorSensor, RGB,
+        walk, turn, stopWalking
       ).then(() => { self._running = false })
 
     } catch (e) {

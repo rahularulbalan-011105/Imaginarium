@@ -486,6 +486,7 @@ class DriveManager {
     this.rootGroup.userData.isDriveRoot = true
     this.rootGroup.position.set(pivotX, 0, pivotZ)
     this.scene.add(this.rootGroup)
+    if (typeof window !== 'undefined') window.__driveDump = () => this._dumpGrounding()
     // Force matrixWorld update immediately — Three.js only refreshes it during
     // the render cycle, so the re-parenting math would use a stale identity
     // matrix and displace every mesh by (pivotX, 0, pivotZ).
@@ -983,15 +984,17 @@ class DriveManager {
     }
     // ── Ground clamp ─────────────────────────────────────────────────────────
     if (this._leftIds.length > 0) {
-      // Drop until the robot's LOWEST point (e.g. wheel bottoms) rests on the
-      // floor, so a robot built floating in the air falls and lands on its wheels
-      // instead of being pinned at its design height. A robot built already on the
-      // grid has _robotMinY ≈ 0, so this stays a no-op for the common case.
-      const groundY = -this._robotMinY
-      if (this.rootGroup.position.y < groundY) {
-        this.rootGroup.position.y = groundY
+      // Plant the robot's REAL, live lowest point (wheel bottoms / chassis) on the
+      // grid every frame. The old clamp used a fixed axis-aligned box captured once
+      // at sim start (_robotMinY), so a robot that was built leaning, whose wheels
+      // load late (async GLB), or whose lowest corner isn't its wheels could hover
+      // with a visible gap. Recomputing the true bbox each frame kills the float.
+      const minY = this._lowestVisibleY()
+      if (isFinite(minY) && Math.abs(minY) > 0.02) {
+        this.rootGroup.position.y -= minY   // minY>0 → drop onto grid · minY<0 → lift off floor
         if (this._vy < 0) this._vy = 0
       }
+      if (window.__DRIVE_DEBUG && ((this._dbgN = (this._dbgN || 0) + 1) % 60 === 0)) console.log('[Drive] wheeled minY', +minY.toFixed(3), 'posY', +this.rootGroup.position.y.toFixed(3), '— run __driveDump() for the mesh breakdown')
     } else {
       // Non-wheeled / bonded rigid group: drop straight down until the ACTUAL
       // lowest point of the assembly rests on the grid. Using the real bounding box
@@ -1096,9 +1099,81 @@ class DriveManager {
       this.rootGroup.rotation.y += pOmega * dt
     }
   }
+  // True lowest world-Y of the robot's VISIBLE solid meshes only. Deliberately
+  // ignores hidden pin spheres / label sprites / selection outlines / wire tubes,
+  // which THREE.Box3.setFromObject would otherwise include (they don't touch the
+  // floor but can extend the box and make the grounding think a phantom point is
+  // the lowest). Uses each geometry's own bbox transformed by a FRESH world matrix.
+  _lowestVisibleY() {
+    this.rootGroup.updateMatrixWorld(true)
+    const v = new THREE.Vector3()
+    const isVisible = (o) => { for (let n = o; n; n = n.parent) if (n.visible === false) return false; return true }
+    const meshes = []
+    let gMin = Infinity, gMax = -Infinity
+    this.rootGroup.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return
+      const ud = o.userData || {}
+      if (ud.isSelectionOutline || ud.isPin || ud.isPinLabel) return
+      if (!isVisible(o)) return
+      const g = o.geometry
+      if (!g.boundingBox) g.computeBoundingBox()
+      const bb = g.boundingBox
+      if (!bb || !isFinite(bb.min.y)) return
+      let mnY = Infinity, mxY = -Infinity
+      for (let i = 0; i < 8; i++) {
+        v.set(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z).applyMatrix4(o.matrixWorld)
+        if (v.y < mnY) mnY = v.y
+        if (v.y > mxY) mxY = v.y
+      }
+      meshes.push({ mnY, span: mxY - mnY })
+      if (mnY < gMin) gMin = mnY
+      if (mxY > gMax) gMax = mxY
+    })
+    if (!meshes.length) return Infinity
+    // Skip DEGENERATE meshes that individually span most of the assembly's height.
+    // A real robot part never spans the whole robot, but some GLB sub-meshes have a
+    // stray far-off vertex (e.g. subo.glb's SUBO_Mesh_2/13/19 span ~79 units) whose
+    // huge bbox would otherwise define a phantom lowest point and float the robot.
+    const totalSpan = Math.max(0.001, gMax - gMin)
+    let minY = Infinity
+    for (const m of meshes) {
+      if (m.span > 0.5 * totalSpan) continue   // assembly-spanning outlier → ignore
+      if (m.mnY < minY) minY = m.mnY
+    }
+    return isFinite(minY) ? minY : gMin   // all filtered → fall back to raw min
+  }
+
+  // DEBUG: dump every visible mesh in the drive group sorted by world lowest-Y,
+  // so a stray outlier that's dragging the grounding down is obvious. Call
+  // window.__driveDump() from the console while a simulation is running.
+  _dumpGrounding() {
+    if (!this.rootGroup) { console.log('[Drive] no active sim'); return }
+    this.rootGroup.updateMatrixWorld(true)
+    const rows = []
+    const v = new THREE.Vector3()
+    this.rootGroup.traverse((o) => {
+      if (!o.isMesh || !o.geometry) return
+      const ud = o.userData || {}
+      const g = o.geometry
+      if (!g.boundingBox) g.computeBoundingBox()
+      const bb = g.boundingBox; if (!bb) return
+      let mnY = Infinity, mxY = -Infinity
+      for (let i = 0; i < 8; i++) {
+        v.set(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z).applyMatrix4(o.matrixWorld)
+        mnY = Math.min(mnY, v.y); mxY = Math.max(mxY, v.y)
+      }
+      rows.push({ name: o.name || o.type || '?', id: (o.userData?.objectId || o.uuid || '').slice(0, 8),
+        visible: o.visible, minY: +mnY.toFixed(2), maxY: +mxY.toFixed(2),
+        outline: !!ud.isSelectionOutline, pin: !!(ud.isPin || ud.isPinLabel) })
+    })
+    rows.sort((a, b) => a.minY - b.minY)
+    console.log('[Drive] rootGroup.position.y =', +this.rootGroup.position.y.toFixed(2), '· meshes sorted by lowest world-Y:')
+    console.table(rows)
+  }
+
   _stepLegged(dt) {
     const physState = usePhysicsStore.getState()
-    const { speed, turn } = physState.leggedControl ?? { speed: 0, turn: 0 }
+    let { speed, turn } = physState.leggedControl ?? { speed: 0, turn: 0 }
     const physEnv = {
       gravity:         physState.gravity,
       airDensity:      physState.airDensity,
@@ -1106,9 +1181,20 @@ class DriveManager {
       wind:            physState.wind,
     }
 
-    // Skip auto-gait when code is running (Servo.write takes over) OR when no
-    // movement is commanded (legs rest in place until arrow keys / D-pad are held).
-    const skipGait = simulationManager.isRunning() || (speed === 0 && turn === 0)
+    // Two ways to walk a legged robot:
+    //  • Drive controls (arrow keys / D-pad) → physState.leggedControl (below).
+    //  • CODE: the sketch calls walk()/turn(), which set simulationManager.leggedDrive
+    //    and flip _leggedCmd. When that happened we drive the gait engine from the
+    //    code's intent so the BODY actually moves (not just the leg servos).
+    // If code is running but never called walk()/turn() (raw Servo.write only), we
+    // keep the old behaviour: skip the gait so the code hand-animates the legs.
+    const codeRunning = simulationManager.isRunning()
+    const codeDriving = codeRunning && simulationManager._leggedCmd
+    if (codeDriving) {
+      speed = simulationManager.leggedDrive.speed
+      turn  = simulationManager.leggedDrive.turn
+    }
+    const skipGait = (codeRunning && !codeDriving) || (speed === 0 && turn === 0)
 
     const { v: targetV, omega: targetOmega } =
       this._leggedSystem.step(dt, speed, turn, skipGait, physEnv, this.objectMgr)
@@ -1149,13 +1235,22 @@ class DriveManager {
       }
     }
 
-    // ── Gravity ────────────────────────────────────────────────────────────
-    const groundY2  = -this._robotMinY
+    // ── Gravity + ground ─────────────────────────────────────────────────────
+    // Fall under gravity, then plant the robot's REAL, live lowest point (feet /
+    // chassis) on the grid. The old clamp used -_robotMinY, an axis-aligned box
+    // captured once at sim-start BEFORE the gait positioned the legs — so a tall
+    // or rest-tucked legged robot hovered above the floor. Recomputing the true
+    // bbox each frame lands the feet on the grid (stance feet are the lowest point,
+    // so the body height stays stable while walking; swing legs lift above it).
     const gravAccel = physEnv.gravity / SCENE_TO_M
     this._vy = Math.max(this._vy + gravAccel * dt, -MAX_V)
-    const newY = this.rootGroup.position.y + this._vy * dt
-    if (newY <= groundY2) { this._vy = 0; this.rootGroup.position.y = groundY2 }
-    else                   { this.rootGroup.position.y = newY }
+    this.rootGroup.position.y += this._vy * dt
+    const minY = this._lowestVisibleY()
+    if (isFinite(minY) && Math.abs(minY) > 0.02) {
+      this.rootGroup.position.y -= minY   // minY>0 → drop onto grid · minY<0 → lift off floor
+      if (this._vy < 0) this._vy = 0
+    }
+    if (window.__DRIVE_DEBUG && ((this._dbgN = (this._dbgN || 0) + 1) % 60 === 0)) console.log('[Drive] legged minY', +minY.toFixed(3), 'posY', +this.rootGroup.position.y.toFixed(3), '— run __driveDump() for the mesh breakdown')
 
     if (body) {
       const rq = body.rotation()
