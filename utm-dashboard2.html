@@ -166,7 +166,11 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     window[cb] = function(data){
       done = true
       rows = Array.isArray(data) ? data : []
-      status.textContent = 'Connected — ' + rows.length + ' landing event(s).'
+      var valid = rows.filter(function(r){ return LANDING_SUBS[r.sub] }).length
+      status.textContent = 'Connected — ' + valid + ' landing event(s).'
+        + (rows.length && rows.length !== valid
+            ? ' ⚠ Ignored ' + (rows.length - valid) + ' non-landing rows — redeploy the Apps Script so ?landing=1 returns the landing tab.'
+            : '')
       try{ delete window[cb] }catch(e){}; s.remove(); render()
     }
     s.onerror = function(){ status.textContent = 'Could not reach the server. Check the URL and that access = "Anyone".'; s.remove() }
@@ -175,10 +179,17 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     document.body.appendChild(s)
   }
 
+  var LANDING_SUBS = { view:1, early_access_click:1, email_submitted:1 }
+  function landingOnly(arr){ return arr.filter(function(r){ return LANDING_SUBS[r.sub] }) }
+
   function render(){
-    var views  = rows.filter(function(r){ return (r.sub||'view') === 'view' })
-    var clicks = rows.filter(function(r){ return r.sub === 'early_access_click' })
-    var emails = rows.filter(function(r){ return r.sub === 'email_submitted' && r.email })
+    // Only count REAL landing rows (those with a recognised sub). This guards
+    // against a stale Apps Script deployment that ignores ?landing=1 and returns
+    // the visits tab instead — those rows have no sub and must not be counted.
+    var evts   = landingOnly(rows)
+    var views  = evts.filter(function(r){ return r.sub === 'view' })
+    var clicks = evts.filter(function(r){ return r.sub === 'early_access_click' })
+    var emails = evts.filter(function(r){ return r.sub === 'email_submitted' && r.email })
     var uniqEmails = new Set(emails.map(function(r){ return (r.email||'').toLowerCase() })).size
     var sources = new Set(views.map(function(r){ return r.source || '(direct)' })).size
 
@@ -198,7 +209,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
 
     renderTally('bySource',   tally(views,  'source'),   views.length)
     renderTally('byCampaign', tally(views,  'campaign'), views.length)
-    renderTally('byAction',   tally(rows,   'sub'),      rows.length)
+    renderTally('byAction',   tally(evts,   'sub'),      evts.length)
 
     // emails table
     document.getElementById('emailCount').textContent = emails.length
@@ -210,7 +221,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
 
     // all activity (with sub filter)
     var f = document.getElementById('subFilter').value
-    var shown = f ? rows.filter(function(r){ return (r.sub||'view') === f }) : rows
+    var shown = f ? evts.filter(function(r){ return r.sub === f }) : evts
     document.getElementById('actCount').textContent = shown.length
     document.getElementById('actEmpty').style.display = shown.length ? 'none' : 'block'
     document.getElementById('actRows').innerHTML = shown.slice().reverse().map(function(r){
