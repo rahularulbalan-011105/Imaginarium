@@ -117,16 +117,37 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       <div><label>ref (person, e.g. akash)</label><input id="b_ref" placeholder="akash"></div>
       <div><label>utm_term (optional)</label><input id="b_term" placeholder="robotics"></div>
       <div><label>utm_content (optional)</label><input id="b_content" placeholder="story-cta"></div>
+      <div><label>label (optional, for your reference)</label><input id="b_label" placeholder="Akash — IG story"></div>
     </div>
     <label>Generated link</label>
     <div class="out">
       <input id="b_out" readonly placeholder="Fill in the fields above…">
       <button class="primary" onclick="copyLink()">Copy</button>
+      <button onclick="saveLink()">Save to sheet</button>
     </div>
+    <div id="saveMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Saved links (<span id="linkCount">0</span>)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Saved</th><th>Label</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Link</th><th></th>
+        </tr></thead>
+        <tbody id="linkRows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="linkEmpty">No saved links yet. Build a link above and click "Save to sheet" — they'll all collect here (and in the <code>links</code> tab of your sheet).</div>
   </div>
 
   <div class="panel">
-    <h2>All visits (<span id="visitCount">0</span>)</h2>
+    <h2>All visits (<span id="visitCount">0</span>)
+      <select id="srcFilter" onchange="render()" title="Filter the table by source"
+        style="float:right;font-size:13px;font-weight:400;padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text)">
+        <option value="">All sources</option>
+      </select>
+    </h2>
     <div class="scroll">
       <table>
         <thead><tr>
@@ -171,6 +192,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
 
   // ── In-app engagement events (funnel) ──
   var remoteEvents = []
+  var savedLinks = []
   var FUNNEL = ['app_loaded','sim_started','code_run','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
   function loadEvents(url){
     var cb = 'ev_cb_' + Date.now()
@@ -217,6 +239,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       try{ delete window[cbName] }catch(e){}; s.remove(); render()
     }
     loadEvents(url)   // in-app engagement events (separate tab)
+    loadLinks(url)    // saved campaign links (separate tab)
     s.onerror = function(){
       status.textContent = 'Could not reach the server. Check the URL and that the Web app is deployed with access = "Anyone".'
       s.remove()
@@ -264,10 +287,20 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     renderTally('byCampaign', tally(visits,'campaign'),      total)
     renderTally('byPopup',    tally(visits,'popup_action'),  total)
 
-    document.getElementById('visitCount').textContent = total
+    // Source filter — populate options (preserve selection) and filter THIS table only.
+    // The summary cards + tallies above intentionally stay on the full visit set.
+    var sel = document.getElementById('srcFilter')
+    var cur = sel.value
+    var srcList = Array.from(new Set(visits.map(function(v){ return v.source || '(direct)' }))).sort()
+    sel.innerHTML = '<option value="">All sources</option>' + srcList.map(function(s){
+      return '<option value="'+esc(s)+'"'+(s===cur?' selected':'')+'>'+esc(s)+'</option>'
+    }).join('')
+    var shown = cur ? visits.filter(function(v){ return (v.source||'(direct)') === cur }) : visits
+
+    document.getElementById('visitCount').textContent = shown.length
     var rows = document.getElementById('rows')
-    document.getElementById('emptyMsg').style.display = total ? 'none' : 'block'
-    rows.innerHTML = visits.slice().reverse().map(function(v){
+    document.getElementById('emptyMsg').style.display = shown.length ? 'none' : 'block'
+    rows.innerHTML = shown.slice().reverse().map(function(v){
       var pill = v.tagged ? '<span class="pill tag">'+esc(v.source)+'</span>'
                           : '<span class="pill direct">'+esc(v.source)+'</span>'
       var ret = (v.is_returning_visitor === 'returning' || v.is_returning_visitor === true) ? 'returning' : 'new'
@@ -315,6 +348,59 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   ['b_url','b_source','b_medium','b_campaign','b_ref','b_term','b_content'].forEach(function(id){
     document.getElementById(id).addEventListener('input', buildLink)
   })
+
+  // ── Save a generated link to the "links" tab (POST, no-cors like the app pings) ──
+  function saveLink(){
+    var msg = document.getElementById('saveMsg')
+    var url = document.getElementById('b_out').value.trim()
+    if(!url || url.indexOf('http')!==0){ msg.textContent = 'Build a valid link first (fill in Base URL).'; return }
+    var endpoint = document.getElementById('endpoint').value.trim()
+    if(!endpoint){ msg.textContent = 'Paste your Apps Script Web-app URL at the top first.'; return }
+    var g = function(id){ return document.getElementById(id).value.trim() }
+    var payload = { type:'link', label:g('b_label'), url:url, source:g('b_source'),
+      medium:g('b_medium'), campaign:g('b_campaign'), ref:g('b_ref'), term:g('b_term'), content:g('b_content') }
+    msg.textContent = 'Saving…'
+    fetch(endpoint, { method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=UTF-8'}, body: JSON.stringify(payload) })
+      .then(function(){ msg.textContent = 'Saved to the "links" tab ✓'; setTimeout(function(){ loadLinks(endpoint) }, 900) })
+      .catch(function(){ msg.textContent = 'Could not reach the server — check the URL/deployment.' })
+  }
+
+  // ── Load the saved-links registry (JSONP ?links=1 — same no-CORS trick) ──
+  function loadLinks(url){
+    url = (url || document.getElementById('endpoint').value.trim())
+    if(!url) return
+    var cb = 'utm_lk_' + Date.now()
+    var s = document.createElement('script')
+    window[cb] = function(data){ savedLinks = Array.isArray(data) ? data : []; try{delete window[cb]}catch(e){}; s.remove(); renderLinks() }
+    s.onerror = function(){ s.remove() }
+    s.src = url + (url.indexOf('?')>=0?'&':'?') + 'links=1&callback=' + cb + '&_=' + Date.now()
+    document.body.appendChild(s)
+  }
+  function renderLinks(){
+    document.getElementById('linkCount').textContent = savedLinks.length
+    document.getElementById('linkEmpty').style.display = savedLinks.length ? 'none' : 'block'
+    var rev = savedLinks.map(function(l,i){ return { l:l, i:i } }).reverse()
+    document.getElementById('linkRows').innerHTML = rev.map(function(o){
+      var l = o.l
+      var short = (l.url||''); if(short.length > 60) short = short.slice(0,60) + '…'
+      return '<tr>'
+        + '<td>'+esc(fmt(l.saved))+'</td>'
+        + '<td>'+esc(l.label||'—')+'</td>'
+        + '<td>'+esc(l.source||'—')+'</td>'
+        + '<td>'+esc(l.campaign||'—')+'</td>'
+        + '<td>'+esc(l.ref||'—')+'</td>'
+        + '<td title="'+esc(l.url)+'"><a href="'+esc(l.url)+'" target="_blank" rel="noopener">'+esc(short)+'</a></td>'
+        + '<td><button onclick="copyLinkRow('+o.i+')">Copy</button></td>'
+        + '</tr>'
+    }).join('')
+  }
+  function copyLinkRow(i){
+    var l = savedLinks[i]; if(!l || !l.url) return
+    navigator.clipboard && navigator.clipboard.writeText(l.url)
+    var btn = event.target; var t = btn.textContent
+    btn.textContent = 'Copied!'; setTimeout(function(){ btn.textContent = t }, 1200)
+  }
 
   // ── Data management ──
   function exportJson(){
