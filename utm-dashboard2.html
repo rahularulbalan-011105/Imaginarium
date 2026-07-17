@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Landing Dashboard — Constructa</title>
+<script>
+// CSS injected via JS (not an inline <style>) to sidestep the Vite multi-page
+// inline-css-proxy build bug — same approach as utm-dashboard.html.
+document.head.appendChild(Object.assign(document.createElement('style'),{textContent:`
+  :root{
+    --bg:#f7f9fc; --panel:#ffffff; --surface:#f1f5f9; --border:#e2e8f0;
+    --text:#1e293b; --muted:#64748b; --accent:#4f46e5; --accent2:#f97316;
+    --ok:#059669; --warn:#d97706;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+       background:var(--bg);color:var(--text);padding:24px}
+  h1{font-size:22px;margin:0 0 2px}
+  h2{font-size:15px;margin:0 0 10px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .sub{color:var(--muted);margin:0 0 20px}
+  .wrap{max-width:1080px;margin:0 auto}
+  .bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center}
+  button{font:inherit;font-weight:600;cursor:pointer;border:1px solid var(--border);
+         background:var(--panel);color:var(--text);padding:8px 14px;border-radius:8px}
+  button:hover{border-color:var(--accent);color:var(--accent)}
+  button.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  button.primary:hover{background:#4338ca;color:#fff}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:24px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .card .n{font-size:28px;font-weight:700;line-height:1}
+  .card .l{color:var(--muted);font-size:12px;margin-top:6px;text-transform:uppercase;letter-spacing:.04em}
+  .grid2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px}
+  @media(max-width:820px){.grid2{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;overflow:hidden;margin-bottom:24px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border);white-space:nowrap;
+        overflow:hidden;text-overflow:ellipsis;max-width:260px}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  tbody tr:last-child td{border-bottom:none}
+  .scroll{overflow-x:auto}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600}
+  .pill.tag{background:#eef2ff;color:var(--accent)}
+  .pill.direct{background:var(--surface);color:var(--muted)}
+  .pill.view{background:#f1f5f9;color:var(--muted)}
+  .pill.click{background:#fff7ed;color:var(--accent2)}
+  .pill.email{background:#ecfdf5;color:var(--ok)}
+  .count{font-weight:700;color:var(--text)}
+  input{width:100%;font:inherit;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff;color:var(--text)}
+  input:focus{outline:none;border-color:var(--accent)}
+  .empty{color:var(--muted);text-align:center;padding:28px 0}
+  .note{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:20px}
+  .foot{color:var(--muted);font-size:12px;margin-top:24px}
+  code{background:var(--surface);padding:1px 5px;border-radius:5px;font-size:12px}
+  /* funnel */
+  .funnel{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:640px){.funnel{grid-template-columns:1fr}}
+  .step{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;text-align:center}
+  .step .n{font-size:26px;font-weight:700}
+  .step .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em;margin-top:4px}
+  .step .p{color:var(--accent2);font-size:12px;font-weight:600;margin-top:4px}
+`}))
+</script>
+</head>
+<body>
+<div class="wrap">
+  <h1>Landing Page Dashboard</h1>
+  <p class="sub">Activity on <code>constructa-page.atumx.in</code> — views, early-access clicks &amp; emails captured.</p>
+
+  <div class="note">
+    <strong>Setup:</strong> paste <code>docs/landing-tracker.js</code> into the landing page, then load with the same Apps Script URL below.
+    Data comes from the <code>landing</code> tab of your Google Sheet.
+  </div>
+
+  <div class="bar">
+    <input id="endpoint" placeholder="https://script.google.com/macros/s/AKfy…/exec" style="flex:1;min-width:260px">
+    <button class="primary" onclick="loadServer()">Load</button>
+    <button onclick="exportEmails()">Export emails (CSV)</button>
+    <span id="srvStatus" style="color:var(--muted);font-size:13px"></span>
+  </div>
+
+  <div class="cards" id="cards"></div>
+
+  <div class="panel">
+    <h2>Funnel</h2>
+    <div class="funnel">
+      <div class="step"><div class="n" id="fViews">0</div><div class="l">Page views</div></div>
+      <div class="step"><div class="n" id="fClicks">0</div><div class="l">Early-access clicks</div><div class="p" id="fClicksPct"></div></div>
+      <div class="step"><div class="n" id="fEmails">0</div><div class="l">Emails captured</div><div class="p" id="fEmailsPct"></div></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel" style="margin-bottom:0"><h2>By source</h2><div id="bySource"></div></div>
+    <div class="panel" style="margin-bottom:0"><h2>By campaign</h2><div id="byCampaign"></div></div>
+    <div class="panel" style="margin-bottom:0"><h2>By action</h2><div id="byAction"></div></div>
+  </div>
+
+  <div class="panel">
+    <h2>Emails captured (<span id="emailCount">0</span>)</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Time</th><th>Email</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Device</th></tr></thead>
+        <tbody id="emailRows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="emailEmpty">No emails captured yet.</div>
+  </div>
+
+  <div class="panel">
+    <h2>All landing activity (<span id="actCount">0</span>)
+      <select id="subFilter" onchange="render()" title="Filter by action"
+        style="float:right;font-size:13px;font-weight:400;padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text)">
+        <option value="">All actions</option>
+        <option value="view">view</option>
+        <option value="early_access_click">early_access_click</option>
+        <option value="email_submitted">email_submitted</option>
+      </select>
+    </h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Time</th><th>Action</th><th>Email</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Device</th></tr></thead>
+        <tbody id="actRows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="actEmpty">No activity yet. Paste the tracker on the landing page and load.</div>
+  </div>
+
+  <p class="foot">Reads the <code>landing</code> tab via JSONP (<code>?landing=1</code>). One page-view per tab-session; clicks/emails per action.</p>
+</div>
+
+<script>
+  var ENDPOINT_KEY = 'utm2_endpoint'
+  var DEFAULT_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxgWlc_0ZkVdtNGznRm1pCRmKZes18Yrm_XzgDknByKcRfiHxfNh6lfgM0EWIi2SKc0sw/exec'
+  var rows = []   // landing activity rows from the sheet
+
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c] }) }
+  function fmt(ts){ try{ return new Date(ts).toLocaleString() }catch(e){ return ts } }
+  function card(n,l){ return '<div class="card"><div class="n">'+n+'</div><div class="l">'+l+'</div></div>' }
+
+  function tally(items, key){
+    var m = {}
+    items.forEach(function(v){ var k = v[key] || '(none)'; m[k] = (m[k]||0)+1 })
+    return Object.keys(m).map(function(k){ return [k, m[k]] }).sort(function(a,b){ return b[1]-a[1] })
+  }
+  function renderTally(elId, t, total){
+    var el = document.getElementById(elId)
+    if(!t.length){ el.innerHTML = '<div class="empty">—</div>'; return }
+    el.innerHTML = '<table><tbody>' + t.map(function(r){
+      var pct = total ? Math.round(r[1]/total*100) : 0
+      return '<tr><td>'+esc(r[0])+'</td><td style="text-align:right" class="count">'+r[1]
+           + ' <span style="color:var(--muted);font-weight:400">('+pct+'%)</span></td></tr>'
+    }).join('') + '</tbody></table>'
+  }
+
+  function loadServer(){
+    var url = document.getElementById('endpoint').value.trim()
+    var status = document.getElementById('srvStatus')
+    if(!url){ status.textContent = 'Paste your Apps Script Web-app URL first.'; return }
+    localStorage.setItem(ENDPOINT_KEY, url)
+    status.textContent = 'Loading…'
+    var cb = 'ldg_cb_' + Date.now()
+    var s = document.createElement('script')
+    var done = false
+    window[cb] = function(data){
+      done = true
+      rows = Array.isArray(data) ? data : []
+      status.textContent = 'Connected — ' + rows.length + ' landing event(s).'
+      try{ delete window[cb] }catch(e){}; s.remove(); render()
+    }
+    s.onerror = function(){ status.textContent = 'Could not reach the server. Check the URL and that access = "Anyone".'; s.remove() }
+    setTimeout(function(){ if(!done && status.textContent==='Loading…') status.textContent = 'No response yet — double-check the deployment URL/access.' }, 8000)
+    s.src = url + (url.indexOf('?')>=0?'&':'?') + 'landing=1&callback=' + cb + '&_=' + Date.now()
+    document.body.appendChild(s)
+  }
+
+  function render(){
+    var views  = rows.filter(function(r){ return (r.sub||'view') === 'view' })
+    var clicks = rows.filter(function(r){ return r.sub === 'early_access_click' })
+    var emails = rows.filter(function(r){ return r.sub === 'email_submitted' && r.email })
+    var uniqEmails = new Set(emails.map(function(r){ return (r.email||'').toLowerCase() })).size
+    var sources = new Set(views.map(function(r){ return r.source || '(direct)' })).size
+
+    document.getElementById('cards').innerHTML =
+        card(views.length, 'page views')
+      + card(clicks.length, 'early-access clicks')
+      + card(uniqEmails, 'unique emails')
+      + card(sources, 'unique sources')
+
+    // funnel
+    document.getElementById('fViews').textContent  = views.length
+    document.getElementById('fClicks').textContent = clicks.length
+    document.getElementById('fEmails').textContent = emails.length
+    var v = views.length || 0
+    document.getElementById('fClicksPct').textContent = v ? Math.round(clicks.length/v*100)+'% of views' : ''
+    document.getElementById('fEmailsPct').textContent = v ? Math.round(emails.length/v*100)+'% of views' : ''
+
+    renderTally('bySource',   tally(views,  'source'),   views.length)
+    renderTally('byCampaign', tally(views,  'campaign'), views.length)
+    renderTally('byAction',   tally(rows,   'sub'),      rows.length)
+
+    // emails table
+    document.getElementById('emailCount').textContent = emails.length
+    document.getElementById('emailEmpty').style.display = emails.length ? 'none' : 'block'
+    document.getElementById('emailRows').innerHTML = emails.slice().reverse().map(function(r){
+      return '<tr><td>'+esc(fmt(r.ts))+'</td><td>'+esc(r.email)+'</td><td>'+esc(r.source||'—')
+        + '</td><td>'+esc(r.campaign||'—')+'</td><td>'+esc(r.ref||'—')+'</td><td>'+esc(r.device_type||'—')+'</td></tr>'
+    }).join('')
+
+    // all activity (with sub filter)
+    var f = document.getElementById('subFilter').value
+    var shown = f ? rows.filter(function(r){ return (r.sub||'view') === f }) : rows
+    document.getElementById('actCount').textContent = shown.length
+    document.getElementById('actEmpty').style.display = shown.length ? 'none' : 'block'
+    document.getElementById('actRows').innerHTML = shown.slice().reverse().map(function(r){
+      var sub = r.sub || 'view'
+      var cls = sub==='email_submitted' ? 'email' : sub==='early_access_click' ? 'click' : 'view'
+      return '<tr><td>'+esc(fmt(r.ts))+'</td><td><span class="pill '+cls+'">'+esc(sub)+'</span></td>'
+        + '<td>'+esc(r.email||'—')+'</td><td>'+esc(r.source||'—')+'</td><td>'+esc(r.campaign||'—')
+        + '</td><td>'+esc(r.ref||'—')+'</td><td>'+esc(r.device_type||'—')+'</td></tr>'
+    }).join('')
+  }
+
+  function exportEmails(){
+    var emails = rows.filter(function(r){ return r.sub === 'email_submitted' && r.email })
+    if(!emails.length){ alert('No emails to export yet.'); return }
+    var head = 'email,source,campaign,ref,device,time\n'
+    var body = emails.map(function(r){
+      return [r.email, r.source, r.campaign, r.ref, r.device_type, r.ts].map(function(x){
+        return '"' + String(x==null?'':x).replace(/"/g,'""') + '"' }).join(',')
+    }).join('\n')
+    var blob = new Blob([head+body], {type:'text/csv'})
+    var a = document.createElement('a')
+    a.href = URL.createObjectURL(blob); a.download = 'constructa-emails.csv'; a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
+  // init
+  document.getElementById('endpoint').value = localStorage.getItem(ENDPOINT_KEY) || DEFAULT_ENDPOINT
+  if(document.getElementById('endpoint').value) loadServer()
+</script>
+</body>
+</html>
