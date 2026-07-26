@@ -108,6 +108,11 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   </div>
 
   <div class="panel" style="margin-bottom:24px">
+    <h2>Tutorial funnel — how far users get</h2>
+    <div id="tutFunnel"><div class="empty">Connect the server above to load tutorial progress.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
     <h2>UTM link builder</h2>
     <div class="builder">
       <div><label>Base URL</label><input id="b_url" placeholder="https://your-site.com/"></div>
@@ -202,7 +207,47 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     s.src = url + (url.indexOf('?')>=0?'&':'?') + 'events=1&callback=' + cb + '&_=' + Date.now()
     document.body.appendChild(s)
   }
+  // ── Tutorial funnel — how far each user gets, step by step ──
+  // Built from 'tutorial_step' events (extra JSON carries {step:N}); a user's
+  // furthest step = max step across their sid. Bars are cumulative: "reached ≥ N".
+  function renderTutorialFunnel(){
+    var el = document.getElementById('tutFunnel')
+    if(!el) return
+    var started = {}, completed = {}, maxBySid = {}
+    remoteEvents.forEach(function(e){
+      var sid = e.sid || 'anon'
+      if(e.event === 'tutorial_started')   started[sid] = 1
+      if(e.event === 'tutorial_completed') completed[sid] = 1
+      if(e.event === 'tutorial_step'){
+        var st = 0
+        try { st = (JSON.parse(e.extra || '{}').step) | 0 } catch(err) { /* ignore */ }
+        if(st > 0 && (!maxBySid[sid] || st > maxBySid[sid])) maxBySid[sid] = st
+      }
+    })
+    var sids = Object.keys(maxBySid)
+    var nStarted = Object.keys(started).length || sids.length
+    if(!nStarted){ el.innerHTML = '<div class="empty">No tutorial runs yet.</div>'; return }
+    var maxStep = 0
+    sids.forEach(function(s){ if(maxBySid[s] > maxStep) maxStep = maxBySid[s] })
+    var nDone = Object.keys(completed).length
+    var html = '<div style="margin-bottom:10px;font-size:13px"><strong>' + nStarted + '</strong> started · <strong>'
+      + nDone + '</strong> completed <span style="color:var(--muted)">(' + Math.round(nDone / nStarted * 100) + '%)</span></div>'
+    for(var n = 1; n <= maxStep; n++){
+      var c = sids.filter(function(s){ return maxBySid[s] >= n }).length
+      var pct = Math.round(c / nStarted * 100)
+      html += '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">'
+        + '<span style="width:52px;font-size:11px;color:var(--muted)">Step ' + n + '</span>'
+        + '<div style="flex:1;background:var(--surface);border-radius:6px;height:16px;overflow:hidden">'
+        + '<div style="height:100%;width:' + Math.max(Math.min(pct,100), c ? 4 : 0) + '%;background:var(--accent);border-radius:6px"></div></div>'
+        + '<span style="width:74px;font-size:11px;text-align:right" class="count">' + c
+        + ' <span style="color:var(--muted);font-weight:400">(' + pct + '%)</span></span>'
+        + '</div>'
+    }
+    el.innerHTML = html
+  }
+
   function renderEvents(){
+    renderTutorialFunnel()
     var el = document.getElementById('events')
     if(!remoteEvents.length){ el.innerHTML = '<div class="empty">No events yet.</div>'; return }
     var counts = {}, users = {}
