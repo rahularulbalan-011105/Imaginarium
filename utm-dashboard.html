@@ -210,18 +210,29 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   // ── Tutorial funnel — how far each user gets, step by step ──
   // Built from 'tutorial_step' events (extra JSON carries {step:N}); a user's
   // furthest step = max step across their sid. Bars are cumulative: "reached ≥ N".
+  // Readable names per step_id (fired with each tutorial_step event).
+  var STEP_LABELS = {
+    'mission-start':'Intro', 'add-chassis':'Add chassis', 'flatten-chassis':'Flatten chassis',
+    'add-motors':'Add motors', 'bond-motor':'Bond motors', 'add-wheels':'Add wheels',
+    'attach-both':'Pick attach point', 'attach-wheels':'Attach wheels', 'fix-wheel-y':'Fix wheel Y',
+    'add-brain':'Add brain', 'wire-all':'Wire motors', 'open-code':'Open Code',
+    'run-code':'Run code', 'drive-it':'Drive it', 'mission-done':'Finish'
+  }
   function renderTutorialFunnel(){
     var el = document.getElementById('tutFunnel')
     if(!el) return
-    var started = {}, completed = {}, maxBySid = {}
+    var started = {}, completed = {}, maxBySid = {}, idByStep = {}
     remoteEvents.forEach(function(e){
       var sid = e.sid || 'anon'
       if(e.event === 'tutorial_started')   started[sid] = 1
       if(e.event === 'tutorial_completed') completed[sid] = 1
       if(e.event === 'tutorial_step'){
-        var st = 0
-        try { st = (JSON.parse(e.extra || '{}').step) | 0 } catch(err) { /* ignore */ }
-        if(st > 0 && (!maxBySid[sid] || st > maxBySid[sid])) maxBySid[sid] = st
+        var st = 0, id = ''
+        try { var x = JSON.parse(e.extra || '{}'); st = x.step | 0; id = x.step_id || '' } catch(err) { /* ignore */ }
+        if(st > 0){
+          if(!maxBySid[sid] || st > maxBySid[sid]) maxBySid[sid] = st
+          if(id) idByStep[st] = id   // step position ↔ step id (fixed per position)
+        }
       }
     })
     var sids = Object.keys(maxBySid)
@@ -232,15 +243,21 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     var nDone = Object.keys(completed).length
     var html = '<div style="margin-bottom:10px;font-size:13px"><strong>' + nStarted + '</strong> started · <strong>'
       + nDone + '</strong> completed <span style="color:var(--muted)">(' + Math.round(nDone / nStarted * 100) + '%)</span></div>'
+    var prev = nStarted
     for(var n = 1; n <= maxStep; n++){
       var c = sids.filter(function(s){ return maxBySid[s] >= n }).length
       var pct = Math.round(c / nStarted * 100)
+      var drop = prev - c            // users lost between the previous step and this one
+      prev = c
+      var name = STEP_LABELS[idByStep[n]] || idByStep[n] || ('Step ' + n)
       html += '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">'
-        + '<span style="width:52px;font-size:11px;color:var(--muted)">Step ' + n + '</span>'
+        + '<span style="width:150px;font-size:11px;color:var(--muted)" title="'+esc(idByStep[n]||'')+'">' + n + ' · ' + esc(name) + '</span>'
         + '<div style="flex:1;background:var(--surface);border-radius:6px;height:16px;overflow:hidden">'
         + '<div style="height:100%;width:' + Math.max(Math.min(pct,100), c ? 4 : 0) + '%;background:var(--accent);border-radius:6px"></div></div>'
-        + '<span style="width:74px;font-size:11px;text-align:right" class="count">' + c
-        + ' <span style="color:var(--muted);font-weight:400">(' + pct + '%)</span></span>'
+        + '<span style="width:120px;font-size:11px;text-align:right" class="count">' + c
+        + ' <span style="color:var(--muted);font-weight:400">(' + pct + '%)</span>'
+        + (drop > 0 ? ' <span style="color:#dc2626">−' + drop + '</span>' : '')
+        + '</span>'
         + '</div>'
     }
     el.innerHTML = html
