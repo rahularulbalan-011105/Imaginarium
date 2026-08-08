@@ -233,7 +233,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     var tag = document.getElementById('linkModeTag'); if(tag) tag.textContent = m==='direct' ? 'Direct links only' : 'Social links only'
     render(); renderEvents(); renderLinks()
   }
-  var FUNNEL = ['app_loaded','shape_added','code_run','sim_started','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
+  var FUNNEL = ['app_loaded','shape_added','code_run','sim_started','battle_started','arena_started','share_link_created','export_json','project_saved','discord_join','email_submitted']
   function loadEvents(url){
     var cb = 'ev_cb_' + Date.now()
     var s = document.createElement('script')
@@ -311,7 +311,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     if(!el || !mode) return
     var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
     function agg(name){ var c=0,u={}; evs.forEach(function(e){ if(e.event===name){ c++; if(e.sid) u[e.sid]=1 } }); return {count:c, users:Object.keys(u).length} }
-    var run = agg('code_run'), sim = agg('sim_started'), shp = agg('shape_added')
+    var run = agg('code_run'), sim = agg('sim_started'), shp = agg('shape_added'), exp = agg('export_json')
     // Peak shapes in the pane — max scene count carried on shape_added, per user.
     var peak = 0, byS = {}
     evs.forEach(function(e){ if(e.event==='shape_added'){ var n=0; try{ n=(JSON.parse(e.extra||'{}').count)|0 }catch(x){}; var s=e.sid||'anon'; if(n>(byS[s]||0)) byS[s]=n; if(n>peak) peak=n } })
@@ -327,6 +327,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       + row('▶ Start Simulation clicks', sim.count, sim.users)
       + row('➕ Shapes added', shp.count, shp.users)
       + row('▣ Peak shapes in the pane', peak, null, 'busiest session · avg peak/user ' + avg)
+      + row('⬇ Export JSON clicks', exp.count, exp.users)
       + '</tbody></table>'
   }
 
