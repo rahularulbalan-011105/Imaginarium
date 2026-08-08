@@ -45,6 +45,9 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   .pill.tag{background:#eef2ff;color:var(--accent)}
   .pill.direct{background:var(--surface);color:var(--muted)}
   .count{font-weight:700;color:var(--text)}
+  .ltab{font:inherit;font-size:12px;font-weight:600;padding:4px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--muted);cursor:pointer}
+  .ltab+.ltab{margin-left:6px}
+  .ltab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   .builder{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
   @media(max-width:640px){.builder{grid-template-columns:1fr}}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:600}
@@ -134,7 +137,12 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   </div>
 
   <div class="panel" style="margin-bottom:24px">
-    <h2>Saved links (<span id="linkCount">0</span>)</h2>
+    <h2>Saved links (<span id="linkCount">0</span>)
+      <span style="float:right">
+        <button id="linkTabOther"  class="ltab active" onclick="setLinkTab('other')">Campaign links (<span id="ltOtherCount">0</span>)</button>
+        <button id="linkTabDirect" class="ltab"        onclick="setLinkTab('direct')">Direct links (<span id="ltDirectCount">0</span>)</button>
+      </span>
+    </h2>
     <div class="scroll">
       <table>
         <thead><tr>
@@ -198,6 +206,15 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   // ── In-app engagement events (funnel) ──
   var remoteEvents = []
   var savedLinks = []
+  var linkTab = 'other'   // 'other' = campaign/tagged links · 'direct' = untagged/direct links
+  // A saved link is "direct" when it carries no UTM source (a plain/untagged link).
+  function isDirectLink(l){ var s=((l&&l.source)||'').trim().toLowerCase(); return !s || s==='(direct)' || s==='direct' || s==='(not set)' }
+  function setLinkTab(t){
+    linkTab = t
+    document.getElementById('linkTabOther').className  = 'ltab' + (t==='other'  ? ' active' : '')
+    document.getElementById('linkTabDirect').className = 'ltab' + (t==='direct' ? ' active' : '')
+    renderLinks()
+  }
   var FUNNEL = ['app_loaded','sim_started','code_run','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
   function loadEvents(url){
     var cb = 'ev_cb_' + Date.now()
@@ -440,9 +457,24 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     document.body.appendChild(s)
   }
   function renderLinks(){
-    document.getElementById('linkCount').textContent = savedLinks.length
-    document.getElementById('linkEmpty').style.display = savedLinks.length ? 'none' : 'block'
-    var rev = savedLinks.map(function(l,i){ return { l:l, i:i } }).reverse()
+    // Keep both tab counters live, then show only the active tab's links.
+    var directCount = 0
+    for (var j=0;j<savedLinks.length;j++) if (isDirectLink(savedLinks[j])) directCount++
+    document.getElementById('ltDirectCount').textContent = directCount
+    document.getElementById('ltOtherCount').textContent  = savedLinks.length - directCount
+
+    var rev = savedLinks
+      .map(function(l,i){ return { l:l, i:i } })
+      .filter(function(o){ return linkTab==='direct' ? isDirectLink(o.l) : !isDirectLink(o.l) })
+      .reverse()
+
+    document.getElementById('linkCount').textContent = rev.length
+    var empty = document.getElementById('linkEmpty')
+    empty.style.display = rev.length ? 'none' : 'block'
+    empty.textContent = linkTab==='direct'
+      ? 'No direct links yet. Links saved without a utm_source show up here.'
+      : 'No campaign links yet. Build a tagged link above (with a utm_source) and click "Save to sheet".'
+
     document.getElementById('linkRows').innerHTML = rev.map(function(o){
       var l = o.l
       var short = (l.url||''); if(short.length > 60) short = short.slice(0,60) + '…'
