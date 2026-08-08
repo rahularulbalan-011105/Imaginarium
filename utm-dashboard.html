@@ -48,6 +48,10 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   .ltab{font:inherit;font-size:12px;font-weight:600;padding:4px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--muted);cursor:pointer}
   .ltab+.ltab{margin-left:6px}
   .ltab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .modebtn{flex:1;font:inherit;font-size:15px;font-weight:700;padding:14px;border-radius:10px;
+           border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
+  .modebtn:hover{border-color:var(--accent)}
+  .modebtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   .builder{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
   @media(max-width:640px){.builder{grid-template-columns:1fr}}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:600}
@@ -97,25 +101,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     <div id="srvStatus" style="color:var(--muted);font-size:12px;margin-top:8px">Not connected — showing this browser's visits only.</div>
   </div>
 
-  <div class="cards" id="cards"></div>
-
-  <div class="grid2">
-    <div class="panel"><h2>By source</h2><div id="bySource"></div></div>
-    <div class="panel"><h2>By campaign</h2><div id="byCampaign"></div></div>
-    <div class="panel"><h2>Popup action</h2><div id="byPopup"></div></div>
-  </div>
-
-  <div class="panel" style="margin-bottom:24px">
-    <h2>Engagement funnel (in-app events)</h2>
-    <div id="events"><div class="empty">Connect the server above to load events.</div></div>
-  </div>
-
-  <div class="panel" style="margin-bottom:24px">
-    <h2>Tutorial funnel — how far users get</h2>
-    <div id="tutFunnel"><div class="empty">Connect the server above to load tutorial progress.</div></div>
-  </div>
-
-  <div class="panel" style="margin-bottom:24px">
+  <div class="panel" style="margin-bottom:20px">
     <h2>UTM link builder</h2>
     <div class="builder">
       <div><label>Base URL</label><input id="b_url" placeholder="https://your-site.com/"></div>
@@ -136,13 +122,36 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     <div id="saveMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
   </div>
 
+  <div class="panel" style="margin-bottom:20px">
+    <h2>Which links do you want to see?</h2>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Pick a view — the whole dashboard below shows only that group.</div>
+    <div style="display:flex;gap:12px">
+      <button id="modeSocial" class="modebtn" onclick="setMode('social')">📢 Social links<div style="font-size:11px;font-weight:400;opacity:.85;margin-top:3px">Tagged / campaign traffic</div></button>
+      <button id="modeDirect" class="modebtn" onclick="setMode('direct')">🔗 Direct links<div style="font-size:11px;font-weight:400;opacity:.85;margin-top:3px">Untagged / direct traffic</div></button>
+    </div>
+  </div>
+
+  <div id="dashData" style="display:none">
+  <div class="cards" id="cards"></div>
+
+  <div class="grid2">
+    <div class="panel"><h2>By source</h2><div id="bySource"></div></div>
+    <div class="panel"><h2>By campaign</h2><div id="byCampaign"></div></div>
+    <div class="panel"><h2>Popup action</h2><div id="byPopup"></div></div>
+  </div>
+
   <div class="panel" style="margin-bottom:24px">
-    <h2>Saved links (<span id="linkCount">0</span>)
-      <span style="float:right">
-        <button id="linkTabOther"  class="ltab active" onclick="setLinkTab('other')">Campaign links (<span id="ltOtherCount">0</span>)</button>
-        <button id="linkTabDirect" class="ltab"        onclick="setLinkTab('direct')">Direct links (<span id="ltDirectCount">0</span>)</button>
-      </span>
-    </h2>
+    <h2>Engagement funnel (in-app events)</h2>
+    <div id="events"><div class="empty">Connect the server above to load events.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Tutorial funnel — how far users get</h2>
+    <div id="tutFunnel"><div class="empty">Connect the server above to load tutorial progress.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Saved links (<span id="linkCount">0</span>) <span id="linkModeTag" style="float:right;font-size:12px;font-weight:600;color:var(--muted)"></span></h2>
     <div class="scroll">
       <table>
         <thead><tr>
@@ -171,10 +180,10 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       </table>
     </div>
     <div class="empty" id="emptyMsg" style="display:none">
-      No visits yet. Open the app with a tagged link like<br>
-      <code>?utm_source=instagram&amp;utm_medium=social&amp;utm_campaign=launch2026</code>
+      No visits in this view yet.
     </div>
   </div>
+  </div><!-- /#dashData -->
 
   <p class="foot">Keys: <code>utm_visits_v1</code>, <code>utm_first_touch_v1</code> · one visit recorded per tab-session.</p>
 </div>
@@ -206,14 +215,18 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   // ── In-app engagement events (funnel) ──
   var remoteEvents = []
   var savedLinks = []
-  var linkTab = 'other'   // 'other' = campaign/tagged links · 'direct' = untagged/direct links
-  // A saved link is "direct" when it carries no UTM source (a plain/untagged link).
-  function isDirectLink(l){ var s=((l&&l.source)||'').trim().toLowerCase(); return !s || s==='(direct)' || s==='direct' || s==='(not set)' }
-  function setLinkTab(t){
-    linkTab = t
-    document.getElementById('linkTabOther').className  = 'ltab' + (t==='other'  ? ' active' : '')
-    document.getElementById('linkTabDirect').className = 'ltab' + (t==='direct' ? ' active' : '')
-    renderLinks()
+  // ── View mode: 'social' (tagged/campaign traffic) vs 'direct' (untagged). The
+  //    user picks one; the ENTIRE dashboard below shows only that group. ──
+  var mode = null
+  function isDirectSrc(s){ s=((s)||'').trim().toLowerCase(); return !s || s==='(direct)' || s==='direct' || s==='(not set)' }
+  function inMode(src){ return mode==='direct' ? isDirectSrc(src) : !isDirectSrc(src) }
+  function setMode(m){
+    mode = m
+    document.getElementById('modeSocial').className = 'modebtn' + (m==='social' ? ' active' : '')
+    document.getElementById('modeDirect').className = 'modebtn' + (m==='direct' ? ' active' : '')
+    document.getElementById('dashData').style.display = 'block'
+    var tag = document.getElementById('linkModeTag'); if(tag) tag.textContent = m==='direct' ? 'Direct links only' : 'Social links only'
+    render(); renderEvents(); renderLinks()
   }
   var FUNNEL = ['app_loaded','sim_started','code_run','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
   function loadEvents(url){
@@ -238,8 +251,9 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   function renderTutorialFunnel(){
     var el = document.getElementById('tutFunnel')
     if(!el) return
+    if(!mode) return
     var started = {}, completed = {}, maxBySid = {}, idByStep = {}
-    remoteEvents.forEach(function(e){
+    remoteEvents.filter(function(e){ return inMode(e.source) }).forEach(function(e){
       var sid = e.sid || 'anon'
       if(e.event === 'tutorial_started')   started[sid] = 1
       if(e.event === 'tutorial_completed') completed[sid] = 1
@@ -283,9 +297,11 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   function renderEvents(){
     renderTutorialFunnel()
     var el = document.getElementById('events')
-    if(!remoteEvents.length){ el.innerHTML = '<div class="empty">No events yet.</div>'; return }
+    if(!mode) return
+    var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
+    if(!evs.length){ el.innerHTML = '<div class="empty">No events in this view.</div>'; return }
     var counts = {}, users = {}
-    remoteEvents.forEach(function(e){
+    evs.forEach(function(e){
       var n = e.event || '?'
       counts[n] = (counts[n]||0) + 1
       users[n] = users[n] || {}; if(e.sid) users[n][e.sid] = 1
@@ -351,16 +367,18 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   }
 
   function render(){
-    var visits = getAllVisits()
+    if(!mode) return                 // nothing shown until the user picks a view
+    var visits = getAllVisits().filter(function(v){ return inMode(v.source) })
     var total = visits.length
-    var tagged = visits.filter(function(v){ return v.tagged }).length
-    var sources = new Set(visits.map(function(v){ return v.source })).size
+    var uSources   = new Set(visits.map(function(v){ return v.source })).size
+    var uCampaigns = new Set(visits.map(function(v){ return v.campaign })).size
+    var uRefs      = new Set(visits.filter(function(v){ return v.ref }).map(function(v){ return v.ref })).size
 
     document.getElementById('cards').innerHTML =
-        card(total,'total visits')
-      + card(tagged,'tagged (campaign)')
-      + card(total-tagged,'direct / untagged')
-      + card(sources,'unique sources')
+        card(total, mode==='direct' ? 'direct visits' : 'social visits')
+      + card(uSources,'unique sources')
+      + card(uCampaigns,'unique campaigns')
+      + card(uRefs,'unique refs')
 
     renderTally('bySource',   tally(visits,'source'),        total)
     renderTally('byCampaign', tally(visits,'campaign'),      total)
@@ -457,23 +475,18 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     document.body.appendChild(s)
   }
   function renderLinks(){
-    // Keep both tab counters live, then show only the active tab's links.
-    var directCount = 0
-    for (var j=0;j<savedLinks.length;j++) if (isDirectLink(savedLinks[j])) directCount++
-    document.getElementById('ltDirectCount').textContent = directCount
-    document.getElementById('ltOtherCount').textContent  = savedLinks.length - directCount
-
+    if(!mode) return
     var rev = savedLinks
       .map(function(l,i){ return { l:l, i:i } })
-      .filter(function(o){ return linkTab==='direct' ? isDirectLink(o.l) : !isDirectLink(o.l) })
+      .filter(function(o){ return inMode(o.l.source) })
       .reverse()
 
     document.getElementById('linkCount').textContent = rev.length
     var empty = document.getElementById('linkEmpty')
     empty.style.display = rev.length ? 'none' : 'block'
-    empty.textContent = linkTab==='direct'
-      ? 'No direct links yet. Links saved without a utm_source show up here.'
-      : 'No campaign links yet. Build a tagged link above (with a utm_source) and click "Save to sheet".'
+    empty.textContent = mode==='direct'
+      ? 'No direct links yet. Links saved without a utm_source appear here.'
+      : 'No social/campaign links yet. Build a tagged link above (with a utm_source) and click "Save to sheet".'
 
     document.getElementById('linkRows').innerHTML = rev.map(function(o){
       var l = o.l
