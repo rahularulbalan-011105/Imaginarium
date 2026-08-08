@@ -141,6 +141,11 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   </div>
 
   <div class="panel" style="margin-bottom:24px">
+    <h2>Key actions</h2>
+    <div id="keyActions"><div class="empty">Pick a view above to load activity.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
     <h2>Engagement funnel (in-app events)</h2>
     <div id="events"><div class="empty">Connect the server above to load events.</div></div>
   </div>
@@ -228,7 +233,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     var tag = document.getElementById('linkModeTag'); if(tag) tag.textContent = m==='direct' ? 'Direct links only' : 'Social links only'
     render(); renderEvents(); renderLinks()
   }
-  var FUNNEL = ['app_loaded','sim_started','code_run','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
+  var FUNNEL = ['app_loaded','shape_added','code_run','sim_started','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
   function loadEvents(url){
     var cb = 'ev_cb_' + Date.now()
     var s = document.createElement('script')
@@ -242,11 +247,18 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   // furthest step = max step across their sid. Bars are cumulative: "reached ≥ N".
   // Readable names per step_id (fired with each tutorial_step event).
   var STEP_LABELS = {
+    // Build-a-robot tutorial
     'mission-start':'Intro', 'add-chassis':'Add chassis', 'flatten-chassis':'Flatten chassis',
     'add-motors':'Add motors', 'bond-motor':'Bond motors', 'add-wheels':'Add wheels',
     'attach-both':'Pick attach point', 'attach-wheels':'Attach wheels', 'fix-wheel-y':'Fix wheel Y',
     'add-brain':'Add brain', 'wire-all':'Wire motors', 'open-code':'Open Code',
-    'run-code':'Run code', 'drive-it':'Drive it', 'mission-done':'Finish'
+    'run-code':'Run code', 'drive-it':'Drive it', 'mission-done':'Finish',
+    // Repair-the-puppy template (the on-load mission)
+    'debug-greet':'Meet Puppy', 'debug-open-sim':'Open Sim', 'debug-start-sim':'Start Sim',
+    'debug-run-in-sim':'Run code (sim)', 'debug-observe-circle':'Spot the bug',
+    'debug-open-wiring':'Open Wiring', 'debug-connect-left':'Fix wiring',
+    'debug-open-sim-2':'Back to Sim', 'debug-start-sim-2':'Start Sim (retest)',
+    'debug-run-2':'Run code (retest)', 'debug-victory':'Fixed!', 'debug-find-learn':'→ Product Tour'
   }
   function renderTutorialFunnel(){
     var el = document.getElementById('tutFunnel')
@@ -294,8 +306,33 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     el.innerHTML = html
   }
 
+  function renderKeyActions(){
+    var el = document.getElementById('keyActions')
+    if(!el || !mode) return
+    var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
+    function agg(name){ var c=0,u={}; evs.forEach(function(e){ if(e.event===name){ c++; if(e.sid) u[e.sid]=1 } }); return {count:c, users:Object.keys(u).length} }
+    var run = agg('code_run'), sim = agg('sim_started'), shp = agg('shape_added')
+    // Peak shapes in the pane — max scene count carried on shape_added, per user.
+    var peak = 0, byS = {}
+    evs.forEach(function(e){ if(e.event==='shape_added'){ var n=0; try{ n=(JSON.parse(e.extra||'{}').count)|0 }catch(x){}; var s=e.sid||'anon'; if(n>(byS[s]||0)) byS[s]=n; if(n>peak) peak=n } })
+    var sids = Object.keys(byS)
+    var avg = sids.length ? Math.round(sids.reduce(function(a,s){return a+byS[s]},0)/sids.length*10)/10 : 0
+    function row(label,count,users,note){
+      return '<tr><td>'+esc(label)+(note?' <span style="color:var(--muted);font-size:11px">('+esc(note)+')</span>':'')+'</td>'
+        + '<td style="text-align:right" class="count">'+count
+        + (users!=null?' <span style="color:var(--muted);font-weight:400">('+users+' users)</span>':'')+'</td></tr>'
+    }
+    el.innerHTML = '<table><tbody>'
+      + row('▶ Run Code clicks', run.count, run.users)
+      + row('▶ Start Simulation clicks', sim.count, sim.users)
+      + row('➕ Shapes added', shp.count, shp.users)
+      + row('▣ Peak shapes in the pane', peak, null, 'busiest session · avg peak/user ' + avg)
+      + '</tbody></table>'
+  }
+
   function renderEvents(){
     renderTutorialFunnel()
+    renderKeyActions()
     var el = document.getElementById('events')
     if(!mode) return
     var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
