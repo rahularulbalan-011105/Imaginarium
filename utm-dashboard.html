@@ -156,6 +156,11 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   </div>
 
   <div class="panel" style="margin-bottom:24px">
+    <h2>Per-user activity <span style="font-weight:400;font-size:12px;color:var(--muted)">— one row per session</span></h2>
+    <div class="scroll" id="perUser"><div class="empty">Pick a view above to load per-user activity.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
     <h2>Saved links (<span id="linkCount">0</span>) <span id="linkModeTag" style="float:right;font-size:12px;font-weight:600;color:var(--muted)"></span></h2>
     <div class="scroll">
       <table>
@@ -331,9 +336,49 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       + '</tbody></table>'
   }
 
+  // Per-user breakdown: one row per session id (sid) with their action counts.
+  function renderPerUser(){
+    var el = document.getElementById('perUser')
+    if(!el || !mode) return
+    var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
+    var users = {}
+    evs.forEach(function(e){
+      var sid = e.sid || '(no id)'
+      var u = users[sid] || (users[sid] = { sid:sid, source:e.source||'(direct)', runs:0, sims:0, shapes:0, exports:0, step:0, last:e.ts||'' })
+      if(e.source) u.source = e.source
+      if((e.ts||'') > u.last) u.last = e.ts||''
+      if(e.event==='code_run') u.runs++
+      else if(e.event==='sim_started') u.sims++
+      else if(e.event==='export_json') u.exports++
+      else if(e.event==='shape_added'){ var n=0; try{ n=(JSON.parse(e.extra||'{}').count)|0 }catch(x){}; if(n>u.shapes) u.shapes=n }
+      else if(e.event==='tutorial_step'){ var st=0; try{ st=(JSON.parse(e.extra||'{}').step)|0 }catch(x){}; if(st>u.step) u.step=st }
+    })
+    var list = Object.keys(users).map(function(k){ return users[k] })
+      .sort(function(a,b){ return (b.runs+b.sims+b.exports+b.shapes) - (a.runs+a.sims+a.exports+a.shapes) })
+    if(!list.length){ el.innerHTML = '<div class="empty">No per-user activity in this view yet.</div>'; return }
+    var html = '<table><thead><tr>'
+      + '<th>User (session)</th><th>Source</th><th>Run code</th><th>Sim starts</th>'
+      + '<th>Shapes (peak)</th><th>Export JSON</th><th>Tut step</th><th>Last seen</th>'
+      + '</tr></thead><tbody>'
+    list.forEach(function(u){
+      html += '<tr>'
+        + '<td title="'+esc(u.sid)+'"><code>'+esc(String(u.sid).slice(0,10))+'</code></td>'
+        + '<td>'+esc(u.source)+'</td>'
+        + '<td style="text-align:right" class="count">'+u.runs+'</td>'
+        + '<td style="text-align:right" class="count">'+u.sims+'</td>'
+        + '<td style="text-align:right" class="count">'+u.shapes+'</td>'
+        + '<td style="text-align:right" class="count">'+u.exports+'</td>'
+        + '<td style="text-align:right" class="count">'+(u.step||'—')+'</td>'
+        + '<td>'+esc(fmt(u.last))+'</td>'
+        + '</tr>'
+    })
+    el.innerHTML = html + '</tbody></table>'
+  }
+
   function renderEvents(){
     renderTutorialFunnel()
     renderKeyActions()
+    renderPerUser()
     var el = document.getElementById('events')
     if(!mode) return
     var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
