@@ -30,6 +30,11 @@ export const useElectronicsStore = create((set, get) => ({
   // e.g. "compA:D3→compB:TERM_A"
   connections: {},
 
+  // In-progress wire in the Wiring panel (read-only mirror for the guided coach):
+  // mode 'idle' | 'source' (srcPin picked) | 'confirm' (both picked, awaiting Connect).
+  wireDraft: { mode: 'idle', srcPin: null, dstPin: null },
+  setWireDraft: (d) => set({ wireDraft: d }),
+
   code: DEFAULT_CODE,
 
   // Serialized Blockly workspace (JSON) for the visual code editor

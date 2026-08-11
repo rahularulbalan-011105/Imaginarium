@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import * as THREE from 'three'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
@@ -71,6 +71,7 @@ function PinButton({ pinId, pin, step, srcPin, dstPin, connectedPins, connForPin
     <button
       disabled={isSrc}
       onClick={onClick}
+      data-tour={`pin-${pinId}`}
       className={`py-1 px-0.5 rounded text-[9px] font-mono border transition-colors ${bg} ${textColor} ${border} ${cursor} disabled:opacity-40 disabled:cursor-not-allowed`}
       title={title}
     >
@@ -100,6 +101,11 @@ export default function WiringPanel() {
   const [disconnectConnId, setDisconnectConnId] = useState(null)
   const [disconnectInfo, setDisconnectInfo]     = useState(null) // { from, to, color }
   const [wbOpen, setWbOpen] = useState(false)   // drag-to-connect workbench modal
+
+  // Mirror the in-progress wire into the store so the guided coach can point its
+  // arrow at the next pin / the Connect button as the user wires.
+  const setWireDraft = useElectronicsStore(s => s.setWireDraft)
+  useEffect(() => { setWireDraft({ mode, srcPin, dstPin }) }, [mode, srcPin, dstPin, setWireDraft])
 
   const reset = () => { setMode('idle'); setSrcPin(null); setDstPin(null); setDisconnectConnId(null); setDisconnectInfo(null) }
 
@@ -247,6 +253,7 @@ export default function WiringPanel() {
 
         <button
           onClick={connect}
+          data-tour="wire-connect"
           className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-700 hover:text-slate-900 transition-colors"
         >
           ⚡ Connect
@@ -378,6 +385,7 @@ export default function WiringPanel() {
                   </div>
                   <button
                     onClick={() => disconnect(connId)}
+                    data-tour={`conn-cut-${connId}`}
                     className="shrink-0 opacity-40 group-hover:opacity-100 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded px-1.5 py-0.5 text-[10px] font-medium transition-all"
                     title="Disconnect"
                   >

@@ -84,6 +84,7 @@ export default function SurfaceAttachPrompt() {
         {/* Connect button */}
         <button
           onClick={handleAttach}
+          data-tour="surface-bond"
           className="px-4 py-1.5 text-xs font-bold rounded-lg transition-all whitespace-nowrap"
           style={{
             background: 'linear-gradient(90deg,#0e7490,#0891b2)',

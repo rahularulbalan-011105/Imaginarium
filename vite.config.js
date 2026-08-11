@@ -17,6 +17,7 @@ export default defineConfig({
       input: {
         main: 'index.html',
         utm:  'utm-dashboard.html',
+        utm2: 'utm-dashboard2.html',   // landing-page (constructa-page) analytics
       },
     },
   },

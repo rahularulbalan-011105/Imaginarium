@@ -28,9 +28,22 @@ class StorageManager {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, 'readwrite')
       tx.objectStore(STORE).put({ ...data, modified: new Date().toISOString() })
-      tx.oncomplete = () => resolve(data.projectId)
+      // Remember the last-saved fingerprint so autosave can skip no-op writes,
+      // whether the save came from autosave OR the manual Save button.
+      tx.oncomplete = () => { this._lastSaved = this._serialize(data); resolve(data.projectId) }
       tx.onerror = (e) => reject(e.target.error)
     })
+  }
+
+  // Stable fingerprint of a project (created/modified change every snapshot, so
+  // they're excluded — otherwise every autosave would look "changed").
+  _serialize(data) {
+    try { return JSON.stringify({ ...data, created: undefined, modified: undefined }) } catch { return null }
+  }
+
+  // Broadcast autosave status so the header indicator can reflect it.
+  _emitStatus(state) {
+    try { window.dispatchEvent(new CustomEvent('constructa:autosave', { detail: { state, at: Date.now() } })) } catch { /* SSR/no-window */ }
   }
 
   async loadProject(id) {
@@ -63,9 +76,15 @@ class StorageManager {
 
   enableAutoSave(getProjectData, intervalMs = 30000) {
     this.disableAutoSave()
-    this._timer = setInterval(() => {
+    this._timer = setInterval(async () => {
       const data = getProjectData()
-      if (data) this.saveProject(data).catch(console.error)
+      if (!data) return
+      // Dirty-check: skip the write entirely when nothing changed since last save.
+      const serial = this._serialize(data)
+      if (serial && serial === this._lastSaved) return
+      this._emitStatus('saving')
+      try { await this.saveProject(data); this._emitStatus('saved') }
+      catch (e) { console.error(e); this._emitStatus('error') }
     }, intervalMs)
   }
 

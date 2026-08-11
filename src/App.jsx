@@ -15,11 +15,12 @@ import MechanicalLibrary from './components/MechanicalLibrary.jsx'
 import JointPanel from './components/JointPanel.jsx'
 import WiringPanel from './components/WiringPanel.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
-import DiscordGate from './components/DiscordGate.jsx'
 import ConstructaLogo from './components/ConstructaLogo.jsx'
 import EmailCapture from './components/EmailCapture.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
+import StartSessionBanner from './components/StartSessionBanner.jsx'
+import CreditDialog from './components/CreditDialog.jsx'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
 import PanelHint from './components/onboarding/PanelHint.jsx'
@@ -280,6 +281,18 @@ function AppEditor() {
   }, [])
 
   useEffect(() => { resetBaseline() }, [])
+
+  // First the "Start Session" banner is shown (StartSessionBanner). When the user
+  // starts it, the banner is removed and it launches the puppy mission itself —
+  // so there's no auto-launch here anymore.
+
+  // Count every ▶ Run Code click (Code panel, Blocks panel, and the in-sim HUD all
+  // dispatch constructa:code-run) → one code_run analytics event.
+  useEffect(() => {
+    const onRun = () => trackEvent('code_run', { parts: useSceneStore.getState().objects.length })
+    window.addEventListener('constructa:code-run', onRun)
+    return () => window.removeEventListener('constructa:code-run', onRun)
+  }, [])
 
   // Push snap-to-grid settings down to the transform gizmo whenever they change.
   useEffect(() => { sceneManager.setSnap(snapTranslate, snapRotateDeg) }, [snapTranslate, snapRotateDeg])
@@ -576,11 +589,10 @@ function AppEditor() {
       {/* Mirrors onboarding flags into the overlay coordinator so the View Cube
           yields to the welcome card / tour / coach / reference modals. */}
       <OverlayBridge />
-      {/* Blocking join-Discord gate — shown above the welcome card on every
-          visit until the user joins (localStorage 'discord_joined_v1'). */}
-      <DiscordGate />
       <EmailCapture />
       <CombatHUD />
+      <StartSessionBanner />
+      <CreditDialog />
       <WelcomeOverlay />
       <ProductTour />
       <GuidedCoach />

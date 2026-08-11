@@ -45,6 +45,13 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   .pill.tag{background:#eef2ff;color:var(--accent)}
   .pill.direct{background:var(--surface);color:var(--muted)}
   .count{font-weight:700;color:var(--text)}
+  .ltab{font:inherit;font-size:12px;font-weight:600;padding:4px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--muted);cursor:pointer}
+  .ltab+.ltab{margin-left:6px}
+  .ltab.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .modebtn{flex:1;font:inherit;font-size:15px;font-weight:700;padding:14px;border-radius:10px;
+           border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
+  .modebtn:hover{border-color:var(--accent)}
+  .modebtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
   .builder{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
   @media(max-width:640px){.builder{grid-template-columns:1fr}}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:600}
@@ -94,20 +101,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     <div id="srvStatus" style="color:var(--muted);font-size:12px;margin-top:8px">Not connected — showing this browser's visits only.</div>
   </div>
 
-  <div class="cards" id="cards"></div>
-
-  <div class="grid2">
-    <div class="panel"><h2>By source</h2><div id="bySource"></div></div>
-    <div class="panel"><h2>By campaign</h2><div id="byCampaign"></div></div>
-    <div class="panel"><h2>Popup action</h2><div id="byPopup"></div></div>
-  </div>
-
-  <div class="panel" style="margin-bottom:24px">
-    <h2>Engagement funnel (in-app events)</h2>
-    <div id="events"><div class="empty">Connect the server above to load events.</div></div>
-  </div>
-
-  <div class="panel" style="margin-bottom:24px">
+  <div class="panel" style="margin-bottom:20px">
     <h2>UTM link builder</h2>
     <div class="builder">
       <div><label>Base URL</label><input id="b_url" placeholder="https://your-site.com/"></div>
@@ -117,16 +111,75 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       <div><label>ref (person, e.g. akash)</label><input id="b_ref" placeholder="akash"></div>
       <div><label>utm_term (optional)</label><input id="b_term" placeholder="robotics"></div>
       <div><label>utm_content (optional)</label><input id="b_content" placeholder="story-cta"></div>
+      <div><label>label (optional, for your reference)</label><input id="b_label" placeholder="Akash — IG story"></div>
     </div>
     <label>Generated link</label>
     <div class="out">
       <input id="b_out" readonly placeholder="Fill in the fields above…">
       <button class="primary" onclick="copyLink()">Copy</button>
+      <button onclick="saveLink()">Save to sheet</button>
+    </div>
+    <div id="saveMsg" style="font-size:12px;color:var(--muted);margin-top:6px"></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:20px">
+    <h2>Which links do you want to see?</h2>
+    <div style="color:var(--muted);font-size:13px;margin-bottom:12px">Pick a view — the whole dashboard below shows only that group.</div>
+    <div style="display:flex;gap:12px">
+      <button id="modeSocial" class="modebtn" onclick="setMode('social')">📢 Social links<div style="font-size:11px;font-weight:400;opacity:.85;margin-top:3px">Tagged / campaign traffic</div></button>
+      <button id="modeDirect" class="modebtn" onclick="setMode('direct')">🔗 Direct links<div style="font-size:11px;font-weight:400;opacity:.85;margin-top:3px">Untagged / direct traffic</div></button>
     </div>
   </div>
 
+  <div id="dashData" style="display:none">
+  <div class="cards" id="cards"></div>
+
+  <div class="grid2">
+    <div class="panel"><h2>By source</h2><div id="bySource"></div></div>
+    <div class="panel"><h2>By campaign</h2><div id="byCampaign"></div></div>
+    <div class="panel"><h2>Popup action</h2><div id="byPopup"></div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Key actions</h2>
+    <div id="keyActions"><div class="empty">Pick a view above to load activity.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Engagement funnel (in-app events)</h2>
+    <div id="events"><div class="empty">Connect the server above to load events.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Tutorial funnel — how far users get</h2>
+    <div id="tutFunnel"><div class="empty">Connect the server above to load tutorial progress.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Per-user activity <span style="font-weight:400;font-size:12px;color:var(--muted)">— one row per session</span></h2>
+    <div class="scroll" id="perUser"><div class="empty">Pick a view above to load per-user activity.</div></div>
+  </div>
+
+  <div class="panel" style="margin-bottom:24px">
+    <h2>Saved links (<span id="linkCount">0</span>) <span id="linkModeTag" style="float:right;font-size:12px;font-weight:600;color:var(--muted)"></span></h2>
+    <div class="scroll">
+      <table>
+        <thead><tr>
+          <th>Saved</th><th>Label</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Link</th><th></th>
+        </tr></thead>
+        <tbody id="linkRows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="linkEmpty">No saved links yet. Build a link above and click "Save to sheet" — they'll all collect here (and in the <code>links</code> tab of your sheet).</div>
+  </div>
+
   <div class="panel">
-    <h2>All visits (<span id="visitCount">0</span>)</h2>
+    <h2>All visits (<span id="visitCount">0</span>)
+      <select id="srcFilter" onchange="render()" title="Filter the table by source"
+        style="float:right;font-size:13px;font-weight:400;padding:5px 9px;border-radius:7px;border:1px solid var(--border);background:var(--panel);color:var(--text)">
+        <option value="">All sources</option>
+      </select>
+    </h2>
     <div class="scroll">
       <table>
         <thead><tr>
@@ -137,10 +190,10 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       </table>
     </div>
     <div class="empty" id="emptyMsg" style="display:none">
-      No visits yet. Open the app with a tagged link like<br>
-      <code>?utm_source=instagram&amp;utm_medium=social&amp;utm_campaign=launch2026</code>
+      No visits in this view yet.
     </div>
   </div>
+  </div><!-- /#dashData -->
 
   <p class="foot">Keys: <code>utm_visits_v1</code>, <code>utm_first_touch_v1</code> · one visit recorded per tab-session.</p>
 </div>
@@ -171,7 +224,21 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
 
   // ── In-app engagement events (funnel) ──
   var remoteEvents = []
-  var FUNNEL = ['app_loaded','sim_started','code_run','battle_started','arena_started','share_link_created','project_saved','discord_join','email_submitted']
+  var savedLinks = []
+  // ── View mode: 'social' (tagged/campaign traffic) vs 'direct' (untagged). The
+  //    user picks one; the ENTIRE dashboard below shows only that group. ──
+  var mode = null
+  function isDirectSrc(s){ s=((s)||'').trim().toLowerCase(); return !s || s==='(direct)' || s==='direct' || s==='(not set)' }
+  function inMode(src){ return mode==='direct' ? isDirectSrc(src) : !isDirectSrc(src) }
+  function setMode(m){
+    mode = m
+    document.getElementById('modeSocial').className = 'modebtn' + (m==='social' ? ' active' : '')
+    document.getElementById('modeDirect').className = 'modebtn' + (m==='direct' ? ' active' : '')
+    document.getElementById('dashData').style.display = 'block'
+    var tag = document.getElementById('linkModeTag'); if(tag) tag.textContent = m==='direct' ? 'Direct links only' : 'Social links only'
+    render(); renderEvents(); renderLinks()
+  }
+  var FUNNEL = ['app_loaded','shape_added','code_run','sim_started','battle_started','arena_started','share_link_created','export_json','project_saved','discord_join','email_submitted']
   function loadEvents(url){
     var cb = 'ev_cb_' + Date.now()
     var s = document.createElement('script')
@@ -180,11 +247,144 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     s.src = url + (url.indexOf('?')>=0?'&':'?') + 'events=1&callback=' + cb + '&_=' + Date.now()
     document.body.appendChild(s)
   }
+  // ── Tutorial funnel — how far each user gets, step by step ──
+  // Built from 'tutorial_step' events (extra JSON carries {step:N}); a user's
+  // furthest step = max step across their sid. Bars are cumulative: "reached ≥ N".
+  // Readable names per step_id (fired with each tutorial_step event).
+  var STEP_LABELS = {
+    // Build-a-robot tutorial
+    'mission-start':'Intro', 'add-chassis':'Add chassis', 'flatten-chassis':'Flatten chassis',
+    'add-motors':'Add motors', 'bond-motor':'Bond motors', 'add-wheels':'Add wheels',
+    'attach-both':'Pick attach point', 'attach-wheels':'Attach wheels', 'fix-wheel-y':'Fix wheel Y',
+    'add-brain':'Add brain', 'wire-all':'Wire motors', 'open-code':'Open Code',
+    'run-code':'Run code', 'drive-it':'Drive it', 'mission-done':'Finish',
+    // Repair-the-puppy template (the on-load mission)
+    'debug-greet':'Meet Puppy', 'debug-open-sim':'Open Sim', 'debug-start-sim':'Start Sim',
+    'debug-run-in-sim':'Run code (sim)', 'debug-observe-circle':'Spot the bug',
+    'debug-open-wiring':'Open Wiring', 'debug-connect-left':'Fix wiring',
+    'debug-open-sim-2':'Back to Sim', 'debug-start-sim-2':'Start Sim (retest)',
+    'debug-run-2':'Run code (retest)', 'debug-victory':'Fixed!', 'debug-find-learn':'→ Product Tour'
+  }
+  function renderTutorialFunnel(){
+    var el = document.getElementById('tutFunnel')
+    if(!el) return
+    if(!mode) return
+    var started = {}, completed = {}, maxBySid = {}, idByStep = {}
+    remoteEvents.filter(function(e){ return inMode(e.source) }).forEach(function(e){
+      var sid = e.sid || 'anon'
+      if(e.event === 'tutorial_started')   started[sid] = 1
+      if(e.event === 'tutorial_completed') completed[sid] = 1
+      if(e.event === 'tutorial_step'){
+        var st = 0, id = ''
+        try { var x = JSON.parse(e.extra || '{}'); st = x.step | 0; id = x.step_id || '' } catch(err) { /* ignore */ }
+        if(st > 0){
+          if(!maxBySid[sid] || st > maxBySid[sid]) maxBySid[sid] = st
+          if(id) idByStep[st] = id   // step position ↔ step id (fixed per position)
+        }
+      }
+    })
+    var sids = Object.keys(maxBySid)
+    var nStarted = Object.keys(started).length || sids.length
+    if(!nStarted){ el.innerHTML = '<div class="empty">No tutorial runs yet.</div>'; return }
+    var maxStep = 0
+    sids.forEach(function(s){ if(maxBySid[s] > maxStep) maxStep = maxBySid[s] })
+    var nDone = Object.keys(completed).length
+    var html = '<div style="margin-bottom:10px;font-size:13px"><strong>' + nStarted + '</strong> started · <strong>'
+      + nDone + '</strong> completed <span style="color:var(--muted)">(' + Math.round(nDone / nStarted * 100) + '%)</span></div>'
+    var prev = nStarted
+    for(var n = 1; n <= maxStep; n++){
+      var c = sids.filter(function(s){ return maxBySid[s] >= n }).length
+      var pct = Math.round(c / nStarted * 100)
+      var drop = prev - c            // users lost between the previous step and this one
+      prev = c
+      var name = STEP_LABELS[idByStep[n]] || idByStep[n] || ('Step ' + n)
+      html += '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">'
+        + '<span style="width:150px;font-size:11px;color:var(--muted)" title="'+esc(idByStep[n]||'')+'">' + n + ' · ' + esc(name) + '</span>'
+        + '<div style="flex:1;background:var(--surface);border-radius:6px;height:16px;overflow:hidden">'
+        + '<div style="height:100%;width:' + Math.max(Math.min(pct,100), c ? 4 : 0) + '%;background:var(--accent);border-radius:6px"></div></div>'
+        + '<span style="width:120px;font-size:11px;text-align:right" class="count">' + c
+        + ' <span style="color:var(--muted);font-weight:400">(' + pct + '%)</span>'
+        + (drop > 0 ? ' <span style="color:#dc2626">−' + drop + '</span>' : '')
+        + '</span>'
+        + '</div>'
+    }
+    el.innerHTML = html
+  }
+
+  function renderKeyActions(){
+    var el = document.getElementById('keyActions')
+    if(!el || !mode) return
+    var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
+    function agg(name){ var c=0,u={}; evs.forEach(function(e){ if(e.event===name){ c++; if(e.sid) u[e.sid]=1 } }); return {count:c, users:Object.keys(u).length} }
+    var run = agg('code_run'), sim = agg('sim_started'), shp = agg('shape_added'), exp = agg('export_json')
+    // Peak shapes in the pane — max scene count carried on shape_added, per user.
+    var peak = 0, byS = {}
+    evs.forEach(function(e){ if(e.event==='shape_added'){ var n=0; try{ n=(JSON.parse(e.extra||'{}').count)|0 }catch(x){}; var s=e.sid||'anon'; if(n>(byS[s]||0)) byS[s]=n; if(n>peak) peak=n } })
+    var sids = Object.keys(byS)
+    var avg = sids.length ? Math.round(sids.reduce(function(a,s){return a+byS[s]},0)/sids.length*10)/10 : 0
+    function row(label,count,users,note){
+      return '<tr><td>'+esc(label)+(note?' <span style="color:var(--muted);font-size:11px">('+esc(note)+')</span>':'')+'</td>'
+        + '<td style="text-align:right" class="count">'+count
+        + (users!=null?' <span style="color:var(--muted);font-weight:400">('+users+' users)</span>':'')+'</td></tr>'
+    }
+    el.innerHTML = '<table><tbody>'
+      + row('▶ Run Code clicks', run.count, run.users)
+      + row('▶ Start Simulation clicks', sim.count, sim.users)
+      + row('➕ Shapes added', shp.count, shp.users)
+      + row('▣ Peak shapes in the pane', peak, null, 'busiest session · avg peak/user ' + avg)
+      + row('⬇ Export JSON clicks', exp.count, exp.users)
+      + '</tbody></table>'
+  }
+
+  // Per-user breakdown: one row per session id (sid) with their action counts.
+  function renderPerUser(){
+    var el = document.getElementById('perUser')
+    if(!el || !mode) return
+    var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
+    var users = {}
+    evs.forEach(function(e){
+      var sid = e.sid || '(no id)'
+      var u = users[sid] || (users[sid] = { sid:sid, source:e.source||'(direct)', runs:0, sims:0, shapes:0, exports:0, step:0, last:e.ts||'' })
+      if(e.source) u.source = e.source
+      if((e.ts||'') > u.last) u.last = e.ts||''
+      if(e.event==='code_run') u.runs++
+      else if(e.event==='sim_started') u.sims++
+      else if(e.event==='export_json') u.exports++
+      else if(e.event==='shape_added'){ var n=0; try{ n=(JSON.parse(e.extra||'{}').count)|0 }catch(x){}; if(n>u.shapes) u.shapes=n }
+      else if(e.event==='tutorial_step'){ var st=0; try{ st=(JSON.parse(e.extra||'{}').step)|0 }catch(x){}; if(st>u.step) u.step=st }
+    })
+    var list = Object.keys(users).map(function(k){ return users[k] })
+      .sort(function(a,b){ return (b.runs+b.sims+b.exports+b.shapes) - (a.runs+a.sims+a.exports+a.shapes) })
+    if(!list.length){ el.innerHTML = '<div class="empty">No per-user activity in this view yet.</div>'; return }
+    var html = '<table><thead><tr>'
+      + '<th>User (session)</th><th>Source</th><th>Run code</th><th>Sim starts</th>'
+      + '<th>Shapes (peak)</th><th>Export JSON</th><th>Tut step</th><th>Last seen</th>'
+      + '</tr></thead><tbody>'
+    list.forEach(function(u){
+      html += '<tr>'
+        + '<td title="'+esc(u.sid)+'"><code>'+esc(String(u.sid).slice(0,10))+'</code></td>'
+        + '<td>'+esc(u.source)+'</td>'
+        + '<td style="text-align:right" class="count">'+u.runs+'</td>'
+        + '<td style="text-align:right" class="count">'+u.sims+'</td>'
+        + '<td style="text-align:right" class="count">'+u.shapes+'</td>'
+        + '<td style="text-align:right" class="count">'+u.exports+'</td>'
+        + '<td style="text-align:right" class="count">'+(u.step||'—')+'</td>'
+        + '<td>'+esc(fmt(u.last))+'</td>'
+        + '</tr>'
+    })
+    el.innerHTML = html + '</tbody></table>'
+  }
+
   function renderEvents(){
+    renderTutorialFunnel()
+    renderKeyActions()
+    renderPerUser()
     var el = document.getElementById('events')
-    if(!remoteEvents.length){ el.innerHTML = '<div class="empty">No events yet.</div>'; return }
+    if(!mode) return
+    var evs = remoteEvents.filter(function(e){ return inMode(e.source) })
+    if(!evs.length){ el.innerHTML = '<div class="empty">No events in this view.</div>'; return }
     var counts = {}, users = {}
-    remoteEvents.forEach(function(e){
+    evs.forEach(function(e){
       var n = e.event || '?'
       counts[n] = (counts[n]||0) + 1
       users[n] = users[n] || {}; if(e.sid) users[n][e.sid] = 1
@@ -217,6 +417,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       try{ delete window[cbName] }catch(e){}; s.remove(); render()
     }
     loadEvents(url)   // in-app engagement events (separate tab)
+    loadLinks(url)    // saved campaign links (separate tab)
     s.onerror = function(){
       status.textContent = 'Could not reach the server. Check the URL and that the Web app is deployed with access = "Anyone".'
       s.remove()
@@ -249,25 +450,37 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   }
 
   function render(){
-    var visits = getAllVisits()
+    if(!mode) return                 // nothing shown until the user picks a view
+    var visits = getAllVisits().filter(function(v){ return inMode(v.source) })
     var total = visits.length
-    var tagged = visits.filter(function(v){ return v.tagged }).length
-    var sources = new Set(visits.map(function(v){ return v.source })).size
+    var uSources   = new Set(visits.map(function(v){ return v.source })).size
+    var uCampaigns = new Set(visits.map(function(v){ return v.campaign })).size
+    var uRefs      = new Set(visits.filter(function(v){ return v.ref }).map(function(v){ return v.ref })).size
 
     document.getElementById('cards').innerHTML =
-        card(total,'total visits')
-      + card(tagged,'tagged (campaign)')
-      + card(total-tagged,'direct / untagged')
-      + card(sources,'unique sources')
+        card(total, mode==='direct' ? 'direct visits' : 'social visits')
+      + card(uSources,'unique sources')
+      + card(uCampaigns,'unique campaigns')
+      + card(uRefs,'unique refs')
 
     renderTally('bySource',   tally(visits,'source'),        total)
     renderTally('byCampaign', tally(visits,'campaign'),      total)
     renderTally('byPopup',    tally(visits,'popup_action'),  total)
 
-    document.getElementById('visitCount').textContent = total
+    // Source filter — populate options (preserve selection) and filter THIS table only.
+    // The summary cards + tallies above intentionally stay on the full visit set.
+    var sel = document.getElementById('srcFilter')
+    var cur = sel.value
+    var srcList = Array.from(new Set(visits.map(function(v){ return v.source || '(direct)' }))).sort()
+    sel.innerHTML = '<option value="">All sources</option>' + srcList.map(function(s){
+      return '<option value="'+esc(s)+'"'+(s===cur?' selected':'')+'>'+esc(s)+'</option>'
+    }).join('')
+    var shown = cur ? visits.filter(function(v){ return (v.source||'(direct)') === cur }) : visits
+
+    document.getElementById('visitCount').textContent = shown.length
     var rows = document.getElementById('rows')
-    document.getElementById('emptyMsg').style.display = total ? 'none' : 'block'
-    rows.innerHTML = visits.slice().reverse().map(function(v){
+    document.getElementById('emptyMsg').style.display = shown.length ? 'none' : 'block'
+    rows.innerHTML = shown.slice().reverse().map(function(v){
       var pill = v.tagged ? '<span class="pill tag">'+esc(v.source)+'</span>'
                           : '<span class="pill direct">'+esc(v.source)+'</span>'
       var ret = (v.is_returning_visitor === 'returning' || v.is_returning_visitor === true) ? 'returning' : 'new'
@@ -315,6 +528,69 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
   ['b_url','b_source','b_medium','b_campaign','b_ref','b_term','b_content'].forEach(function(id){
     document.getElementById(id).addEventListener('input', buildLink)
   })
+
+  // ── Save a generated link to the "links" tab (POST, no-cors like the app pings) ──
+  function saveLink(){
+    var msg = document.getElementById('saveMsg')
+    var url = document.getElementById('b_out').value.trim()
+    if(!url || url.indexOf('http')!==0){ msg.textContent = 'Build a valid link first (fill in Base URL).'; return }
+    var endpoint = document.getElementById('endpoint').value.trim()
+    if(!endpoint){ msg.textContent = 'Paste your Apps Script Web-app URL at the top first.'; return }
+    var g = function(id){ return document.getElementById(id).value.trim() }
+    var payload = { type:'link', label:g('b_label'), url:url, source:g('b_source'),
+      medium:g('b_medium'), campaign:g('b_campaign'), ref:g('b_ref'), term:g('b_term'), content:g('b_content') }
+    msg.textContent = 'Saving…'
+    fetch(endpoint, { method:'POST', mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=UTF-8'}, body: JSON.stringify(payload) })
+      .then(function(){ msg.textContent = 'Saved to the "links" tab ✓'; setTimeout(function(){ loadLinks(endpoint) }, 900) })
+      .catch(function(){ msg.textContent = 'Could not reach the server — check the URL/deployment.' })
+  }
+
+  // ── Load the saved-links registry (JSONP ?links=1 — same no-CORS trick) ──
+  function loadLinks(url){
+    url = (url || document.getElementById('endpoint').value.trim())
+    if(!url) return
+    var cb = 'utm_lk_' + Date.now()
+    var s = document.createElement('script')
+    window[cb] = function(data){ savedLinks = Array.isArray(data) ? data : []; try{delete window[cb]}catch(e){}; s.remove(); renderLinks() }
+    s.onerror = function(){ s.remove() }
+    s.src = url + (url.indexOf('?')>=0?'&':'?') + 'links=1&callback=' + cb + '&_=' + Date.now()
+    document.body.appendChild(s)
+  }
+  function renderLinks(){
+    if(!mode) return
+    var rev = savedLinks
+      .map(function(l,i){ return { l:l, i:i } })
+      .filter(function(o){ return inMode(o.l.source) })
+      .reverse()
+
+    document.getElementById('linkCount').textContent = rev.length
+    var empty = document.getElementById('linkEmpty')
+    empty.style.display = rev.length ? 'none' : 'block'
+    empty.textContent = mode==='direct'
+      ? 'No direct links yet. Links saved without a utm_source appear here.'
+      : 'No social/campaign links yet. Build a tagged link above (with a utm_source) and click "Save to sheet".'
+
+    document.getElementById('linkRows').innerHTML = rev.map(function(o){
+      var l = o.l
+      var short = (l.url||''); if(short.length > 60) short = short.slice(0,60) + '…'
+      return '<tr>'
+        + '<td>'+esc(fmt(l.saved))+'</td>'
+        + '<td>'+esc(l.label||'—')+'</td>'
+        + '<td>'+esc(l.source||'—')+'</td>'
+        + '<td>'+esc(l.campaign||'—')+'</td>'
+        + '<td>'+esc(l.ref||'—')+'</td>'
+        + '<td title="'+esc(l.url)+'"><a href="'+esc(l.url)+'" target="_blank" rel="noopener">'+esc(short)+'</a></td>'
+        + '<td><button onclick="copyLinkRow('+o.i+')">Copy</button></td>'
+        + '</tr>'
+    }).join('')
+  }
+  function copyLinkRow(i){
+    var l = savedLinks[i]; if(!l || !l.url) return
+    navigator.clipboard && navigator.clipboard.writeText(l.url)
+    var btn = event.target; var t = btn.textContent
+    btn.textContent = 'Copied!'; setTimeout(function(){ btn.textContent = t }, 1200)
+  }
 
   // ── Data management ──
   function exportJson(){

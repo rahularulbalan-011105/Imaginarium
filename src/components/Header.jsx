@@ -45,6 +45,15 @@ export default function Header() {
   const [savedProjects, setSavedProjects] = useState([])
   const [theme, setTheme]             = useState(getTheme)
   const [shareMsg, setShareMsg] = useState(null)
+  const [autosave, setAutosave] = useState(null)   // { state:'saving'|'saved'|'error', at } from constructa:autosave
+  const relAgo = (ts) => {
+    if (!ts) return ''
+    const s = Math.round((Date.now() - ts) / 1000)
+    if (s < 5) return 'just now'
+    if (s < 60) return s + 's ago'
+    const m = Math.round(s / 60)
+    return m < 60 ? m + 'm ago' : Math.round(m / 60) + 'h ago'
+  }
   const importRef = useRef(null)
 
   // Register the header's floating layers as overlays so the View Cube yields.
@@ -83,15 +92,37 @@ export default function Header() {
     })
   }, [applyProjectData])
 
+  // ── load a project on demand (used by the guided debug mission) ───────────
+  // Someone dispatches constructa:load-project with the parsed project as detail.
+  useEffect(() => {
+    const onLoad = (e) => { if (e.detail) applyProjectData(e.detail) }
+    window.addEventListener('constructa:load-project', onLoad)
+    return () => window.removeEventListener('constructa:load-project', onLoad)
+  }, [applyProjectData])
+
+  // Autosave status: reflect StorageManager (auto) + manual Save events in the
+  // header. The interval re-renders so the "Saved Ns ago" label stays current.
+  useEffect(() => {
+    const onStatus = (e) => setAutosave(e.detail)
+    window.addEventListener('constructa:autosave', onStatus)
+    const t = setInterval(() => setAutosave(a => (a && a.state === 'saved') ? { ...a } : a), 15000)
+    return () => { window.removeEventListener('constructa:autosave', onStatus); clearInterval(t) }
+  }, [])
+
   // ── save ──────────────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true)
+    window.dispatchEvent(new CustomEvent('constructa:autosave', { detail: { state: 'saving', at: Date.now() } }))
     try {
       await storageManager.saveProject(getSnapshot())
       setSaveFlash(true)
       setTimeout(() => setSaveFlash(false), 1200)
       trackEvent('project_saved', { parts: objects.length })
       window.dispatchEvent(new Event('constructa:saved'))   // → soft email capture
+      window.dispatchEvent(new CustomEvent('constructa:autosave', { detail: { state: 'saved', at: Date.now() } }))
+    } catch (e) {
+      window.dispatchEvent(new CustomEvent('constructa:autosave', { detail: { state: 'error', at: Date.now() } }))
+      throw e
     } finally {
       setSaving(false)
     }
@@ -133,6 +164,7 @@ export default function Header() {
   // ── export / import ───────────────────────────────────────────────────────
   const handleExportJSON = async () => {
     setShowMenu(false)
+    trackEvent('export_json', { parts: objects.length })
     await saveJSONToFile(getSnapshot(), `${projectName || 'project'}.json`)
   }
 
@@ -226,6 +258,21 @@ export default function Header() {
 
         {/* Help menu — tutorials, product tour, shortcuts, beginner guide */}
         <HelpMenu />
+
+        {/* Autosave status — reflects the 30s IndexedDB autosave + manual saves */}
+        {autosave && (
+          <span
+            title="Your project autosaves to this browser (IndexedDB) about every 30s"
+            className={autosave.state === 'error' ? 'text-red-400' : autosave.state === 'saving' ? 'text-amber-400' : 'text-emerald-400'}
+            style={{ fontSize: 11, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}
+          >
+            {autosave.state === 'saving'
+              ? '● Saving…'
+              : autosave.state === 'error'
+                ? '⚠ Save failed'
+                : '✓ Saved ' + relAgo(autosave.at)}
+          </span>
+        )}
 
         {/* Save */}
         <button

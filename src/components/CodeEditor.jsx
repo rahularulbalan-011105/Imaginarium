@@ -3,7 +3,6 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { simulationManager } from '../managers/SimulationManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
-import { trackEvent } from '../utils/utmTracking.js'
 import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
 import CompilerOutput from './CompilerOutput.jsx'
 
@@ -228,7 +227,7 @@ export default function CodeEditor() {
   const handleRun = () => {
     setRuntimeError(null)
     setSerialLog('')
-    trackEvent('code_run', { parts: objects.length })
+    window.dispatchEvent(new Event('constructa:code-run'))   // → community popup + code_run analytics (App listener)
 
     // ── Compile pass: full diagnostics BEFORE running. Errors withhold execution. ──
     const board = hasSubo ? 'subo' : 'arduino'

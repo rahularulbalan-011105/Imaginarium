@@ -128,7 +128,7 @@ export default function ViewportToolbox() {
 
         {/* ── Solid-edit tools ──────────────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-1">
-          <Tile icon="surface" label="Surface" active={surfaceToolActive} onClick={handleSurfaceTool}
+          <Tile icon="surface" label="Surface" active={surfaceToolActive} onClick={handleSurfaceTool} dataTour="tool-surface"
             badge={patchCount > 0 ? patchCount : null}
             title={surfaceToolActive ? 'Exit surface attach mode' : 'Surface Attach — click faces to snap objects together, or drag to draw a custom patch'} />
           <Tile icon="extrude" label="Extrude" active={extrudeToolActive} onClick={handleExtrudeTool}

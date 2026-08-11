@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import { runBoolean } from '../utils/csg.js'
+import { trackEvent } from '../utils/utmTracking.js'
 
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
 let paletteIdx = 0
@@ -36,7 +37,10 @@ export const useSceneStore = create((set, get) => ({
       : type === 'led'                    ? { x: count * 3 - 3, y: 0.15, z: 0  }
       : type === 'servo'                  ? { x: count * 5 - 4, y: 0.15, z: 3  }
       : SENSOR_TYPES.includes(type)       ? { x: count * 4 - 6, y: 1.2,  z: -9 }
-      : { x: 0, y: 1, z: 0 }
+      // Primitives: step each new same-type shape along X so two of a kind (e.g.
+      // the tutorial's two wheels) don't spawn stacked on the exact same spot
+      // (which buried them inside the chassis at the origin).
+      : { x: count * 2.5, y: 1, z: 0 }
     const pos = position ?? defaultPos
     const color = isElectronics ? '#556677'
       : isWeapon                ? '#8a94a3'
@@ -63,6 +67,9 @@ export const useSceneStore = create((set, get) => ({
       },
     }
     set((state) => ({ objects: [...state.objects, obj] }))
+    // Analytics: user added a shape/part — carry the running scene count so the
+    // dashboard can show "shapes in the pane" (peak per user).
+    try { trackEvent('shape_added', { type, count: get().objects.length }) } catch (e) { /* ignore */ }
     return obj
   },
 

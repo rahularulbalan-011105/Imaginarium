@@ -442,7 +442,7 @@ export default function PropertiesPanel() {
             <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Fine position</div>
             <div className="grid grid-cols-3 gap-1">
               {[['X', 'x'], ['Y', 'y'], ['Z', 'z']].map(([label, axis]) => (
-                <div key={axis} className="relative">
+                <div key={axis} className="relative" data-tour={axis === 'y' ? 'shaft-pos-y' : undefined}>
                   <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">
                     {label}
                   </span>
@@ -734,12 +734,13 @@ export default function PropertiesPanel() {
           {shaftTargets.length === 1 ? (
             <button
               onClick={() => handleAttachToMotor(shaftTargets[0].id)}
+              data-tour="attach-motor"
               className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-700 hover:text-slate-900 text-xs rounded transition-colors"
             >
               ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
           ) : (
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1" data-tour="attach-motor">
               {shaftTargets.map(m => (
                 <button
                   key={m.id}

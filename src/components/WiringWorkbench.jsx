@@ -154,18 +154,28 @@ export default function WiringWorkbench({ onClose }) {
           const p = pos[c.id]; if (!p) return null
           const pins = pinsOf(c)
           return (
-            <div key={c.id} className="absolute rounded-lg shadow-xl select-none"
-              style={{ left: p.x, top: p.y, width: CARD_W, background: '#1e293b', border: '1px solid rgba(245,158,11,0.35)' }}>
+            <div key={c.id} className="absolute rounded-lg select-none"
+              style={{
+                left: p.x,
+                top: p.y,
+                width: CARD_W,
+                background: 'transparent',
+                border: '1px solid rgba(245, 158, 11, 0.45)',
+              }}>
               <div onMouseDown={startCard(c.id)}
                 className="flex items-center gap-1.5 px-2 rounded-t-lg cursor-grab active:cursor-grabbing"
-                style={{ height: HEADER_H, background: 'linear-gradient(90deg,#78350f,#b45309)' }}>
+                style={{
+                  height: HEADER_H,
+                  background: 'transparent',
+                  borderBottom: '1px solid rgba(245, 158, 11, 0.35)'
+                }}>
                 <span>{COMP_ICONS[c.type] ?? '📦'}</span>
                 <span className="text-[11px] font-semibold text-white truncate">{c.name}</span>
               </div>
               <div style={{ padding: PAD }}>
                 {pins.map((pin) => (
                   <div key={pin} className="flex items-center justify-between" style={{ height: ROW_H }}>
-                    <span className="text-[10px] font-mono" style={{ color: '#cbd5e1' }}>{pin}</span>
+                    <span className="text-[10px] font-mono font-medium drop-shadow-sm" style={{ color: '#e2e8f0' }}>{pin}</span>
                     <span
                       onMouseDown={startWire(c.id, pin)}
                       onMouseUp={endWire(c.id, pin)}
@@ -173,6 +183,7 @@ export default function WiringWorkbench({ onClose }) {
                       style={{
                         width: 13, height: 13, borderRadius: '50%', marginRight: -PAD - 6,
                         background: portColor(pin), border: '2px solid #0f172a', cursor: 'crosshair',
+                        boxShadow: '0 0 4px rgba(0,0,0,0.5)'
                       }}
                     />
                   </div>

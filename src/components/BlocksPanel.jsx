@@ -119,6 +119,7 @@ export default function BlocksPanel() {
   const handleRun = () => {
     setError(null)
     setCode(code)
+    window.dispatchEvent(new Event('constructa:code-run'))   // → community popup (first run only)
     const objects = useSceneStore.getState().objects
     // Same compiler diagnostics as the text editor, run on the generated C++.
     const board = objects.some(o => o.type === 'subo') ? 'subo' : 'arduino'

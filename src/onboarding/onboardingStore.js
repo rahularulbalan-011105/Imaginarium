@@ -22,8 +22,10 @@ const loadHints = () => {
 }
 
 export const useOnboardingStore = create((set) => ({
-  // First-run welcome card
-  welcomeOpen: !safeGet(LS.welcome),
+  // First-run welcome card. No longer auto-opens — first-time visitors are dropped
+  // straight into the "repair the puppy" mission (see App.jsx). Still reachable
+  // programmatically via openWelcome().
+  welcomeOpen: false,
 
   // Product tour
   tourActive: false,
@@ -38,6 +40,7 @@ export const useOnboardingStore = create((set) => ({
   coachActive: false,
   coachStep: 0,
   coachSuccess: false,  // current step's action has been detected
+  coachMission: 'build', // which mission's steps run: 'build' | 'debug'
 
   // Reference modals
   shortcutsOpen: false,
@@ -51,10 +54,21 @@ export const useOnboardingStore = create((set) => ({
   closeWelcome: () => { safeSet(LS.welcome, '1'); set({ welcomeOpen: false }) },
 
   // ── Guided interactive coach ─────────────────────────────────────────────
-  startCoach:       () => set({ coachActive: true, coachStep: 0, coachSuccess: false, welcomeOpen: false, tourActive: false, missionsActive: false }),
-  restartCoach:     () => set({ coachActive: true, coachStep: 0, coachSuccess: false, welcomeOpen: false, tourActive: false, missionsActive: false }),
+  startCoach:       () => set({ coachActive: true, coachMission: 'build', coachStep: 0, coachSuccess: false, welcomeOpen: false, tourActive: false, missionsActive: false }),
+  restartCoach:     () => set({ coachActive: true, coachMission: 'build', coachStep: 0, coachSuccess: false, welcomeOpen: false, tourActive: false, missionsActive: false }),
+  // Debug mission: load the buggy PUPPY ROBOT, then run the debug walkthrough.
+  startDebugMission: async () => {
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}projects/puppy-robot.json`)
+      const data = await res.json()
+      window.dispatchEvent(new CustomEvent('constructa:load-project', { detail: data }))
+    } catch (e) { console.error('[debug mission] could not load PUPPY ROBOT:', e) }
+    set({ coachActive: true, coachMission: 'debug', coachStep: 0, coachSuccess: false, welcomeOpen: false, tourActive: false, missionsActive: false })
+  },
   markCoachSuccess: () => set({ coachSuccess: true }),
   nextCoachStep:    () => set((s) => ({ coachStep: s.coachStep + 1, coachSuccess: false })),
+  prevCoachStep:    () => set((s) => ({ coachStep: Math.max(0, s.coachStep - 1), coachSuccess: false })),
+  goCoachStep:      (i) => set({ coachStep: Math.max(0, i), coachSuccess: false }),
   endCoach:         () => set({ coachActive: false, coachSuccess: false }),
 
   // ── Product tour ─────────────────────────────────────────────────────────

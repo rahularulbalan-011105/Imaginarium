@@ -99,6 +99,7 @@ export default function DrivePanel() {
   const handleRun = useCallback(() => {
     setError(null)
     setSerialLog('')
+    window.dispatchEvent(new Event('constructa:code-run'))   // count in-sim ▶ Run Code (App listener)
     setOledText('')
     setBuzzFreq(0)
     simulationManager.configure(
@@ -134,6 +135,13 @@ export default function DrivePanel() {
     setSimActive(false)
   }, [setSimActive, stopSim])
 
+  // Let the guided coach leave the simulation programmatically (final tutorial beat).
+  useEffect(() => {
+    const onExit = () => handleExit()
+    window.addEventListener('constructa:exit-sim', onExit)
+    return () => window.removeEventListener('constructa:exit-sim', onExit)
+  }, [handleExit])
+
   const hasConnections = Object.keys(connections).length > 0
   const hasMotors = objects.some(o =>
     o.type === 'motor' || o.type === 'motor_bo' || o.type === 'motor_dc')
@@ -163,6 +171,7 @@ export default function DrivePanel() {
           </span>
         )}
         <button
+          data-tour="sim-exit"
           onClick={handleExit}
           className="ml-auto text-[10px] text-gray-400 hover:text-red-300 transition-colors px-2.5 py-0.5 rounded border border-gray-600/50 hover:border-red-500/70"
         >
@@ -312,6 +321,7 @@ export default function DrivePanel() {
           {/* Optional: also allow running code for custom gait algorithms */}
           <div className="shrink-0 flex flex-col gap-1.5">
             <button
+              data-tour="sim-run-code"
               onClick={running ? handleStop : handleRun}
               disabled={!running && !hasConnections}
               className={`px-3 py-1.5 rounded text-[10px] font-bold transition-colors ${
@@ -331,6 +341,7 @@ export default function DrivePanel() {
         /* ── Wheeled controls ─────────────────────────────────────────────── */
         <div className="flex items-center gap-5 px-4 py-2.5">
           <button
+            data-tour="sim-run-code"
             onClick={running ? handleStop : handleRun}
             disabled={!running && !hasConnections && !hasMotors}
             className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-colors ${

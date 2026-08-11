@@ -758,6 +758,7 @@ class DriveManager {
     for (const id of this._obstacleIds) physicsManager.removeBody(id)
     this._obstacleIds = []
     this._vy = 0
+    this._groundY = null     // smoothed resting Y (re-snaps on next sim)
     this._robotMinY = 0
     this._pitch     = 0
     this._pitchVel  = 0
@@ -990,11 +991,20 @@ class DriveManager {
       // load late (async GLB), or whose lowest corner isn't its wheels could hover
       // with a visible gap. Recomputing the true bbox each frame kills the float.
       const minY = this._lowestVisibleY()
-      if (isFinite(minY) && Math.abs(minY) > 0.02) {
-        this.rootGroup.position.y -= minY   // minY>0 → drop onto grid · minY<0 → lift off floor
+      if (isFinite(minY)) {
+        // SMOOTHED grounding: the resting Y that puts the lowest point on the grid.
+        // Snapping to it every frame made the robot BOUNCE — a spinning wheel (esp.
+        // with an off-centre attach point) wobbles its lowest point, and the body
+        // chased it. So: snap on a big jump (initial float fix), ignore tiny wobble
+        // inside a deadzone (rock-steady on flat ground), ease moderate changes.
+        const target = this.rootGroup.position.y - minY
+        const gap = this._groundY == null ? Infinity : Math.abs(target - this._groundY)
+        if (this._groundY == null || gap > 0.6)      this._groundY = target
+        else if (gap > 0.15)                          this._groundY += (target - this._groundY) * 0.2
+        this.rootGroup.position.y = this._groundY
         if (this._vy < 0) this._vy = 0
       }
-      if (window.__DRIVE_DEBUG && ((this._dbgN = (this._dbgN || 0) + 1) % 60 === 0)) console.log('[Drive] wheeled minY', +minY.toFixed(3), 'posY', +this.rootGroup.position.y.toFixed(3), '— run __driveDump() for the mesh breakdown')
+      if (window.__DRIVE_DEBUG && ((this._dbgN = (this._dbgN || 0) + 1) % 60 === 0)) console.log('[Drive] wheeled minY', +minY.toFixed(3), 'posY', +this.rootGroup.position.y.toFixed(3))
     } else {
       // Non-wheeled / bonded rigid group: drop straight down until the ACTUAL
       // lowest point of the assembly rests on the grid. Using the real bounding box
@@ -1074,7 +1084,8 @@ class DriveManager {
 
       // Y linvel is 0 in the Rapier body — vertical movement is handled manually
       // above so the kinematic body stays at a fixed Y for correct XZ collision.
-      body.setLinvel({ x: -pV * Math.sin(yaw), y: 0, z: -pV * Math.cos(yaw) }, true)
+      // Body moves the SAME way the wheels roll (positive PWM → drive forward).
+      body.setLinvel({ x: pV * Math.sin(yaw), y: 0, z: pV * Math.cos(yaw) }, true)
       body.setAngvel({ x: 0, y: pOmega, z: 0 }, true)
 
       physicsManager.step(dt)
@@ -1094,8 +1105,8 @@ class DriveManager {
       const { v: pV, omega: pOmega } = integrator
         ? integrator.step(v, omega, dt, yaw, physEnv)
         : { v, omega }
-      this.rootGroup.position.x -= pV * Math.sin(yaw) * dt
-      this.rootGroup.position.z -= pV * Math.cos(yaw) * dt
+      this.rootGroup.position.x += pV * Math.sin(yaw) * dt
+      this.rootGroup.position.z += pV * Math.cos(yaw) * dt
       this.rootGroup.rotation.y += pOmega * dt
     }
   }
@@ -1246,11 +1257,18 @@ class DriveManager {
     this._vy = Math.max(this._vy + gravAccel * dt, -MAX_V)
     this.rootGroup.position.y += this._vy * dt
     const minY = this._lowestVisibleY()
-    if (isFinite(minY) && Math.abs(minY) > 0.02) {
-      this.rootGroup.position.y -= minY   // minY>0 → drop onto grid · minY<0 → lift off floor
+    if (isFinite(minY)) {
+      // Smoothed grounding (same as the wheeled path): snap a big jump, ignore
+      // small wobble (swing feet lifting), ease moderate changes — so the body
+      // doesn't bounce as the gait cycles.
+      const target = this.rootGroup.position.y - minY
+      const gap = this._groundY == null ? Infinity : Math.abs(target - this._groundY)
+      if (this._groundY == null || gap > 0.6)      this._groundY = target
+      else if (gap > 0.15)                          this._groundY += (target - this._groundY) * 0.2
+      this.rootGroup.position.y = this._groundY
       if (this._vy < 0) this._vy = 0
     }
-    if (window.__DRIVE_DEBUG && ((this._dbgN = (this._dbgN || 0) + 1) % 60 === 0)) console.log('[Drive] legged minY', +minY.toFixed(3), 'posY', +this.rootGroup.position.y.toFixed(3), '— run __driveDump() for the mesh breakdown')
+    if (window.__DRIVE_DEBUG && ((this._dbgN = (this._dbgN || 0) + 1) % 60 === 0)) console.log('[Drive] legged minY', +minY.toFixed(3), 'posY', +this.rootGroup.position.y.toFixed(3))
 
     if (body) {
       const rq = body.rotation()

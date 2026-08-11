@@ -16,6 +16,7 @@ const STORE_KEY       = 'utm_visits_v1'
 const FIRST_TOUCH_KEY = 'utm_first_touch_v1'
 const RETURN_KEY      = 'utm_visitor_v1'      // presence → returning visitor
 const SESSION_FLAG    = 'utm_logged_session'  // one record per tab-session
+const SID_FLAG        = 'utm_sid'             // this tab-session's id (restored on reload)
 const MAX_VISITS      = 1000
 
 const COLLECTOR_ENDPOINT = 'https://script.google.com/macros/s/AKfycbxgWlc_0ZkVdtNGznRm1pCRmKZes18Yrm_XzgDknByKcRfiHxfNh6lfgM0EWIi2SKc0sw/exec'
@@ -105,7 +106,21 @@ function sendToServer(rec) {
 // ── public: capture the visit (call once at startup) ──────────────────────────
 export function captureUTM() {
   if (typeof window === 'undefined') return null
-  try { if (sessionStorage.getItem(SESSION_FLAG)) return null; sessionStorage.setItem(SESSION_FLAG, '1') } catch { /* private mode */ }
+  // Second+ page load in the SAME tab: don't log a duplicate visit, but DO
+  // restore this tab's session so trackEvent() still carries its sid + source
+  // (otherwise every event after a reload is unattributed — empty sid).
+  let logged = false
+  try { logged = !!sessionStorage.getItem(SESSION_FLAG) } catch { /* private mode */ }
+  if (logged) {
+    try {
+      const sid = sessionStorage.getItem(SID_FLAG)
+      const arr = getVisits()
+      _session = arr.find(v => v.id === sid) || arr[arr.length - 1] || null
+      _startMs = nowMs()
+    } catch { /* ignore */ }
+    return _session
+  }
+  try { sessionStorage.setItem(SESSION_FLAG, '1') } catch { /* private mode */ }
 
   const utm = readUtmParams(window.location.search)
   const params = new URLSearchParams(window.location.search)
@@ -134,6 +149,7 @@ export function captureUTM() {
   }
   _startMs = nowMs()
   localUpsert(_session)
+  try { sessionStorage.setItem(SID_FLAG, _session.id) } catch { /* private mode */ }
 
   lookupCountry().then(c => { if (_session && c) { _session.country = c; localUpsert(_session) } })
 
