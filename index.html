@@ -25,21 +25,22 @@
       }
     </script>
 
-    <!-- Device split: the app is desktop-only, so mobile visitors of the live
-         app are sent to the landing page (video + Discord + email), carrying the
-         UTM query along. Runs FIRST, before the bundle downloads, so mobile users
-         don't pull the heavy app. Desktop falls through and loads the editor.
-         Only fires on the production host; add ?app=1 to force the app on mobile. -->
+    <!-- Landing gate: the live app now sends EVERY visitor (all devices) to the
+         landing page (constructa-page.atumx.in), carrying the UTM query along.
+         Runs FIRST, before the bundle downloads. Only fires on the production host.
+         The DIRECT LINK  https://constructa.atumx.in/?app=1  opts straight into
+         the app and is remembered (localStorage), so beta users you hand that
+         link to always land in the editor — not the landing page. -->
     <script>
       (function () {
         try {
           var LANDING = 'https://constructa-page.atumx.in';
-          var ua = navigator.userAgent || '';
-          var isMobile = /Mobi|Android|iPhone|iPod|Windows Phone|BlackBerry|IEMobile|Opera Mini/i.test(ua)
-            || (navigator.userAgentData && navigator.userAgentData.mobile === true);
           var onApp = /(^|\.)constructa\.atumx\.in$/i.test(location.hostname);
           var optOut = /[?&]app=1(?:&|$)/.test(location.search);
-          if (isMobile && onApp && !optOut) {
+          var saved = false;
+          try { saved = localStorage.getItem('constructa_direct') === '1'; } catch (e) {}
+          if (optOut) { try { localStorage.setItem('constructa_direct', '1'); } catch (e) {} }
+          if (onApp && !optOut && !saved) {
             location.replace(LANDING + location.search + location.hash);
           }
         } catch (e) {}
