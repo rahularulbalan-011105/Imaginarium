@@ -52,6 +52,8 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
            border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
   .modebtn:hover{border-color:var(--accent)}
   .modebtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  tr.flash > td{animation:flashrow 2.2s ease-out}
+  @keyframes flashrow{0%,40%{background:rgb(var(--a-500)/0.28)}100%{background:transparent}}
   .builder{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
   @media(max-width:640px){.builder{grid-template-columns:1fr}}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:600}
@@ -183,7 +185,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
     <div class="scroll">
       <table>
         <thead><tr>
-          <th>Time</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Country</th>
+          <th>Time</th><th>User</th><th>Source</th><th>Campaign</th><th>Ref</th><th>Country</th>
           <th>Device</th><th>Visitor</th><th>Popup</th><th>Dur (s)</th><th>Landing</th>
         </tr></thead>
         <tbody id="rows"></tbody>
@@ -336,6 +338,20 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       + '</tbody></table>'
   }
 
+  // Safe DOM id from a session id, + jump-to-user from the visits table.
+  function uid(sid){ return 'puser-' + String(sid||'').replace(/[^a-zA-Z0-9]/g,'_') }
+  function gotoUser(sid){
+    if(!sid) return
+    var row = document.getElementById(uid(sid))
+    if(!row){
+      alert('No in-app activity recorded for this user in the ' + (mode||'current') + ' view.\n(They visited but didn’t fire any events, or they’re in the other Social/Direct view.)')
+      return
+    }
+    row.scrollIntoView({ behavior:'smooth', block:'center' })
+    row.classList.add('flash')
+    setTimeout(function(){ row.classList.remove('flash') }, 2200)
+  }
+
   // Per-user breakdown: one row per session id (sid) with their action counts.
   function renderPerUser(){
     var el = document.getElementById('perUser')
@@ -361,7 +377,7 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       + '<th>Shapes (peak)</th><th>Export JSON</th><th>Tut step</th><th>Last seen</th>'
       + '</tr></thead><tbody>'
     list.forEach(function(u){
-      html += '<tr>'
+      html += '<tr id="'+uid(u.sid)+'">'
         + '<td title="'+esc(u.sid)+'"><code>'+esc(String(u.sid).slice(0,10))+'</code></td>'
         + '<td>'+esc(u.source)+'</td>'
         + '<td style="text-align:right" class="count">'+u.runs+'</td>'
@@ -484,8 +500,12 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
       var pill = v.tagged ? '<span class="pill tag">'+esc(v.source)+'</span>'
                           : '<span class="pill direct">'+esc(v.source)+'</span>'
       var ret = (v.is_returning_visitor === 'returning' || v.is_returning_visitor === true) ? 'returning' : 'new'
+      var uid = v.sid
+        ? '<a href="#perUser" onclick="gotoUser(\''+esc(v.sid)+'\');return false" title="Jump to this user’s activity ('+esc(v.sid)+')"><code>'+esc(String(v.sid).slice(0,8))+'</code></a>'
+        : '—'
       return '<tr>'
         + '<td>'+esc(fmt(v.ts))+'</td>'
+        + '<td>'+uid+'</td>'
         + '<td>'+pill+'</td>'
         + '<td>'+esc(v.campaign)+'</td>'
         + '<td>'+esc(v.ref||'—')+'</td>'
