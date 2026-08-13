@@ -52,8 +52,9 @@ document.head.appendChild(Object.assign(document.createElement('style'),{textCon
            border:1px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer}
   .modebtn:hover{border-color:var(--accent)}
   .modebtn.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-  tr.flash > td{animation:flashrow 2.2s ease-out}
-  @keyframes flashrow{0%,40%{background:rgb(var(--a-500)/0.28)}100%{background:transparent}}
+  tr.flash > td{animation:flashrow 2s ease-out}
+  tr.flash > td:first-child{box-shadow:inset 4px 0 0 var(--accent2)}
+  @keyframes flashrow{0%,25%{background:#ffd34e}60%{background:#ffe9a8}100%{background:transparent}}
   .builder{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
   @media(max-width:640px){.builder{grid-template-columns:1fr}}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:600}
