@@ -41,7 +41,29 @@
           try { saved = localStorage.getItem('constructa_direct') === '1'; } catch (e) {}
           if (optOut) { try { localStorage.setItem('constructa_direct', '1'); } catch (e) {} }
           if (onApp && !optOut && !saved) {
-            location.replace(LANDING + location.search + location.hash);
+            // Carry attribution to the landing. If the incoming link has no
+            // utm_source (a plain share), infer it from the referrer that sent
+            // the user here — otherwise it's lost once we hop to the landing.
+            var qs = location.search;
+            try {
+              if (!/[?&]utm_source=/i.test(qs) && document.referrer) {
+                var h = new URL(document.referrer).hostname.toLowerCase();
+                var src = '';
+                if (!/constructa|atumx/.test(h)) {
+                  if (/instagram/.test(h)) src = 'instagram';
+                  else if (/youtube|youtu\.be/.test(h)) src = 'youtube';
+                  else if (/whatsapp|wa\.me/.test(h)) src = 'whatsapp';
+                  else if (/facebook|fb\./.test(h)) src = 'facebook';
+                  else if (/linkedin/.test(h)) src = 'linkedin';
+                  else if (/twitter|x\.com|t\.co/.test(h)) src = 'twitter';
+                  else if (/reddit/.test(h)) src = 'reddit';
+                  else if (/google/.test(h)) src = 'google';
+                  else src = h;
+                }
+                if (src) qs += (qs ? '&' : '?') + 'utm_source=' + encodeURIComponent(src) + '&utm_medium=referral';
+              }
+            } catch (e) {}
+            location.replace(LANDING + qs + location.hash);
           }
         } catch (e) {}
       })();
