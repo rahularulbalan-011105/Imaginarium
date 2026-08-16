@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
-import { runBoolean } from '../utils/csg.js'
+import { runBoolean, buildUnionMembers, unionWorldGeoJSONs } from '../utils/csg.js'
 import { trackEvent } from '../utils/utmTracking.js'
 
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
@@ -116,8 +116,9 @@ export const useSceneStore = create((set, get) => ({
     if (selectedId) removeObject(selectedId)
   },
 
-  // Add a CSG result object (stores serialized geometry)
-  addCSGObject: (name, geometryJSON, color, position, rotation, scale) => {
+  // Add a CSG result object (stores serialized geometry). unionMembers (optional)
+  // records the flat leaf members so a union can be de-unioned later.
+  addCSGObject: (name, geometryJSON, color, position, rotation, scale, unionMembers) => {
     const obj = {
       id: uuidv4(),
       name,
@@ -129,6 +130,7 @@ export const useSceneStore = create((set, get) => ({
       material: 'standard',
       visible: true,
       geometryJSON,
+      ...(Array.isArray(unionMembers) && unionMembers.length ? { unionMembers } : {}),
       metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     }
     set((state) => ({ objects: [...state.objects, obj], selectedId: obj.id, secondaryId: null }))
@@ -161,6 +163,9 @@ export const useSceneStore = create((set, get) => ({
     if (!a || !b || a.id === b.id) return null
     const aHole = !!a.isHole, bHole = !!b.isHole
     const op = aHole === bHole ? 'union' : (!aHole && bHole ? 'subtract' : 'subtractB')
+    // Capture flat union members (def + world geometry) BEFORE running the CSG,
+    // while both operands are still live meshes — only for a true union.
+    const unionMembers = op === 'union' ? buildUnionMembers(a, b) : null
     const res = runBoolean(a.id, b.id, op)
     if (!res) return null
     const members = [JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b))]
@@ -178,6 +183,7 @@ export const useSceneStore = create((set, get) => ({
       geometryJSON: res.geometryJSON,
       isHole: aHole && bHole,
       groupMembers: members,
+      ...(unionMembers?.length ? { unionMembers } : {}),
       metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     }
     set((state) => ({
@@ -204,6 +210,83 @@ export const useSceneStore = create((set, get) => ({
       secondaryId: null,
     }))
     return restored
+  },
+
+  // ── De-union ────────────────────────────────────────────────────────────────
+  // The flat leaf members of a union (unionMembers) let us reverse it. Each member
+  // has { def, geo } — the original object def + its world geometry at union time.
+  restoreMemberDef: (m) => ({
+    ...JSON.parse(JSON.stringify(m.def)),
+    id: uuidv4(),
+    metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+  }),
+
+  // Split a union back into ALL of its member objects.
+  deUnionAll: (unionId) => {
+    const { objects, restoreMemberDef } = get()
+    const U = objects.find((o) => o.id === unionId)
+    if (!U || !Array.isArray(U.unionMembers) || U.unionMembers.length === 0) return null
+    const restored = U.unionMembers.map(restoreMemberDef)
+    set((state) => ({
+      objects: [...state.objects.filter((o) => o.id !== unionId), ...restored],
+      selectedId: restored[0]?.id ?? null,
+      secondaryId: null,
+    }))
+    return restored
+  },
+
+  // Extract ONE member out of a union: restore it as a standalone object, and
+  // rebuild the union from the remaining members (or restore the last one too).
+  deUnionMember: (unionId, memberId) => {
+    const { objects, restoreMemberDef } = get()
+    const U = objects.find((o) => o.id === unionId)
+    if (!U || !Array.isArray(U.unionMembers)) return null
+    const idx = U.unionMembers.findIndex((m) => m.def?.id === memberId)
+    if (idx < 0) return null
+    const remaining = U.unionMembers.filter((_, i) => i !== idx)
+    const extracted = restoreMemberDef(U.unionMembers[idx])
+
+    if (remaining.length <= 1) {
+      // 0 or 1 left → no union anymore; restore whatever remains as standalone.
+      const solos = remaining.map(restoreMemberDef)
+      set((state) => ({
+        objects: [...state.objects.filter((o) => o.id !== unionId), ...solos, extracted],
+        selectedId: extracted.id,
+        secondaryId: null,
+      }))
+      return extracted
+    }
+
+    // Rebuild the union of the remaining members from their captured world geometry.
+    const rebuilt = unionWorldGeoJSONs(remaining.map((m) => m.geo))
+    if (!rebuilt) {
+      // Couldn't rebuild (e.g. an old union with no captured geometry) — fall back
+      // to splitting everything so the click still does something visible.
+      const solos = remaining.map(restoreMemberDef)
+      set((state) => ({
+        objects: [...state.objects.filter((o) => o.id !== unionId), ...solos, extracted],
+        selectedId: extracted.id,
+        secondaryId: null,
+      }))
+      return extracted
+    }
+    const newUnion = {
+      ...JSON.parse(JSON.stringify(U)),
+      id: uuidv4(),                                   // new id → fresh mesh rebuild
+      geometryJSON: rebuilt.geometryJSON,
+      position: rebuilt.position,
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      unionMembers: remaining,
+      groupMembers: remaining.map((m) => m.def),      // keep legacy ungroup working
+      metadata: { ...U.metadata, updatedAt: new Date().toISOString() },
+    }
+    set((state) => ({
+      objects: [...state.objects.filter((o) => o.id !== unionId), newUnion, extracted],
+      selectedId: newUnion.id,
+      secondaryId: null,
+    }))
+    return extracted
   },
 
   clearScene: () => set({ objects: [], selectedId: null, secondaryId: null, standaloneIds: [] }),

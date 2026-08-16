@@ -21,7 +21,7 @@
 var SHEET_NAME = 'visits';
 var HEADERS = ['received', 'ts', 'source', 'campaign', 'ref', 'landing', 'country',
   'device_type', 'is_returning_visitor', 'popup_action', 'session_duration',
-  'medium', 'term', 'content', 'referrer', 'language', 'timezone', 'ua'];
+  'medium', 'term', 'content', 'referrer', 'language', 'timezone', 'ua', 'sid'];
 
 // In-app engagement events (app_loaded, code_run, sim_started, share_link_created,
 // project_saved, discord_join, email_submitted, …) land in a separate tab.
@@ -99,7 +99,8 @@ function doPost(e) {
       new Date(), v.ts || '', v.source || '', v.campaign || '', v.ref || '', v.landing || '',
       v.country || '', v.device_type || '', v.is_returning_visitor ? 'returning' : 'new',
       v.popup_action || '', v.session_duration || 0,
-      v.medium || '', v.term || '', v.content || '', v.referrer || '', v.language || '', v.timezone || '', v.ua || ''
+      v.medium || '', v.term || '', v.content || '', v.referrer || '', v.language || '', v.timezone || '', v.ua || '',
+      v.id || v.sid || ''
     ]);
     return json_({ ok: true });
   } catch (err) {
@@ -158,6 +159,7 @@ function doGet(e) {
       source: r[2], campaign: r[3], ref: r[4], landing: r[5], country: r[6],
       device_type: r[7], is_returning_visitor: r[8], popup_action: r[9], session_duration: r[10],
       medium: r[11], term: r[12], content: r[13], referrer: r[14], language: r[15], timezone: r[16], ua: r[17],
+      sid: r[18] || '',
       tagged: !!(r[2] && r[2] !== '(direct)')
     });
   }

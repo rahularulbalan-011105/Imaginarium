@@ -21,7 +21,7 @@ const AXIS_LABELS = [
 function getDimensions(id) {
   const mesh = objectManager.getMesh(id)
   if (!mesh) return null
-  const box  = new THREE.Box3().setFromObject(mesh)
+  const box  = objectManager.worldBoxExcludingAttached(mesh)
   const size = box.getSize(new THREE.Vector3())
   return { w: parseFloat(size.x.toFixed(3)), h: parseFloat(size.y.toFixed(3)), d: parseFloat(size.z.toFixed(3)) }
 }

@@ -17,7 +17,9 @@ function getActualSize(mesh) {
       ls.z * Math.abs(mesh.scale.z),
     )
   }
-  return new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3())
+  // Group (e.g. a GLB motor): measure its own body, EXCLUDING attached props
+  // (a wheel attached to the motor is a child, but isn't part of the motor).
+  return objectManager.worldBoxExcludingAttached(mesh).getSize(new THREE.Vector3())
 }
 
 function LabelBox({ left, top, width, height, radius, axis, val, editAxis, draftVal, onStartEdit, onDraftChange, onApply, onCancel }) {
@@ -113,7 +115,7 @@ export default function DimensionOverlay() {
 
       const size = getActualSize(mesh)
 
-      const wb = new THREE.Box3().setFromObject(mesh)
+      const wb = objectManager.worldBoxExcludingAttached(mesh)
       const dom = sceneManager.renderer.domElement
       const W = dom.clientWidth, H = dom.clientHeight
 

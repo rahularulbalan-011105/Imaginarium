@@ -392,20 +392,29 @@ class ObjectManager {
       rotorGroup.add(mesh)
       mesh.position.copy(new THREE.Vector3().sub(attachPt))
       mesh.quaternion.copy(newLocalQuat)
+      this._snapPropCenterToAxis(mesh, rotorGroup, rotorAxis)
       this.attachedObjects.set(objectId, motorId)
       return true
     }
 
     // ── Standard snap-based attachment (no face picked) ────────────────────────
+    // Keep the ALONG-AXIS position (or the snapX override) and zero BOTH
+    // perpendicular offsets, so the prop sits ON the rotor axis and spins in
+    // PLACE. Otherwise a laterally-offset prop (e.g. a shaft placed slightly off
+    // centre) orbits the motor centre. The spin axis is per-motor (rotorAxis),
+    // so this must key off it — the old code assumed X and broke y/z-shaft motors.
+    const rAxis = motorMesh.userData.rotorAxis ?? 'y'
+    const perps = ['x', 'y', 'z'].filter((a) => a !== rAxis)
     const worldPos = new THREE.Vector3()
     mesh.getWorldPosition(worldPos)
     const localPos = rotorGroup.worldToLocal(worldPos.clone())
-    localPos.x = snapX !== null ? snapX : localPos.x
-    localPos.y = 0
-    localPos.z = 0
+    localPos[rAxis] = snapX !== null ? snapX : localPos[rAxis]
+    localPos[perps[0]] = 0
+    localPos[perps[1]] = 0
 
-    // Bounding-box alignment: shift X so the chosen face lands at snapX
-    if (snapX !== null && alignX !== 'center' && mesh.geometry) {
+    // Bounding-box alignment: shift along the axis so the chosen face lands at
+    // snapX (only meaningful for X-shaft motors, where this snap flow is used).
+    if (rAxis === 'x' && snapX !== null && alignX !== 'center' && mesh.geometry) {
       mesh.geometry.computeBoundingBox()
       const bb = mesh.geometry.boundingBox
       if (bb) {
@@ -440,8 +449,26 @@ class ObjectManager {
     rotorGroup.add(mesh)
     mesh.position.copy(localPos)
     mesh.quaternion.copy(localQuat)
+    this._snapPropCenterToAxis(mesh, rotorGroup, rAxis)
     this.attachedObjects.set(objectId, motorId)
     return true
+  }
+
+  // Shift an attached prop so its GEOMETRIC CENTRE (bbox centre) lands on the
+  // rotor axis. Putting the node ORIGIN on the axis isn't enough — many GLB props
+  // (e.g. wheels) have an off-centre origin, so the wheel still orbits. Only the
+  // two axes perpendicular to the spin axis are corrected; the along-axis depth
+  // (shaft tip) is preserved.
+  _snapPropCenterToAxis(mesh, rotorGroup, rAxis) {
+    try {
+      const perps = ['x', 'y', 'z'].filter((a) => a !== (rAxis ?? 'y'))
+      rotorGroup.updateMatrixWorld(true)
+      mesh.updateMatrixWorld(true)
+      const cWorld = new THREE.Box3().setFromObject(mesh).getCenter(new THREE.Vector3())
+      const cLocal = rotorGroup.worldToLocal(cWorld)
+      mesh.position[perps[0]] -= cLocal[perps[0]]
+      mesh.position[perps[1]] -= cLocal[perps[1]]
+    } catch { /* best effort */ }
   }
 
   // Re-parent a mesh into a motor's rotorGroup while PRESERVING its current
@@ -980,6 +1007,24 @@ class ObjectManager {
     o.traverse(c => { if (c.isMesh && c.name === meshName) target = c })
     if (!target) return false
 
+    // The shaft spins via target.rotation[axis], which pivots about the mesh's
+    // LOCAL origin. In many GLBs that origin isn't on the shaft centerline, so
+    // the shaft ORBITS the motor centre instead of spinning in place. Re-pivot
+    // the geometry onto its own centre (then compensate position so it doesn't
+    // visually move) so it spins about its own axis. Clone the geometry first —
+    // GLB clones share geometry, and we must not move every motor's shaft.
+    if (target.geometry && !target.userData._rePivoted) {
+      target.geometry = target.geometry.clone()
+      target.geometry.computeBoundingBox()
+      const c = target.geometry.boundingBox.getCenter(new THREE.Vector3())
+      target.geometry.translate(-c.x, -c.y, -c.z)
+      target.position.add(
+        new THREE.Vector3(c.x * target.scale.x, c.y * target.scale.y, c.z * target.scale.z)
+          .applyQuaternion(target.quaternion),
+      )
+      target.userData._rePivoted = true
+    }
+
     target.updateMatrixWorld(true)
     const box = new THREE.Box3().setFromObject(target)
     const s   = box.getSize(new THREE.Vector3())
@@ -995,9 +1040,13 @@ class ObjectManager {
     const old = o.userData.rotorGroup
     if (old && !old.isMesh) o.remove(old)
 
-    // Create fresh virtual attachment group at shaft tip
+    // Create fresh virtual attachment group at the shaft tip. tipPos is in WORLD
+    // space, but vGroup is a CHILD of the motor `o`, so it must be converted to
+    // o-local — otherwise the motor's own placement is double-counted and every
+    // part attached to it lands far from the shaft.
+    o.updateMatrixWorld(true)
     const vGroup = new THREE.Group()
-    vGroup.position.copy(tipPos)
+    vGroup.position.copy(o.worldToLocal(tipPos.clone()))
     o.add(vGroup)
 
     o.userData.rotorMesh        = target
@@ -1005,6 +1054,34 @@ class ObjectManager {
     o.userData.rotorAxis        = axis
     o.userData.currentRotorName = meshName
     return true
+  }
+
+  // World bounding box of a component EXCLUDING anything parented under its rotor
+  // group (attached wheels / props). Used for dimension display + editing so that
+  // attaching a wheel to a motor doesn't balloon the motor's reported W/H/D.
+  worldBoxExcludingAttached(root) {
+    if (!root) return new THREE.Box3()
+    root.updateMatrixWorld(true)
+    const rotor = root.userData?.rotorGroup
+    if (!rotor) return new THREE.Box3().setFromObject(root)   // nothing attachable → normal box
+    const box = new THREE.Box3()
+    const v = new THREE.Vector3()
+    root.traverse((c) => {
+      if (!c.isMesh || !c.geometry) return
+      // Skip meshes that live inside the rotor group (i.e. attached props).
+      let p = c, skip = false
+      while (p && p !== root) { if (p === rotor) { skip = true; break } p = p.parent }
+      if (skip) return
+      if (!c.geometry.boundingBox) c.geometry.computeBoundingBox()
+      const bb = c.geometry.boundingBox
+      if (!bb) return
+      for (let i = 0; i < 8; i++) {
+        v.set(i & 1 ? bb.max.x : bb.min.x, i & 2 ? bb.max.y : bb.min.y, i & 4 ? bb.max.z : bb.min.z)
+        v.applyMatrix4(c.matrixWorld)
+        box.expandByPoint(v)
+      }
+    })
+    return box.isEmpty() ? new THREE.Box3().setFromObject(root) : box
   }
 
   // ── Attachment-point marker ───────────────────────────────────────────────

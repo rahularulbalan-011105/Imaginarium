@@ -154,6 +154,9 @@ export default function PropertiesPanel() {
   const toggleHole      = useSceneStore((s) => s.toggleHole)
   const groupSelected   = useSceneStore((s) => s.groupSelected)
   const ungroupSelected = useSceneStore((s) => s.ungroupSelected)
+  const deUnionMember   = useSceneStore((s) => s.deUnionMember)
+  const deUnionAll      = useSceneStore((s) => s.deUnionAll)
+  const [showDeunion, setShowDeunion] = useState(false)
   const { snapshot } = useHistory()
 
   const attachments     = useElectronicsStore((s) => s.attachments)
@@ -1242,7 +1245,45 @@ export default function PropertiesPanel() {
           ⊕ Group selected (Ctrl+G)
         </button>
       )}
-      {Array.isArray(obj.groupMembers) && obj.groupMembers.length > 0 && (
+      {/* De-union: a union remembers its members, so it can be reversed —
+          split all, or extract one object from the union at a time. */}
+      {Array.isArray(obj.unionMembers) && obj.unionMembers.length >= 2 && (
+        <div className="mb-2 rounded-lg border border-purple-500/30 bg-purple-500/5 overflow-hidden">
+          <button
+            onClick={() => setShowDeunion((v) => !v)}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-semibold text-purple-200 hover:bg-purple-500/10 transition-colors"
+          >
+            ⊟ De-union ({obj.unionMembers.length})
+            <span className="ml-auto text-[10px] text-purple-300/70">{showDeunion ? '▾' : '▸'}</span>
+          </button>
+          {showDeunion && (
+            <div className="px-2 pb-2">
+              <div className="text-[10px] text-gray-400 mb-1.5 px-0.5">Click an object to separate it from the union:</div>
+              <div className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                {obj.unionMembers.map((m, i) => (
+                  <button
+                    key={m.def?.id ?? i}
+                    onClick={() => { if (deUnionMember(obj.id, m.def?.id)) snapshot() }}
+                    title={`Separate ${m.def?.name ?? 'this object'} from the union`}
+                    className="group flex items-center gap-2 px-2 py-1.5 rounded bg-gray-800/70 hover:bg-purple-500/15 border border-transparent hover:border-purple-500/40 transition-colors text-left"
+                  >
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: m.def?.color ?? '#888' }} />
+                    <span className="text-[11px] text-gray-200 truncate flex-1">{m.def?.name ?? `Object ${i + 1}`}</span>
+                    <span className="text-[10px] text-purple-300 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">De-union →</span>
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => { if (deUnionAll(obj.id)) snapshot() }}
+                className="w-full mt-2 py-1.5 rounded text-[11px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100 transition-colors"
+              >
+                ⊟ Split all ({obj.unionMembers.length})
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {!obj.unionMembers && Array.isArray(obj.groupMembers) && obj.groupMembers.length > 0 && (
         <button
           onClick={() => { if (ungroupSelected()) snapshot() }}
           className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100 transition-colors"

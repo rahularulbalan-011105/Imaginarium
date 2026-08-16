@@ -547,7 +547,7 @@ export function createMotorGroup() {
 // Confirmed default shaft mesh names per GLB model (set by the user after testing)
 const DEFAULT_SHAFT = {
   motor_bo: 'Object_24',
-  // motor_dc: add here once confirmed
+  motor_dc: 'Object_9',
 }
 
 export function createMotorBOGroup() {
@@ -566,6 +566,22 @@ export function createMotorDCGroup() {
 // The shaft MESH spins directly (no reparenting = no GLB visual artifacts).
 // The virtual GROUP also spins — props parented to it spin with no scale inheritance.
 function setupRotorGroup(root, rotorNode, rotorAxis) {
+  // Re-pivot the shaft geometry onto its own centre so it spins IN PLACE rather
+  // than orbiting the motor centre (its GLB node origin usually isn't on the
+  // shaft centreline). Clone first — GLB clones share geometry, so we must not
+  // move every other motor's shaft.
+  if (rotorNode.geometry && !rotorNode.userData._rePivoted) {
+    rotorNode.geometry = rotorNode.geometry.clone()
+    rotorNode.geometry.computeBoundingBox()
+    const c = rotorNode.geometry.boundingBox.getCenter(new THREE.Vector3())
+    rotorNode.geometry.translate(-c.x, -c.y, -c.z)
+    rotorNode.position.add(
+      new THREE.Vector3(c.x * rotorNode.scale.x, c.y * rotorNode.scale.y, c.z * rotorNode.scale.z)
+        .applyQuaternion(rotorNode.quaternion),
+    )
+    rotorNode.userData._rePivoted = true
+  }
+
   rotorNode.updateMatrixWorld(true)
   const box  = new THREE.Box3().setFromObject(rotorNode)
   const size = box.getSize(new THREE.Vector3())

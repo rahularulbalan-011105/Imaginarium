@@ -4,7 +4,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
-import { runBoolean } from '../utils/csg.js'
+import { runBoolean, buildUnionMembers } from '../utils/csg.js'
 
 const OPERATIONS = [
   {
@@ -114,7 +114,10 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
       }
 
       const name = `${OP_NAMES[opId]}_${objA.name}_${objB.name}`
-      const csg = addCSGObject(name, result.geometryJSON, result.color, result.position)
+      // Record flat union members (while the sources are still live) so this
+      // union can be de-unioned later. Only meaningful for a true union.
+      const unionMembers = opId === 'union' ? buildUnionMembers(objA, objB) : null
+      const csg = addCSGObject(name, result.geometryJSON, result.color, result.position, undefined, undefined, unionMembers)
 
       // Remove the two source objects then snapshot the post-operation state
       removeObject(selectedId)
