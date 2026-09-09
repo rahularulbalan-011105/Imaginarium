@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import ConstructaLogo from './ConstructaLogo.jsx'
 import { useOnboardingStore } from '../onboarding/onboardingStore.js'
+import { isCloudMode } from '../managers/CloudProjectManager.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StartSessionBanner — the first thing shown on load.
@@ -12,7 +13,9 @@ import { useOnboardingStore } from '../onboarding/onboardingStore.js'
 // ─────────────────────────────────────────────────────────────────────────────
 
 export default function StartSessionBanner() {
-  const [visible, setVisible] = useState(true)
+  // Opened from the dashboard/share? Skip the puppy tutorial — go straight to the
+  // user's own project.
+  const [visible, setVisible] = useState(() => !isCloudMode())
   const startDebugMission = useOnboardingStore((s) => s.startDebugMission)
 
   if (!visible) return null

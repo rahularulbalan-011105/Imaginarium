@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
+    "@supabase/supabase-js": "^2.112.4",
     "blockly": "^11.2.2",
     "peerjs": "^1.5.5",
     "react": "^18.3.1",
@@ -45,8 +46,18 @@
   "build": {
     "appId": "com.imaginarium.editor",
     "productName": "Imaginarium",
-    "directories": { "output": "release" },
-    "files": ["dist/**/*", "electron/**/*"],
-    "win": { "target": ["nsis", "portable"] }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
   }
 }

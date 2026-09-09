@@ -21,6 +21,8 @@ import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import StartSessionBanner from './components/StartSessionBanner.jsx'
 import CreditDialog from './components/CreditDialog.jsx'
+import CloudSaveBar from './components/CloudSaveBar.jsx'
+import { initCloudSync } from './managers/CloudProjectManager.js'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
 import PanelHint from './components/onboarding/PanelHint.jsx'
@@ -281,6 +283,11 @@ function AppEditor() {
   }, [])
 
   useEffect(() => { resetBaseline() }, [])
+
+  // Cloud sync: if opened from the dashboard (?project=) or a share link
+  // (?share=), consume the session handoff, load the project, and start
+  // auto-saving. No-op otherwise (standalone editor behaves exactly as before).
+  useEffect(() => { initCloudSync() }, [])
 
   // First the "Start Session" banner is shown (StartSessionBanner). When the user
   // starts it, the banner is removed and it launches the puppy mission itself —
@@ -589,6 +596,7 @@ function AppEditor() {
       {/* Mirrors onboarding flags into the overlay coordinator so the View Cube
           yields to the welcome card / tour / coach / reference modals. */}
       <OverlayBridge />
+      <CloudSaveBar />
       <EmailCapture />
       <CombatHUD />
       <StartSessionBanner />
