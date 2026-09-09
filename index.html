@@ -25,22 +25,20 @@
       }
     </script>
 
-    <!-- Landing gate: the live app now sends EVERY visitor (all devices) to the
+    <!-- Landing gate: the live app sends EVERY visitor (all devices) to the
          landing page (constructa-page.atumx.in), carrying the UTM query along.
          Runs FIRST, before the bundle downloads. Only fires on the production host.
-         The DIRECT LINK  https://constructa.atumx.in/?app=1  opts straight into
-         the app and is remembered (localStorage), so beta users you hand that
-         link to always land in the editor — not the landing page. -->
+         The workbench opens ONLY via an explicit  ?app=1  link (the dashboard
+         launcher, community/share links). We deliberately DON'T remember a past
+         visit — so browser cookies/localStorage can never make the bare domain
+         constructa.atumx.in skip the landing. -->
     <script>
       (function () {
         try {
           var LANDING = 'https://constructa-page.atumx.in';
           var onApp = /(^|\.)constructa\.atumx\.in$/i.test(location.hostname);
           var optOut = /[?&]app=1(?:&|$)/.test(location.search);
-          var saved = false;
-          try { saved = localStorage.getItem('constructa_direct') === '1'; } catch (e) {}
-          if (optOut) { try { localStorage.setItem('constructa_direct', '1'); } catch (e) {} }
-          if (onApp && !optOut && !saved) {
+          if (onApp && !optOut) {
             // Carry attribution to the landing. If the incoming link has no
             // utm_source (a plain share), infer it from the referrer that sent
             // the user here — otherwise it's lost once we hop to the landing.
