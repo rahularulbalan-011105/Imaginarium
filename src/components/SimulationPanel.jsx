@@ -86,20 +86,6 @@ export default function SimulationPanel() {
         </div>
       </div>
 
-      {/* ── Game mode ──────────────────────────────────────────────────────── */}
-      <div>
-        <SectionTitle>Game Mode</SectionTitle>
-        <button
-          onClick={() => setActivePanel('battle')}
-          className="w-full flex items-center justify-center gap-2 py-2 rounded-xl font-medium text-xs transition-colors"
-          style={{ background: 'rgb(168 85 247 / 0.16)', color: 'rgb(var(--g-200))', border: '1px solid rgb(168 85 247 / 0.4)' }}
-        >
-          <Icon name="swords" size={15} /> Open Robo-Sumo Battle
-        </button>
-        <div className="text-[11px] mt-2 leading-snug" style={{ color: 'rgb(var(--g-500))' }}>
-          Push your opponent out of the ring — local 2-player or online.
-        </div>
-      </div>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { isCloudMode, backToDashboard, retrySave } from '../managers/CloudProjectManager.js'
+import { isCloudMode, backToDashboard, retrySave, saveNow } from '../managers/CloudProjectManager.js'
 
 // A slim top-center bar shown only when the editor was opened from the dashboard
 // (?project=…) or a share link (?share=…). Shows Back-to-Dashboard + live save
@@ -13,6 +13,19 @@ export default function CloudSaveBar() {
     const on = (e) => setSt((prev) => ({ ...prev, ...e.detail }))
     window.addEventListener('constructa:cloud-status', on)
     return () => window.removeEventListener('constructa:cloud-status', on)
+  }, [cloud])
+
+  // Ctrl/Cmd+S → save to the cloud now (saveNow self-guards on read-only).
+  useEffect(() => {
+    if (!cloud) return
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault()
+        saveNow()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [cloud])
 
   if (!cloud) return null
@@ -32,6 +45,17 @@ export default function CloudSaveBar() {
           title="Save and return to your dashboard"
         >
           <span aria-hidden>←</span> Dashboard
+        </button>
+      )}
+
+      {!readOnly && (
+        <button
+          onClick={saveNow}
+          className="flex items-center gap-1 px-2.5 py-1 rounded-full font-semibold text-white transition-all hover:brightness-110"
+          style={{ background: 'rgb(34 197 94)' }}
+          title="Save now (Ctrl+S)"
+        >
+          💾 Save
         </button>
       )}
 

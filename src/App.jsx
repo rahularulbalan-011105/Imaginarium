@@ -7,7 +7,6 @@ import StatusBar from './components/StatusBar.jsx'
 import BooleanPanel, { isBooleanCandidate } from './components/BooleanPanel.jsx'
 import CodeEditor from './components/CodeEditor.jsx'
 import BlocksPanel from './components/BlocksPanel.jsx'
-import BattlePanel from './components/BattlePanel.jsx'
 import PanelErrorBoundary from './components/PanelErrorBoundary.jsx'
 import AssetLibrary from './components/AssetLibrary.jsx'
 import ElectronicsLibrary from './components/ElectronicsLibrary.jsx'
@@ -19,8 +18,6 @@ import ConstructaLogo from './components/ConstructaLogo.jsx'
 import EmailCapture from './components/EmailCapture.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
-import StartSessionBanner from './components/StartSessionBanner.jsx'
-import CreditDialog from './components/CreditDialog.jsx'
 import CloudSaveBar from './components/CloudSaveBar.jsx'
 import { initCloudSync } from './managers/CloudProjectManager.js'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
@@ -41,11 +38,8 @@ import { useJointStore } from './stores/jointStore.js'
 import { useHistory } from './hooks/useHistory.js'
 import { resetBaseline } from './managers/history/editorDispatch.js'
 import { jointManager } from './managers/JointManager.js'
-import { battleManager } from './managers/BattleManager.js'
 import { useGameStore } from './stores/gameStore.js'
-import { combatManager } from './managers/CombatManager.js'
 import { useCombatStore } from './stores/combatStore.js'
-import CombatHUD from './components/combat/CombatHUD.jsx'
 import { sceneManager } from './managers/SceneManager.js'
 import { objectManager } from './managers/ObjectManager.js'
 import { storageManager } from './managers/StorageManager.js'
@@ -205,15 +199,8 @@ function AppEditor() {
       }
       // Drive physics runs every frame when simulation mode is active
       if (simActiveRef.current) driveManager.step()
-      // Robo-sumo battle — moves whole robot assemblies rigidly.
-      const battleOn = useGameStore.getState().battleActive
-      if (battleOn) battleManager.step()
-      // Physics Arena (combat) — CombatManager owns robot part positions too.
-      const arenaOn = useCombatStore.getState().arenaActive
-      if (arenaOn) combatManager.step()
       // Propagate rigid bonds every frame — bonds are live constraints.
-      // Skipped during battle/arena (that manager owns robot part positions).
-      const bonds = (battleOn || arenaOn) ? [] : Object.values(useRigidStore.getState().bonds)
+      const bonds = Object.values(useRigidStore.getState().bonds)
       if (bonds.length > 0) {
         // Skip propagating a bond whose child is currently being dragged by the
         // transform gizmo — otherwise the frame loop fights the user's drag.
@@ -234,6 +221,11 @@ function AppEditor() {
           objectManager.applyGearRotations(bonds)
         }
       }
+      // Paint at full frame-rate only while something is actually moving. When the
+      // scene is idle the SceneManager throttles to a low rate — a big win on
+      // low-end laptops (and battery). Bonds/joints moving are driven by drags,
+      // which wake the renderer via their own change events.
+      if (simulationManager.isRunning() || simActiveRef.current) sceneManager.requestRender()
     }
     return () => { sceneManager.onAnimationTick = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -494,7 +486,6 @@ function AppEditor() {
     ] },
     { group: 'Run', items: [
       { id: 'sim',    icon: 'play',   label: 'Sim' },
-      { id: 'battle', icon: 'swords', label: 'Battle' },
     ] },
     { group: 'Setup', items: [
       { id: 'settings', icon: 'gear', label: 'Settings' },
@@ -512,7 +503,6 @@ function AppEditor() {
       case 'joints':   return <JointPanel />
       case 'robot':    return <RobotPanel />
       case 'blocks':   return <PanelErrorBoundary label="Blocks"><BlocksPanel /></PanelErrorBoundary>
-      case 'battle':   return <PanelErrorBoundary label="Battle"><BattlePanel /></PanelErrorBoundary>
       case 'library':  return <AssetLibrary />
       case 'electronics': return <ElectronicsLibrary />
       case 'mechanical':  return <MechanicalLibrary />
@@ -598,9 +588,6 @@ function AppEditor() {
       <OverlayBridge />
       <CloudSaveBar />
       <EmailCapture />
-      <CombatHUD />
-      <StartSessionBanner />
-      <CreditDialog />
       <WelcomeOverlay />
       <ProductTour />
       <GuidedCoach />

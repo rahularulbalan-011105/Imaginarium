@@ -26,10 +26,20 @@ const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_c
 let _session = null      // current session's mutable record
 let _startMs = 0
 let _sent = false
+// Accumulated *active* (tab-visible) time — so alt-tabbing doesn't freeze or lose
+// the timer, and time only counts while the user is actually looking at the page.
+let _activeMs = 0
+let _visibleSince = 0
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function safeParse(json, fb) { try { const v = JSON.parse(json); return v ?? fb } catch { return fb } }
 function nowMs() { return (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now() }
+// Seconds of active (visible) time so far.
+function activeSecs() {
+  const visibleNow = typeof document !== 'undefined' && document.visibilityState !== 'hidden'
+  const live = visibleNow ? nowMs() - _visibleSince : 0
+  return Math.round((_activeMs + live) / 1000)
+}
 function makeId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8) }
 function tz() { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || '' } catch { return '' } }
 
@@ -148,22 +158,37 @@ export function captureUTM() {
     timezone: tz(),
   }
   _startMs = nowMs()
+  _visibleSince = nowMs()
   localUpsert(_session)
   try { sessionStorage.setItem(SID_FLAG, _session.id) } catch { /* private mode */ }
 
   lookupCountry().then(c => { if (_session && c) { _session.country = c; localUpsert(_session) } })
 
-  // Finalize (duration + popup_action + country) and send once at session end.
+  // Send ONCE at the TRUE end of the session, carrying the accumulated ACTIVE
+  // (tab-visible) time. Alt-tabbing/backgrounding pauses the timer rather than
+  // ending the session — only a real navigation/close (pagehide) or a long
+  // background stretch (mobile) finalizes it. This fixes the old "duration = 0"
+  // where the first tab-switch froze the timer instantly.
   const finalize = () => {
     if (_sent || !_session) return
     _sent = true
-    _session.session_duration = Math.round((nowMs() - _startMs) / 1000)
+    _session.session_duration = activeSecs()
     localUpsert(_session)
     sendToServer(_session)
   }
-  window.addEventListener('pagehide', finalize)
-  window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') finalize() })
-  setTimeout(finalize, 15 * 60 * 1000)   // fallback if exit events never fire
+  let hideTimer = null
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      _activeMs += nowMs() - _visibleSince           // bank the visible stretch
+      clearTimeout(hideTimer)
+      hideTimer = setTimeout(finalize, 30 * 1000)    // hidden 30s straight → session over (mobile)
+    } else {
+      _visibleSince = nowMs()                         // resumed being looked at
+      clearTimeout(hideTimer)
+    }
+  })
+  window.addEventListener('pagehide', finalize)       // real navigation / tab close
+  setTimeout(finalize, 30 * 60 * 1000)                // absolute safety cap
 
   if (!getFirstTouch()) { try { localStorage.setItem(FIRST_TOUCH_KEY, JSON.stringify(_session)) } catch { /* ignore */ } }
 
@@ -174,7 +199,7 @@ export function captureUTM() {
 export function recordPopupAction(action) {
   if (!_session) return
   _session.popup_action = action
-  _session.session_duration = Math.round((nowMs() - _startMs) / 1000)
+  _session.session_duration = activeSecs()
   localUpsert(_session)
 }
 

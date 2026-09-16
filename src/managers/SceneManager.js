@@ -3,6 +3,14 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { TransformControls } from 'three/addons/controls/TransformControls.js'
 import { objectManager } from './ObjectManager.js'
 import { wireManager } from './WireManager.js'
+// Subscribed only to wake the renderer when the scene changes (see requestRender).
+import { useSceneStore } from '../stores/sceneStore.js'
+import { useUiStore } from '../stores/uiStore.js'
+import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { useRigidStore } from '../stores/rigidStore.js'
+import { useSurfaceStore } from '../stores/surfaceStore.js'
+import { useJointStore } from '../stores/jointStore.js'
+import { useGearStore } from '../stores/gearStore.js'
 
 class SceneManager {
   constructor() {
@@ -16,6 +24,15 @@ class SceneManager {
     this.animationId = null
     this.onTransformChange = null
     this.onDraggingChanged = null
+    // Adaptive rendering: paint every frame only while "awake"; otherwise fall
+    // back to a low idle rate. requestRender() extends the awake window.
+    this._wakeUntil = 0
+    this._lastRender = 0
+  }
+
+  /** Wake the renderer to full frame-rate for a short window (default ~400ms). */
+  requestRender(ms = 400) {
+    this._wakeUntil = performance.now() + ms
   }
 
   init(canvas, width, height) {
@@ -25,7 +42,10 @@ class SceneManager {
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
     this.renderer.setSize(width, height)
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    // Cap the pixel ratio: on a 2× (retina/HiDPI) laptop, rendering at full DPR
+    // means ~4× the pixels every frame — the single biggest cost on low-end GPUs.
+    // 1.5 keeps it crisp while roughly halving the work vs 2×.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
@@ -42,7 +62,9 @@ class SceneManager {
     const sun = new THREE.DirectionalLight(0xfff4e0, 1.0)
     sun.position.set(15, 25, 15)
     sun.castShadow = true
-    sun.shadow.mapSize.set(2048, 2048)
+    // 1024² shadow map — half the memory/fill of 2048² and visually near-identical
+    // at this scene scale; a meaningful per-frame saving on integrated GPUs.
+    sun.shadow.mapSize.set(1024, 1024)
     sun.shadow.camera.near = 0.1
     sun.shadow.camera.far = 200
     sun.shadow.camera.left = -30
@@ -70,18 +92,32 @@ class SceneManager {
     this.orbitControls.dampingFactor = 0.06
     this.orbitControls.minDistance = 0.5
     this.orbitControls.maxDistance = 500
+    // Any camera move (incl. inertial damping frames) keeps the renderer awake.
+    this.orbitControls.addEventListener('change', () => this.requestRender())
 
     // TransformControls — smaller, elegant gizmo
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement)
     this.transformControls.size = 0.25
     this.transformControls.addEventListener('dragging-changed', (e) => {
       this.orbitControls.enabled = !e.value
+      this.requestRender()
       if (this.onDraggingChanged) this.onDraggingChanged(e.value)
     })
     this.transformControls.addEventListener('objectChange', () => {
+      this.requestRender()
       if (this.onTransformChange) this.onTransformChange()
     })
     this.scene.add(this.transformControls)
+
+    // Repaint whenever any 3D-affecting store changes (add/move/delete, wiring,
+    // bonds, joints, gears, patches, panel/tool toggles). The idle floor in the
+    // loop is the safety net for anything not covered here.
+    for (const store of [
+      useSceneStore, useUiStore, useElectronicsStore,
+      useRigidStore, useSurfaceStore, useJointStore, useGearStore,
+    ]) {
+      try { store.subscribe(() => this.requestRender()) } catch (_) { /* non-fatal */ }
+    }
 
     objectManager.init(this.scene)
     wireManager.init(this.scene, this.camera)
@@ -93,6 +129,7 @@ class SceneManager {
   onAnimationTick = null
 
   _startLoop() {
+    const IDLE_INTERVAL = 120  // ms between paints when nothing is moving (~8fps)
     const tick = () => {
       this.animationId = requestAnimationFrame(tick)
       this.orbitControls?.update()
@@ -100,7 +137,15 @@ class SceneManager {
       try { wireManager.update() } catch (_) { /* never block motor tick */ }
       try { objectManager.updateWires() } catch (_) { /* never block motor tick */ }
       try { if (this.onAnimationTick) this.onAnimationTick() } catch (e) { console.error('[tick]', e) }
-      this.renderer.render(this.scene, this.camera)
+
+      // Adaptive paint: full frame-rate while awake (interacting / simulating),
+      // otherwise a low idle rate. The idle floor guarantees the view still
+      // refreshes within ~120ms even if some change forgot to wake us.
+      const now = performance.now()
+      if (now < this._wakeUntil || now - this._lastRender >= IDLE_INTERVAL) {
+        this.renderer.render(this.scene, this.camera)
+        this._lastRender = now
+      }
     }
     tick()
   }
@@ -129,6 +174,7 @@ class SceneManager {
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height)
+    this.requestRender()
   }
 
   attachTransformTo(mesh) {

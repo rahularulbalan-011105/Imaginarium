@@ -83,6 +83,40 @@ void loop() {
 }`,
   },
   {
+    label: 'OLED display',
+    code: `// OLED display (SSD1306, 128x64, I2C)
+// Wiring: GND -> GND, VCC -> 5V/3.3V, SCL -> SCL, SDA -> SDA
+#include <Adafruit_SSD1306.h>
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT);
+// On real hardware use: Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+int count = 0;
+
+void setup() {
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);   // start the screen
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0, 0);
+  display.println("Hello from");
+  display.println("Constructa!");
+  display.display();                           // push the text to the screen
+  delay(1500);
+}
+
+void loop() {
+  // Redraw a live counter every second
+  display.clearDisplay();
+  display.setCursor(0, 0);
+  display.println("Counter:");
+  display.println(count);
+  display.display();
+  count = count + 1;
+  delay(1000);
+}`,
+  },
+  {
     label: 'SUBO: LED matrix',
     code: `#include <Subo.h>
 

@@ -18,7 +18,15 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 const DASHBOARD_URL =
   import.meta.env.VITE_DASHBOARD_URL || 'https://constructa-page.atumx.in/dashboard'
 
-const DEBOUNCE_MS = 900
+// Auto-save pacing — deliberately gentle so many concurrent editors don't hammer
+// the database. Wait this long after the last edit before writing…
+const DEBOUNCE_MS = 3000
+// …and never write more often than this, even during continuous editing.
+const MIN_SAVE_GAP_MS = 5000
+// On repeated failures (e.g. server 504s), back off exponentially instead of
+// retrying in a tight loop — capped so we still recover promptly once it's back.
+const BASE_BACKOFF_MS = 4000
+const MAX_BACKOFF_MS = 60000
 
 const S = {
   active: false,
@@ -31,6 +39,9 @@ const S = {
   saving: false,
   pending: false,
   lastSerialized: null,
+  lastStructuralKey: '',
+  lastSaveAt: 0,
+  failCount: 0,
   timer: null,
   unsub: [],
   started: false,
@@ -164,11 +175,35 @@ async function loadShared(supabase, token) {
 
 // ── Auto-save ─────────────────────────────────────────────────────────────────
 
+// A cheap "structural" fingerprint: object COUNT, wire count, attachment count,
+// and code length. It changes when you add/remove an object, wire, attach a part,
+// or edit code — but NOT when you merely drag/rotate/scale/recolour something.
+function structuralKey() {
+  const s = useSceneStore.getState()
+  const e = useElectronicsStore.getState()
+  return [
+    s.objects.length,
+    e.connections?.length ?? 0,
+    Object.keys(e.attachments || {}).length,
+    (e.code || '').length,
+  ].join(':')
+}
+
 function startAutoSave() {
   if (S.readOnly) return
-  const schedule = () => scheduleSave()
-  S.unsub.push(useSceneStore.subscribe(schedule))
-  S.unsub.push(useElectronicsStore.subscribe(schedule))
+  S.lastStructuralKey = structuralKey()
+  // Only auto-save on STRUCTURAL changes (add/remove object, wiring, attach/detach,
+  // code edit) — not on every drag/rotate/colour tweak. That slashes how often we
+  // write. Fine-grained edits (moves, colours, renames) are still persisted by the
+  // full-snapshot flush on tab-hide / close / "Back to Dashboard".
+  const onChange = () => {
+    const key = structuralKey()
+    if (key === S.lastStructuralKey) return
+    S.lastStructuralKey = key
+    scheduleSave()
+  }
+  S.unsub.push(useSceneStore.subscribe(onChange))
+  S.unsub.push(useElectronicsStore.subscribe(onChange))
   window.addEventListener('visibilitychange', onHide)
   window.addEventListener('pagehide', onHide)
 }
@@ -177,7 +212,15 @@ function scheduleSave() {
   if (S.readOnly || !S.projectId) return
   if (S.status !== 'saving') setStatus('dirty')
   clearTimeout(S.timer)
-  S.timer = setTimeout(runSave, DEBOUNCE_MS)
+  // Exponential backoff while failing, and never sooner than MIN_SAVE_GAP_MS
+  // after the previous write — so a burst of edits (or a down server) can't turn
+  // into a flood of requests.
+  const backoff = S.failCount > 0
+    ? Math.min(MAX_BACKOFF_MS, BASE_BACKOFF_MS * 2 ** (S.failCount - 1))
+    : 0
+  const sinceLast = performance.now() - S.lastSaveAt
+  const wait = Math.max(DEBOUNCE_MS + backoff, MIN_SAVE_GAP_MS - sinceLast, 0)
+  S.timer = setTimeout(runSave, wait)
 }
 
 function currentSnapshot() {
@@ -189,6 +232,21 @@ function safeSerialize(o) {
     return JSON.stringify(o)
   } catch {
     return null
+  }
+}
+
+function snapIsEmpty(snap) {
+  return !snap || !Array.isArray(snap.objects) || snap.objects.length === 0
+}
+
+// Did the last thing we persisted actually contain objects? Used to refuse an
+// empty-scene overwrite (a transient wipe should never clobber a real project).
+function prevHadObjects() {
+  try {
+    const prev = JSON.parse(S.lastSerialized || '{}')
+    return Array.isArray(prev.objects) && prev.objects.length > 0
+  } catch {
+    return false
   }
 }
 
@@ -208,24 +266,43 @@ async function runSave() {
     return
   }
 
+  // SAFETY: never overwrite a project that had content with a suddenly-empty scene.
+  // (Guards against a transient/half-loaded scene wiping good data.)
+  if (snapIsEmpty(snap) && prevHadObjects()) {
+    console.warn('[cloud] refused to overwrite a non-empty project with an empty scene')
+    return
+  }
+
   S.saving = true
   setStatus('saving')
   const supabase = getSupabase()
   try {
-    const { error } = await supabase
+    // .select('id') lets us CONFIRM the write actually applied. A 504/timeout throws
+    // here; an RLS/permission miss returns 0 rows — both must count as failures so we
+    // never think we saved when we didn't.
+    const { data, error } = await supabase
       .from('projects')
       .update({ content: snap })
       .eq('id', S.projectId)
+      .select('id')
     if (error) throw error
+    if (!data || data.length === 0) throw new Error('save did not persist (0 rows updated)')
     S.lastSerialized = serialized
+    S.failCount = 0
     setStatus('saved')
   } catch (e) {
     console.warn('[cloud] save failed:', e?.message ?? e)
+    S.failCount++
     setStatus('error')
   } finally {
     S.saving = false
+    S.lastSaveAt = performance.now()
     if (S.pending) {
       S.pending = false
+      scheduleSave()
+    } else if (S.failCount > 0) {
+      // The failed write still holds unsaved changes — retry later with backoff
+      // (scheduleSave computes the delay), never in a tight loop.
       scheduleSave()
     }
   }
@@ -235,6 +312,18 @@ async function runSave() {
 export function retrySave() {
   clearTimeout(S.timer)
   runSave()
+}
+
+/** Manual save — writes the full current state (incl. moves/colours) immediately. */
+export function saveNow() {
+  if (S.readOnly || !S.projectId) return
+  clearTimeout(S.timer)
+  runSave()
+}
+
+/** True while the editor is in an editable cloud project (for the Save button). */
+export function canSave() {
+  return S.active && !S.readOnly && !!S.projectId
 }
 
 function onHide(e) {
@@ -248,6 +337,8 @@ function flushKeepalive() {
   const snap = currentSnapshot()
   const serialized = safeSerialize(snap)
   if (serialized && serialized === S.lastSerialized) return
+  // Same safety net as runSave: don't let a teardown flush wipe a real project.
+  if (snapIsEmpty(snap) && prevHadObjects()) return
   try {
     fetch(`${SUPABASE_REST}/projects?id=eq.${S.projectId}`, {
       method: 'PATCH',
