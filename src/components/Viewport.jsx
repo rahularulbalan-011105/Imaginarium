@@ -13,6 +13,7 @@ import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { vec3FromObject } from '../utils/helpers.js'
 import { attachPointEvents } from './PropertiesPanel.jsx'
+import { isBooleanCandidate } from './BooleanPanel.jsx'
 import { jointPickEvents } from './JointPanel.jsx'
 import { jointManager } from '../managers/JointManager.js'
 import DimensionOverlay from './DimensionOverlay.jsx'
@@ -677,6 +678,13 @@ export default function Viewport() {
   )
 
   const hasBothSelected = selectedId && secondaryId
+  // Both objects must be solid/electronics shapes for a Boolean — a wheel, sensor,
+  // etc. can't be combined, so don't promise a panel that won't appear.
+  const bothBooleanReady = !!(
+    hasBothSelected &&
+    isBooleanCandidate(objects.find((o) => o.id === selectedId)) &&
+    isBooleanCandidate(objects.find((o) => o.id === secondaryId))
+  )
 
   return (
     <div
@@ -807,9 +815,15 @@ export default function Viewport() {
       )}
 
       {/* Boolean ops active indicator */}
-      {hasBothSelected && (
+      {hasBothSelected && bothBooleanReady && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-purple-700/90 border border-purple-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
           2 objects selected — use the Boolean panel on the right
+        </div>
+      )}
+      {/* Two selected, but one can't be booleaned (wheel / sensor / model helper) */}
+      {hasBothSelected && !bothBooleanReady && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-amber-600/90 border border-amber-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
+          These two can't be combined — Boolean needs two solid shapes
         </div>
       )}
 
