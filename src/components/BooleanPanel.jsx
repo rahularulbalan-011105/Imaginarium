@@ -48,6 +48,7 @@ const OP_NAMES = { union: 'Union', subtract: 'Subtract', subtractB: 'Subtract', 
 const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
 const GEOMETRY_TYPES = new Set(['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane',
   'tetrahedron', 'pyramid', 'pentpyramid', 'octahedron', 'dodecahedron', 'rectprism',
+  'capsule', 'prism', 'diamond', 'hexagon', 'star', 'text',
   'csg', 'model', 'gear', 'bolt', 'screw'])
 
 export function isBooleanCandidate(obj) {
