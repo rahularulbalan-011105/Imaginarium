@@ -26,6 +26,7 @@ const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_c
 let _session = null      // current session's mutable record
 let _startMs = 0
 let _sent = false
+let _loginEmail = ''     // the email the user logged in with (set once known)
 // Accumulated *active* (tab-visible) time — so alt-tabbing doesn't freeze or lose
 // the timer, and time only counts while the user is actually looking at the page.
 let _activeMs = 0
@@ -221,6 +222,7 @@ export function trackEvent(name, meta = {}) {
     campaign: _session?.campaign || '',
     ref: _session?.ref || '',
     device_type: _session?.device_type || '',
+    email: _loginEmail || '',                  // who did this work (login email)
     ...meta,
   }
   if (!COLLECTOR_ENDPOINT) { try { console.debug('[event]', name, meta) } catch {} ; return }
@@ -229,6 +231,18 @@ export function trackEvent(name, meta = {}) {
     if (navigator.sendBeacon) navigator.sendBeacon(COLLECTOR_ENDPOINT, new Blob([payload], { type: 'text/plain;charset=UTF-8' }))
     else fetch(COLLECTOR_ENDPOINT, { method: 'POST', body: payload, mode: 'no-cors', keepalive: true })
   } catch { /* best-effort */ }
+}
+
+// Record the email the user logged in with. Once set, every subsequent event
+// (shape_added, code_run, sim_started, export_json, …) carries it — so the sheet
+// records each authenticated user's workshop activity by email. Also stamps the
+// current visit record so the session is tied to the account.
+export function setLoginEmail(email) {
+  const clean = String(email || '').trim().slice(0, 160)
+  if (!clean || clean === _loginEmail) return
+  _loginEmail = clean
+  if (_session) { _session.email = clean; try { localUpsert(_session) } catch { /* ignore */ } }
+  trackEvent('login_workshop', { email: clean })   // "this account opened the workshop"
 }
 
 // Lightweight email capture → logged as an event with the email attached.

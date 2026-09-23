@@ -12,6 +12,7 @@
 // runs exactly as before.
 import { getSupabase, cloudConfigured, SUPABASE_REST, SUPABASE_APIKEY } from '../lib/supabaseClient.js'
 import { buildProjectSnapshot } from '../utils/helpers.js'
+import { setLoginEmail } from '../utils/utmTracking.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 
@@ -78,13 +79,16 @@ export async function initCloudSync() {
   // 1) Session handoff from the fragment, then wipe it from the URL/history.
   await consumeSessionHandoff(supabase)
 
-  // Keep a synchronous copy of the access token for keepalive flush on unload.
+  // Keep a synchronous copy of the access token for keepalive flush on unload,
+  // and tag analytics with the logged-in email so their workshop work is recorded.
   try {
     const { data } = await supabase.auth.getSession()
     S.accessToken = data.session?.access_token ?? null
+    if (data.session?.user?.email) setLoginEmail(data.session.user.email)
   } catch { /* ignore */ }
   supabase.auth.onAuthStateChange((_e, session) => {
     S.accessToken = session?.access_token ?? null
+    if (session?.user?.email) setLoginEmail(session.user.email)
   })
 
   const params = new URLSearchParams(window.location.search)
