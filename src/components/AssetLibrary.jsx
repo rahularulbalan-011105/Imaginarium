@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useAssetStore } from '../stores/assetStore.js'
 import { useHistory } from '../hooks/useHistory.js'
-import { loadGLTFFromFile, loadSTLFromFile, cloneModel } from '../utils/modelLoader.js'
+import { loadGLTFFromFile, loadSTLFromFile, cloneModel, flattenToGeometry } from '../utils/modelLoader.js'
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
 import { svgTextToGeometry } from '../utils/svgImport.js'
 
@@ -122,9 +122,15 @@ export default function AssetLibrary() {
         if (!geometry) continue
 
         const objId = uuidv4()
-        storeImportedGeometry(objId, geometry)
-        // Groups (GLB) can't be serialized; only STL BufferGeometry gets geometryJSON
-        const geometryJSON = geometry.isBufferGeometry ? geometry.toJSON() : null
+        storeImportedGeometry(objId, geometry)   // rich model for the live session
+        // Serialize so the import survives save → reload (instead of becoming a box)
+        // and can be boolean-combined: STL is already one geometry; a GLB/GLTF group
+        // is flattened + merged into a single geometry.
+        let geometryJSON = null
+        try {
+          const solid = geometry.isBufferGeometry ? geometry : flattenToGeometry(geometry)
+          geometryJSON = solid ? solid.toJSON() : null
+        } catch (e) { console.warn('[Import] could not serialize model geometry:', e) }
         insertObject({
           id:          objId,
           name,

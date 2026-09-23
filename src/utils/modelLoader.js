@@ -1,6 +1,37 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { STLLoader } from 'three-stdlib'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
+
+/**
+ * Flatten a loaded model (a Group with any number of meshes) into ONE
+ * BufferGeometry, baking each mesh's transform. Needed so a GLB/GLTF import can be
+ * serialized into the project (survive save → reload instead of becoming a box)
+ * and boolean-combined. STL is already a single BufferGeometry.
+ */
+export function flattenToGeometry(object3d) {
+  if (!object3d) return null
+  if (object3d.isBufferGeometry) return object3d
+  object3d.updateMatrixWorld(true)
+  const geos = []
+  object3d.traverse((child) => {
+    if (!child.isMesh || !child.geometry) return
+    const g = child.geometry.clone()
+    g.applyMatrix4(child.matrixWorld)
+    // Normalize to position + normal only so every piece merges cleanly.
+    const out = new THREE.BufferGeometry()
+    if (g.attributes.position) out.setAttribute('position', g.attributes.position.clone())
+    if (g.attributes.normal) out.setAttribute('normal', g.attributes.normal.clone())
+    else if (g.attributes.position) { out.computeVertexNormals() }
+    if (g.index) out.setIndex(g.index.clone())
+    geos.push(out)
+    g.dispose?.()
+  })
+  if (!geos.length) return null
+  if (geos.length === 1) return geos[0]
+  const merged = mergeGeometries(geos, false)
+  return merged || geos[0]
+}
 
 const loader = new GLTFLoader()
 
