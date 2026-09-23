@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { useSceneStore } from '../stores/sceneStore.js'
-import { getMass } from '../managers/physics/MassCalculator.js'
+import { getMass, getMassForObject } from '../managers/physics/MassCalculator.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
@@ -1434,7 +1434,7 @@ function InspectRow({ label, value, accent }) {
 
 function InspectSection({ obj, secondaryObj }) {
   let mass = 0
-  try { mass = getMass(obj.type, obj.scale, obj.material) } catch (_) {}
+  try { mass = getMassForObject(obj) } catch (_) {}
 
   // World-space bounding box (size + center) from the live mesh.
   let dims = null, center = null
