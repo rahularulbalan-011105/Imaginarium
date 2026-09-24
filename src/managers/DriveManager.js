@@ -1188,26 +1188,61 @@ class DriveManager {
   // activity*: as long as the code keeps commanding the legs to new positions, the
   // body walks forward; when the legs go idle it stops. Works for both continuous
   // sweeps and discrete step-with-delay gaits.
-  _estimateLegServoSpeed(dt) {
-    // Scan EVERY servo the running code is driving (not just detected "leg" servos)
-    // — this method only runs on the legged path, so any servo the sketch animates
-    // is a leg. Robust to how the legs were detected/wired.
-    const angles = simulationManager.servoAngles || {}
-    if (!this._prevLegAngles) this._prevLegAngles = {}
-    for (const id in angles) {
-      const a = angles[id]
-      const prev = this._prevLegAngles[id]
-      if (prev != null && Math.abs(a - prev) > 0.5) this._lastLegStepAt = performance.now()
-      this._prevLegAngles[id] = a
+  // Forward body speed derived from the ACTUAL foot motion the sketch produces via
+  // Servo.write() — no gait engine, no faked velocity, no hardcoded direction.
+  //
+  // Real walking: a planted foot is dragged backward relative to the body, and the
+  // body advances forward by that much. We measure each foot's velocity in the
+  // BODY-LOCAL frame (so the body's own motion doesn't contaminate it), weight each
+  // foot by how "planted" it is (feet near the lowest point carry the robot; lifted
+  // swing feet don't), and set the body's forward speed to the weighted average of
+  // the planted feet sliding back. Correct direction + natural stepping fall out for
+  // free: the body pauses during swing and advances during stance.
+  _footDriveForward(dt) {
+    const legs = this._leggedSystem?.legs || []
+    if (legs.length < 2 || !(dt > 0)) return 0
+    this.rootGroup.updateMatrixWorld(true)
+    const rootInv = this.rootGroup.matrixWorld.clone().invert()
+    if (!this._footPrevLocal) this._footPrevLocal = {}
+    if (!this._footBox) this._footBox = new THREE.Box3()
+    const box = this._footBox
+    const feet = []
+    let lowest = Infinity
+    for (const leg of legs) {
+      const mesh = this.objectMgr.getMesh(leg.kneeServoId || leg.armId || leg.id)
+      if (!mesh) continue
+      box.setFromObject(mesh)
+      if (box.isEmpty()) continue
+      // The leg's lowest point (the foot), in body-local space.
+      const p = new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2)
+      p.applyMatrix4(rootInv)
+      feet.push({ id: leg.id, p })
+      if (p.y < lowest) lowest = p.y
     }
-    // "Walking" = a servo was commanded to a new position within the last ~1.8s
-    // (covers a slow step-with-delay gait). Ramp the speed up/down smoothly.
-    const active = this._lastLegStepAt && (performance.now() - this._lastLegStepAt) < 1800
-    const LEGGED_CODE_MAX_SPEED = 8
-    const target = active ? LEGGED_CODE_MAX_SPEED * 0.6 : 0   // steady ~4.8 u/s walk
-    const k = 1 - Math.exp(-Math.max(0, dt) / 0.4)            // smooth toward target
-    this._legWalkSpeed = (this._legWalkSpeed || 0) + (target - (this._legWalkSpeed || 0)) * k
-    return this._legWalkSpeed < 0.05 ? 0 : this._legWalkSpeed
+    if (feet.length < 2) return 0
+
+    let sumZ = 0, wsum = 0
+    for (const f of feet) {
+      const prev = this._footPrevLocal[f.id]
+      this._footPrevLocal[f.id] = f.p
+      if (!prev) continue
+      const planted = Math.max(0, 1 - (f.p.y - lowest) / 1.5)   // 1 at lowest → 0 by 1.5su up
+      sumZ += planted * (f.p.z - prev.z) / dt
+      wsum += planted
+    }
+    if (wsum < 1e-4) return 0
+
+    // Body-local forward = -Z (matches setLinvel's forward axis). Feet dragging
+    // toward +Z (backward) push the body toward -Z (forward), so forward speed =
+    // weighted foot local-Z velocity.
+    const raw = sumZ / wsum
+    const MAXW = 12
+    const clamped = Math.max(-MAXW, Math.min(MAXW, raw))
+    // Light smoothing to take the edge off per-frame jitter, keeping the stepping
+    // pulse (advance during stance, ease off during swing).
+    const k = 1 - Math.exp(-Math.max(0, dt) / 0.12)
+    this._legWalkSpeed = (this._legWalkSpeed || 0) + (clamped - (this._legWalkSpeed || 0)) * k
+    return Math.abs(this._legWalkSpeed) < 0.05 ? 0 : this._legWalkSpeed
   }
 
   _stepLegged(dt) {
@@ -1229,30 +1264,35 @@ class DriveManager {
     // keep the old behaviour: skip the gait so the code hand-animates the legs.
     const codeRunning = simulationManager.isRunning()
     const codeDriving = codeRunning && simulationManager._leggedCmd
+    // Raw Servo.write() gait: the sketch hand-animates the leg servos with no
+    // walk() call. Skip the gait engine (don't fight the code) and derive the
+    // body motion from what the FEET actually do (below).
+    const rawCodeWalk = codeRunning && !codeDriving
     if (codeDriving) {
       speed = simulationManager.leggedDrive.speed
       turn  = simulationManager.leggedDrive.turn
-    } else if (codeRunning) {
-      // Code hand-animates the leg servos with Servo.write() (no walk() call):
-      // derive a forward walking speed from how actively the legs are cycling, so
-      // the BODY actually moves along with the leg motion the code defines.
-      speed = this._estimateLegServoSpeed(dt)
-      turn  = 0
     }
     // Keep the gait engine off whenever the code is animating legs itself (so we
     // never fight the sketch's Servo.write), but still let the body translate.
-    const skipGait = (codeRunning && !codeDriving) || (speed === 0 && turn === 0)
+    const skipGait = rawCodeWalk || (speed === 0 && turn === 0)
 
     let { v: targetV, omega: targetOmega } =
       this._leggedSystem.step(dt, speed, turn, skipGait, physEnv, this.objectMgr)
 
-    // Heavy assemblies (this duck is ~20 kg) stall in the light-robot-tuned
-    // inertia + rolling-friction integrator at walking speed: it outputs v≈0, so
-    // the body never translates even while the legs cycle. When the CODE commands
-    // a walk (walk()/turn() OR raw Servo.write leg motion → _estimateLegServoSpeed),
-    // drive the body at that commanded speed directly so it actually moves.
-    if (codeRunning && speed !== 0) targetV = speed
-    if (codeRunning && turn  !== 0) targetOmega = turn
+    // walk()/turn() from code: honor the commanded speed directly. Heavy robots
+    // (this duck is ~20 kg) otherwise stall in the light-robot-tuned inertia +
+    // rolling-friction integrator (it outputs v≈0) even while the legs cycle.
+    if (codeDriving) {
+      if (speed !== 0) targetV = speed
+      if (turn  !== 0) targetOmega = turn
+    }
+    // Raw Servo.write() walking: move the body from the ACTUAL foot motion, so it
+    // goes the way the legs push (correct direction + real stepping) instead of a
+    // faked constant slide. Planted feet dragging backward → body moves forward.
+    if (rawCodeWalk) {
+      targetV     = this._footDriveForward(dt)
+      targetOmega = 0
+    }
 
     // Sync knee servo positions to follow their arm tips.
     // Hip servo animation (above) rotated each arm inside its rotorGroup.
