@@ -1243,8 +1243,16 @@ class DriveManager {
     // never fight the sketch's Servo.write), but still let the body translate.
     const skipGait = (codeRunning && !codeDriving) || (speed === 0 && turn === 0)
 
-    const { v: targetV, omega: targetOmega } =
+    let { v: targetV, omega: targetOmega } =
       this._leggedSystem.step(dt, speed, turn, skipGait, physEnv, this.objectMgr)
+
+    // Heavy assemblies (this duck is ~20 kg) stall in the light-robot-tuned
+    // inertia + rolling-friction integrator at walking speed: it outputs v≈0, so
+    // the body never translates even while the legs cycle. When the CODE commands
+    // a walk (walk()/turn() OR raw Servo.write leg motion → _estimateLegServoSpeed),
+    // drive the body at that commanded speed directly so it actually moves.
+    if (codeRunning && speed !== 0) targetV = speed
+    if (codeRunning && turn  !== 0) targetOmega = turn
 
     // Sync knee servo positions to follow their arm tips.
     // Hip servo animation (above) rotated each arm inside its rotorGroup.
