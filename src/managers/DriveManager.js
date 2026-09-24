@@ -1189,24 +1189,18 @@ class DriveManager {
   // body walks forward; when the legs go idle it stops. Works for both continuous
   // sweeps and discrete step-with-delay gaits.
   _estimateLegServoSpeed(dt) {
-    const legs = this._leggedSystem?.legs || []
-    if (!legs.length) return 0
+    // Scan EVERY servo the running code is driving (not just detected "leg" servos)
+    // — this method only runs on the legged path, so any servo the sketch animates
+    // is a leg. Robust to how the legs were detected/wired.
     const angles = simulationManager.servoAngles || {}
     if (!this._prevLegAngles) this._prevLegAngles = {}
-    let n = 0
-    for (const leg of legs) {
-      for (const sid of [leg.servoId, leg.kneeServoId]) {
-        if (!sid) continue
-        const a = angles[sid]
-        if (a == null) continue
-        n++
-        const prev = this._prevLegAngles[sid]
-        if (prev != null && Math.abs(a - prev) > 0.5) this._lastLegStepAt = performance.now()
-        this._prevLegAngles[sid] = a
-      }
+    for (const id in angles) {
+      const a = angles[id]
+      const prev = this._prevLegAngles[id]
+      if (prev != null && Math.abs(a - prev) > 0.5) this._lastLegStepAt = performance.now()
+      this._prevLegAngles[id] = a
     }
-    if (!n) return 0
-    // "Walking" = the legs were commanded to a new position within the last ~1.8s
+    // "Walking" = a servo was commanded to a new position within the last ~1.8s
     // (covers a slow step-with-delay gait). Ramp the speed up/down smoothly.
     const active = this._lastLegStepAt && (performance.now() - this._lastLegStepAt) < 1800
     const LEGGED_CODE_MAX_SPEED = 8

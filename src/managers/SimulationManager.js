@@ -340,7 +340,29 @@ class SimulationManager {
     // attach(pin) + write(angle) are the two methods users call.
     class Servo {
       constructor() { this._pin = -1; this._angle = 90 }
-      attach(pin)   { this._pin = Number(pin) }
+      attach(pin) {
+        this._pin = Number(pin)
+        // Auto-bind so the CODE drives real servos even when the user hasn't
+        // manually wired them (common for legged robots). If NO servo is wired
+        // to this pin, claim the next unclaimed scene servo — in scene order,
+        // which usually matches how the legs were built — so Servo.write()
+        // animates actual leg servos (and the body then walks). Wired setups are
+        // untouched: this only fires when the pin has no servo from the wiring.
+        const hasWired = (pinMap[this._pin] || []).some(c => c.type === 'servo')
+        if (hasWired) return
+        const claimed = self._autoServoIds || (self._autoServoIds = new Set())
+        const wiredIds = new Set()
+        for (const arr of Object.values(pinMap))
+          for (const c of arr) if (c.type === 'servo') wiredIds.add(c.id)
+        const next = self._objects.find(
+          (o) => o.type === 'servo' && !wiredIds.has(o.id) && !claimed.has(o.id)
+        )
+        if (next) {
+          claimed.add(next.id)
+          ;(pinMap[this._pin] ||= []).push({ id: next.id, type: 'servo', terminal: 'A' })
+          console.log(`[Sim] auto-bound servo ${next.id} → pin ${this._pin} (no wire; code-driven)`)
+        }
+      }
       write(angle) {
         this._angle = Math.max(0, Math.min(180, Number(angle) || 0))
         for (const comp of (pinMap[this._pin] || [])) {
