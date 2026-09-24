@@ -1182,30 +1182,38 @@ class DriveManager {
     console.table(rows)
   }
 
-  // Estimate a forward body speed from how fast the code is cycling the leg servos.
-  // Static legs → 0 (robot stands still); vigorous cycling → up to full walk speed.
-  // Lets a hand-authored gait (Servo.write) actually propel the body forward.
+  // Estimate a forward body speed from the leg servos the code is driving.
+  // A stepping gait writes new servo angles periodically (often with delay()s in
+  // between), so instead of an instantaneous rate we detect *recent stepping
+  // activity*: as long as the code keeps commanding the legs to new positions, the
+  // body walks forward; when the legs go idle it stops. Works for both continuous
+  // sweeps and discrete step-with-delay gaits.
   _estimateLegServoSpeed(dt) {
     const legs = this._leggedSystem?.legs || []
-    if (!legs.length || !(dt > 0)) return 0
+    if (!legs.length) return 0
     const angles = simulationManager.servoAngles || {}
     if (!this._prevLegAngles) this._prevLegAngles = {}
-    let sumRate = 0, n = 0
+    let n = 0
     for (const leg of legs) {
       for (const sid of [leg.servoId, leg.kneeServoId]) {
         if (!sid) continue
         const a = angles[sid]
         if (a == null) continue
+        n++
         const prev = this._prevLegAngles[sid]
-        if (prev != null) { sumRate += Math.abs(a - prev) / dt; n++ }
+        if (prev != null && Math.abs(a - prev) > 0.5) this._lastLegStepAt = performance.now()
         this._prevLegAngles[sid] = a
       }
     }
     if (!n) return 0
-    const avgRateDeg = sumRate / n                       // avg |Δangle| per second
-    const LEGGED_CODE_MAX_SPEED = 8                       // matches walk()'s cap
-    // ~120°/s of active cycling ≈ full walking speed; clamp so it never runs away.
-    return Math.min(LEGGED_CODE_MAX_SPEED, (avgRateDeg / 120) * LEGGED_CODE_MAX_SPEED)
+    // "Walking" = the legs were commanded to a new position within the last ~1.8s
+    // (covers a slow step-with-delay gait). Ramp the speed up/down smoothly.
+    const active = this._lastLegStepAt && (performance.now() - this._lastLegStepAt) < 1800
+    const LEGGED_CODE_MAX_SPEED = 8
+    const target = active ? LEGGED_CODE_MAX_SPEED * 0.6 : 0   // steady ~4.8 u/s walk
+    const k = 1 - Math.exp(-Math.max(0, dt) / 0.4)            // smooth toward target
+    this._legWalkSpeed = (this._legWalkSpeed || 0) + (target - (this._legWalkSpeed || 0)) * k
+    return this._legWalkSpeed < 0.05 ? 0 : this._legWalkSpeed
   }
 
   _stepLegged(dt) {
