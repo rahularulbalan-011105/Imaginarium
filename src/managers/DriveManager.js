@@ -1244,11 +1244,15 @@ class DriveManager {
       }
       if (wsum > 1e-4) fd = sumZ / wsum
     }
-    // Stable direction bias (feet sliding +Z in stance → body forward = +local-Z sign).
-    this._fdBias = (this._fdBias || 0) + (fd - (this._fdBias || 0)) * (1 - Math.exp(-dt / 0.4))
-    // Real lift-based signal picks the direction; otherwise walk the model's forward
-    // (−1 → toward local +Z, the way this GLB duck faces). One sign to flip per model.
-    const dir = Math.abs(this._fdBias) > 0.15 ? Math.sign(this._fdBias) : -1
+    // Direction bias averaged over a LONG window (~2.5s ≈ several strides). A
+    // swing-only leg's foot just oscillates fwd/back, so its signal cancels toward
+    // 0 here (no false direction → no rocking in place). A genuine lift-based gait
+    // drags the planted feet consistently ONE way, so its bias survives.
+    this._fdBias = (this._fdBias || 0) + (fd - (this._fdBias || 0)) * (1 - Math.exp(-dt / 2.5))
+    // Only a strong, SUSTAINED propulsion signal picks the direction; otherwise walk
+    // the model's forward (−1 → toward local +Z, the way this GLB duck faces). One
+    // sign to flip per model if a robot walks the wrong way.
+    const dir = Math.abs(this._fdBias) > 0.5 ? Math.sign(this._fdBias) : -1
 
     // ── Speed tracks leg cadence so it STEPS with the code (not a constant slide) ──
     const walking = this._legCadence > 2                 // legs meaningfully cycling
