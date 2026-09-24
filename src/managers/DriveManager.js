@@ -1182,6 +1182,32 @@ class DriveManager {
     console.table(rows)
   }
 
+  // Estimate a forward body speed from how fast the code is cycling the leg servos.
+  // Static legs → 0 (robot stands still); vigorous cycling → up to full walk speed.
+  // Lets a hand-authored gait (Servo.write) actually propel the body forward.
+  _estimateLegServoSpeed(dt) {
+    const legs = this._leggedSystem?.legs || []
+    if (!legs.length || !(dt > 0)) return 0
+    const angles = simulationManager.servoAngles || {}
+    if (!this._prevLegAngles) this._prevLegAngles = {}
+    let sumRate = 0, n = 0
+    for (const leg of legs) {
+      for (const sid of [leg.servoId, leg.kneeServoId]) {
+        if (!sid) continue
+        const a = angles[sid]
+        if (a == null) continue
+        const prev = this._prevLegAngles[sid]
+        if (prev != null) { sumRate += Math.abs(a - prev) / dt; n++ }
+        this._prevLegAngles[sid] = a
+      }
+    }
+    if (!n) return 0
+    const avgRateDeg = sumRate / n                       // avg |Δangle| per second
+    const LEGGED_CODE_MAX_SPEED = 8                       // matches walk()'s cap
+    // ~120°/s of active cycling ≈ full walking speed; clamp so it never runs away.
+    return Math.min(LEGGED_CODE_MAX_SPEED, (avgRateDeg / 120) * LEGGED_CODE_MAX_SPEED)
+  }
+
   _stepLegged(dt) {
     const physState = usePhysicsStore.getState()
     let { speed, turn } = physState.leggedControl ?? { speed: 0, turn: 0 }
@@ -1204,7 +1230,15 @@ class DriveManager {
     if (codeDriving) {
       speed = simulationManager.leggedDrive.speed
       turn  = simulationManager.leggedDrive.turn
+    } else if (codeRunning) {
+      // Code hand-animates the leg servos with Servo.write() (no walk() call):
+      // derive a forward walking speed from how actively the legs are cycling, so
+      // the BODY actually moves along with the leg motion the code defines.
+      speed = this._estimateLegServoSpeed(dt)
+      turn  = 0
     }
+    // Keep the gait engine off whenever the code is animating legs itself (so we
+    // never fight the sketch's Servo.write), but still let the body translate.
     const skipGait = (codeRunning && !codeDriving) || (speed === 0 && turn === 0)
 
     const { v: targetV, omega: targetOmega } =
