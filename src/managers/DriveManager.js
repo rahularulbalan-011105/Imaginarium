@@ -1188,60 +1188,72 @@ class DriveManager {
   // activity*: as long as the code keeps commanding the legs to new positions, the
   // body walks forward; when the legs go idle it stops. Works for both continuous
   // sweeps and discrete step-with-delay gaits.
-  // Forward body speed derived from the ACTUAL foot motion the sketch produces via
-  // Servo.write() — no gait engine, no faked velocity, no hardcoded direction.
+  // Forward body speed for a robot walked by raw Servo.write() code.
   //
-  // Real walking: a planted foot is dragged backward relative to the body, and the
-  // body advances forward by that much. We measure each foot's velocity in the
-  // BODY-LOCAL frame (so the body's own motion doesn't contaminate it), weight each
-  // foot by how "planted" it is (feet near the lowest point carry the robot; lifted
-  // swing feet don't), and set the body's forward speed to the weighted average of
-  // the planted feet sliding back. Correct direction + natural stepping fall out for
-  // free: the body pauses during swing and advances during stance.
+  // Ideal case (legs that LIFT — 2-DOF / knee servo): real walking, where a planted
+  // foot is dragged backward and the body advances by that much. We read each foot's
+  // motion in the BODY-LOCAL frame, weight it by how planted the foot is (a foot
+  // below its own stance midline carries the robot; a lifted swing foot doesn't), and
+  // the net backward drag of the planted feet becomes forward body speed — correct
+  // direction + real stepping fall out for free.
+  //
+  // Flat case (1-DOF legs that only SWING, no lift — e.g. this duck): there's no
+  // planted/lifted distinction, so the forward- and backward-swinging feet cancel and
+  // give no propulsion signal. We can't derive real traction, so we fall back to a
+  // WALK whose SPEED tracks the leg cadence (so it steps with the code instead of
+  // gliding) in the model's forward direction.
   _footDriveForward(dt) {
+    if (!(dt > 0)) return 0
     const legs = this._leggedSystem?.legs || []
-    if (legs.length < 2 || !(dt > 0)) return 0
-    this.rootGroup.updateMatrixWorld(true)
-    const rootInv = this.rootGroup.matrixWorld.clone().invert()
-    if (!this._footPrevLocal) this._footPrevLocal = {}
-    if (!this._footBox) this._footBox = new THREE.Box3()
-    const box = this._footBox
-    const feet = []
-    let lowest = Infinity
-    for (const leg of legs) {
-      const mesh = this.objectMgr.getMesh(leg.kneeServoId || leg.armId || leg.id)
-      if (!mesh) continue
-      box.setFromObject(mesh)
-      if (box.isEmpty()) continue
-      // The leg's lowest point (the foot), in body-local space.
-      const p = new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2)
-      p.applyMatrix4(rootInv)
-      feet.push({ id: leg.id, p })
-      if (p.y < lowest) lowest = p.y
-    }
-    if (feet.length < 2) return 0
 
-    let sumZ = 0, wsum = 0
-    for (const f of feet) {
-      const prev = this._footPrevLocal[f.id]
-      this._footPrevLocal[f.id] = f.p
-      if (!prev) continue
-      const planted = Math.max(0, 1 - (f.p.y - lowest) / 1.5)   // 1 at lowest → 0 by 1.5su up
-      sumZ += planted * (f.p.z - prev.z) / dt
-      wsum += planted
+    // ── Leg cadence: how fast the code is cycling the servos (deg/s) ───────────
+    const angles = simulationManager.servoAngles || {}
+    if (!this._prevAngles) this._prevAngles = {}
+    let rateSum = 0, nAng = 0
+    for (const id in angles) {
+      const prev = this._prevAngles[id]
+      if (prev != null) { rateSum += Math.abs(angles[id] - prev) / dt; nAng++ }
+      this._prevAngles[id] = angles[id]
     }
-    if (wsum < 1e-4) return 0
+    const rate = nAng ? rateSum / nAng : 0
+    // Smooth so a delay-based gait (servos briefly static between steps) keeps walking.
+    this._legCadence = (this._legCadence || 0) + (rate - (this._legCadence || 0)) * (1 - Math.exp(-dt / 0.5))
 
-    // Body-local forward = -Z (matches setLinvel's forward axis). Feet dragging
-    // toward +Z (backward) push the body toward -Z (forward), so forward speed =
-    // weighted foot local-Z velocity.
-    const raw = sumZ / wsum
-    const MAXW = 12
-    const clamped = Math.max(-MAXW, Math.min(MAXW, raw))
-    // Light smoothing to take the edge off per-frame jitter, keeping the stepping
-    // pulse (advance during stance, ease off during swing).
-    const k = 1 - Math.exp(-Math.max(0, dt) / 0.12)
-    this._legWalkSpeed = (this._legWalkSpeed || 0) + (clamped - (this._legWalkSpeed || 0)) * k
+    // ── Propulsion DIRECTION from real foot motion (works when the legs lift) ──
+    let fd = 0
+    if (legs.length >= 2) {
+      this.rootGroup.updateMatrixWorld(true)
+      const rootInv = this.rootGroup.matrixWorld.clone().invert()
+      if (!this._footState) this._footState = {}
+      if (!this._footBox) this._footBox = new THREE.Box3()
+      const box = this._footBox
+      let sumZ = 0, wsum = 0
+      for (const leg of legs) {
+        const mesh = this.objectMgr.getMesh(leg.kneeServoId || leg.armId || leg.id)
+        if (!mesh) continue
+        box.setFromObject(mesh)
+        if (box.isEmpty()) continue
+        const p = new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2)
+        p.applyMatrix4(rootInv)
+        const st = this._footState[leg.id] || (this._footState[leg.id] = { midY: p.y, z: p.z })
+        st.midY += (p.y - st.midY) * (1 - Math.exp(-dt / 0.6))     // this foot's own stance midline
+        const stance = Math.max(0, Math.min(1, (st.midY - p.y) / 0.5 + 0.5))  // below midline → planted
+        sumZ += stance * (p.z - st.z) / dt
+        wsum += stance
+        st.z = p.z
+      }
+      if (wsum > 1e-4) fd = sumZ / wsum
+    }
+    // Stable direction bias (feet sliding +Z in stance → body forward = +local-Z sign).
+    this._fdBias = (this._fdBias || 0) + (fd - (this._fdBias || 0)) * (1 - Math.exp(-dt / 0.4))
+    // Real lift-based signal picks the direction; otherwise walk the model's forward
+    // (−1 → toward local +Z, the way this GLB duck faces). One sign to flip per model.
+    const dir = Math.abs(this._fdBias) > 0.15 ? Math.sign(this._fdBias) : -1
+
+    // ── Speed tracks leg cadence so it STEPS with the code (not a constant slide) ──
+    const walking = this._legCadence > 2                 // legs meaningfully cycling
+    const target  = walking ? dir * Math.min(6, this._legCadence * 0.03) : 0
+    this._legWalkSpeed = (this._legWalkSpeed || 0) + (target - (this._legWalkSpeed || 0)) * (1 - Math.exp(-dt / 0.15))
     return Math.abs(this._legWalkSpeed) < 0.05 ? 0 : this._legWalkSpeed
   }
 
