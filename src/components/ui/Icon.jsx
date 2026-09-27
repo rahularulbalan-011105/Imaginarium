@@ -51,6 +51,7 @@ const PATHS = {
 
   // ── Playback ──────────────────────────────────────────────────────────────
   play: <polygon points="7 4 20 12 7 20" fill="currentColor" stroke="none" />,
+  physics: <><circle cx="12" cy="12" r="1.6" fill="currentColor" /><ellipse cx="12" cy="12" rx="10" ry="4" /><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(60 12 12)" /><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(120 12 12)" /></>,
   stop: <rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor" stroke="none" />,
 
   // ── Right-panel sections ──────────────────────────────────────────────────

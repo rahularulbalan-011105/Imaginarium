@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
+import { usePhysicsStore } from '../stores/physicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
@@ -82,6 +83,7 @@ export default function Header() {
     if (data.rigid?.bonds     !== undefined) setBonds(data.rigid.bonds)
     if (data.joints?.joints   !== undefined) setJoints(data.joints.joints)
     setBlueprints(data.robots?.blueprints ?? {})   // absent in 1.0 files → cleared
+    usePhysicsStore.getState().loadPhysics(data)    // absent in older files → defaults
     clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
   }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments, setPatches, setBonds, setJoints, setBlueprints])
 
@@ -133,6 +135,7 @@ export default function Header() {
     if (objects.length > 0 && !confirm('Start a new project? Unsaved changes will be lost.')) return
     clearScene()
     clearAttachments()
+    usePhysicsStore.getState().loadPhysics({})       // new project → default world physics
     setProjectId(uuidv4())
     setProjectName('Untitled Project')
     clearHistory()   // discard undo history; adopt the loaded/new doc as baseline

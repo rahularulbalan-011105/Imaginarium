@@ -19,6 +19,8 @@ export class PhysicsModule {
   static key = 'PhysicsModule'
   static label = 'Physics'
   static category = 'physics'
+  // Pipeline position (lower runs first). Sensing < planning < control < actuation.
+  static stage = 50
   enter(/* ctx */) {}
   step(/* dt, ctx */) {}
   exit() {}
@@ -53,11 +55,66 @@ class DifferentialDrivePhysics extends PhysicsModule {
   }
   exit() { this._drive = null }
 }
-const ServoPhysics            = def('ServoPhysics', 'Servo physics')
-const JointPhysics            = def('JointPhysics', 'Joint physics')
-const InverseKinematics       = def('InverseKinematics', 'Inverse kinematics')
-const BalanceSystem           = def('BalanceSystem', 'Balance system')
-const GaitEngine              = def('GaitEngine', 'Gait engine')
+// ── Articulated (legged / manipulator) pipeline ─────────────────────────────
+// EXECUTABLE when ctx.robot is an ArticulatedRobot (managers/physics/robotics).
+// Each module is one stage of the control loop, ordered by `static stage`:
+//   GaitEngine(20) → BalanceSystem(30) → InverseKinematics(40)
+//   → ServoPhysics(60) → JointPhysics/JointConstraints(70)
+// They only ever produce TARGETS and TORQUES — Rapier moves the bodies.
+// Without an articulated robot in ctx they are inert (legacy paths unchanged).
+class GaitEngine extends PhysicsModule {
+  static key = 'GaitEngine'
+  static label = 'Gait engine'
+  static stage = 20
+  step(dt, ctx) {
+    const r = ctx?.robot
+    if (!r?.computeFootTargets) return
+    ctx.output.footTargets = r.computeFootTargets(dt)
+  }
+}
+
+class BalanceSystem extends PhysicsModule {
+  static key = 'BalanceSystem'
+  static label = 'Balance system'
+  static stage = 30
+  step(_dt, ctx) {
+    const r = ctx?.robot
+    if (!r?.applyBalance || !ctx.output.footTargets) return
+    ctx.output.footTargets = r.applyBalance(ctx.output.footTargets)
+  }
+}
+
+class InverseKinematics extends PhysicsModule {
+  static key = 'InverseKinematics'
+  static label = 'Inverse kinematics'
+  static stage = 40
+  step(_dt, ctx) {
+    const r = ctx?.robot
+    if (!r?.solveIK || !ctx.output.footTargets) return
+    r.solveIK(ctx.output.footTargets)
+  }
+}
+
+class ServoPhysics extends PhysicsModule {
+  static key = 'ServoPhysics'
+  static label = 'Servo physics'
+  static stage = 60
+  step(dt, ctx) { ctx?.robot?.driveActuators?.(dt) }
+}
+
+class JointPhysics extends PhysicsModule {
+  static key = 'JointPhysics'
+  static label = 'Joint physics'
+  static stage = 70
+  step(dt, ctx) {
+    const r = ctx?.robot
+    if (!r?.passiveJoints) return
+    // JointPhysics and JointConstraints may both be loaded — run once per step.
+    if (r._passiveStep === r.metrics.stepCount) return
+    r._passiveStep = r.metrics.stepCount
+    r.passiveJoints(dt)
+  }
+}
 // EXECUTABLE: tracked (skid-steer) drive. Same PWM→velocity model as wheels but
 // with sharper turning and slight linear slip, so a 'tracks' robot feels like a
 // tank rather than a car. Routes through the same wheeled seam (v/omega).
@@ -89,7 +146,10 @@ const ThrusterPhysics         = def('ThrusterPhysics', 'Thrusters')
 const HydroDragPhysics        = def('HydroDragPhysics', 'Hydrodynamic drag')
 
 // Capability modules
-const JointConstraints        = def('JointConstraints', 'Joint constraints')
+class JointConstraints extends JointPhysics {
+  static key = 'JointConstraints'
+  static label = 'Joint constraints'
+}
 const DrivePhysics            = def('DrivePhysics', 'Drive physics')
 const IMUSim                  = def('IMUSim', 'IMU')
 const RangeSensorSim          = def('RangeSensorSim', 'Range sensor')

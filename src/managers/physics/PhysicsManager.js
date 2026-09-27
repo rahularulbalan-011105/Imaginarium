@@ -43,7 +43,9 @@ class PhysicsManager {
         .cuboid(200, 1.0, 200)
         .setFriction(earth.groundFriction)
         .setRestitution(0.0)
-      this.world.createCollider(gCol, gBody)
+      // Kept so the robotics runtime can give the ground a physical material
+      // (and disable it for gap terrain).
+      this.groundCollider = this.world.createCollider(gCol, gBody)
       this._eventQueue = new R.EventQueue(true)   // for combat contact events
       this.ready = true
     }).catch(err => {
@@ -253,6 +255,9 @@ class PhysicsManager {
 
   getBody(id)    { return this._bodies.get(id) ?? null }
 
+  /** Rapier module (after init) — for systems that build their own bodies/joints. */
+  get R() { return this._R }
+
   removeBody(id) {
     const body = this._bodies.get(id)
     if (body) {
@@ -271,6 +276,7 @@ class PhysicsManager {
   }
 
   dispose() {
+    this.groundCollider = null
     if (this.world) { this.world.free(); this.world = null }
     this._bodies.clear()
     this.ready   = false

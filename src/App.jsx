@@ -26,6 +26,7 @@ import PanelHint from './components/onboarding/PanelHint.jsx'
 import RobotPanel from './components/RobotPanel.jsx'
 import OverlayBridge from './components/OverlayBridge.jsx'
 import SimulationPanel from './components/SimulationPanel.jsx'
+import PhysicsPanel from './components/PhysicsPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 import Icon from './components/ui/Icon.jsx'
 import { useSceneStore } from './stores/sceneStore.js'
@@ -199,9 +200,12 @@ function AppEditor() {
       }
       // Drive physics runs every frame when simulation mode is active
       if (simActiveRef.current) driveManager.step()
-      // Propagate rigid bonds every frame — bonds are live constraints.
+      // Propagate rigid bonds every frame — bonds are live constraints. Skipped
+      // while the articulated physics engine owns the robot (bonded parts are one
+      // rigid body there, posed by physics — the kinematic pass would fight it).
+      const physicsOwnsRobot = objectManager.physicsDriven
       const bonds = Object.values(useRigidStore.getState().bonds)
-      if (bonds.length > 0) {
+      if (bonds.length > 0 && !physicsOwnsRobot) {
         // Skip propagating a bond whose child is currently being dragged by the
         // transform gizmo — otherwise the frame loop fights the user's drag.
         const tc = sceneManager.transformControls
@@ -209,8 +213,9 @@ function AppEditor() {
         const activeBonds = draggingId ? bonds.filter(b => b.childId !== draggingId) : bonds
         objectManager.propagateAllBonds(activeBonds)
       }
-      // Drive joint constraints every frame (hinge/revolute/slider animation)
-      jointManager.step()
+      // Drive joint constraints every frame (hinge/revolute/slider animation) —
+      // unless physics is solving those joints for real.
+      if (!physicsOwnsRobot) jointManager.step()
       // Gear chains run AFTER propagateAllBonds so bond-child gears (position-locked to
       // chassis) accumulate their cumulative spin on top of what propBonds set each frame.
       if (simulationManager.isRunning()) {
@@ -485,7 +490,8 @@ function AppEditor() {
       { id: 'code',   icon: 'code',   label: 'Code' },
     ] },
     { group: 'Run', items: [
-      { id: 'sim',    icon: 'play',   label: 'Sim' },
+      { id: 'sim',     icon: 'play',    label: 'Sim' },
+      { id: 'physics', icon: 'physics', label: 'Physics' },
     ] },
     { group: 'Setup', items: [
       { id: 'settings', icon: 'gear', label: 'Settings' },
@@ -507,6 +513,7 @@ function AppEditor() {
       case 'electronics': return <ElectronicsLibrary />
       case 'mechanical':  return <MechanicalLibrary />
       case 'sim':      return <PanelErrorBoundary label="Simulation"><SimulationPanel /></PanelErrorBoundary>
+      case 'physics':  return <PanelErrorBoundary label="Physics"><PhysicsPanel /></PanelErrorBoundary>
       case 'settings': return <SettingsPanel />
       case 'code':     return <CodeEditor />
       case 'properties':

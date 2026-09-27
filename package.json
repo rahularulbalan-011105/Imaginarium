@@ -13,7 +13,9 @@
     "electron": "electron .",
     "electron:dev": "cross-env ELECTRON_START_URL=http://localhost:5173 electron .",
     "build:electron": "cross-env VITE_BASE=./ vite build",
-    "build:win": "cross-env VITE_BASE=./ vite build && electron-builder --win"
+    "build:win": "cross-env VITE_BASE=./ vite build && electron-builder --win",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
@@ -41,7 +43,8 @@
     "playwright": "^1.60.0",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
-    "vite": "^5.4.8"
+    "vite": "^5.4.8",
+    "vitest": "^2.1.9"
   },
   "build": {
     "appId": "com.imaginarium.editor",

@@ -1,4 +1,5 @@
 import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, SENSOR_TYPES, useElectronicsStore } from '../stores/electronicsStore.js'
+import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
 import { createSensorLibraries } from '../arduino/sensorLibs.js'
@@ -42,6 +43,8 @@ const BUILTIN_NAMES = new Set([
   'SSD1306_SWITCHCAPVCC','SSD1306_EXTERNALVCC','SCREEN_WIDTH','SCREEN_HEIGHT',
   // New sensor libraries (LDR / DHT11 / ColorSensor) + their pin macros
   'LDR','DHT11','ColorSensor','RGB','S0','S1','S2','S3','OUT',
+  // Physics-simulated hardware (articulated robots): IMU / joint encoders / battery
+  'IMU','Encoder','Battery',
   // SUBO pitches.h note constants
   ...Object.keys(SUBO_NOTES),
 ])
@@ -380,6 +383,44 @@ class SimulationManager {
       detach()   { this._pin = -1 }
     }
 
+    // ── Physics-simulated hardware ────────────────────────────────────────────
+    // Readings come from the articulated physics engine's SENSOR MODELS (noise,
+    // bias, drift, quantisation, sample rate) via roboticsHardware — never from
+    // Three.js transforms or commanded values. Without an active physics robot
+    // they read neutral values and print one hint to Serial.
+    let _hwHinted = false
+    const _hwHint = () => {
+      if (_hwHinted || roboticsHardware.active) return
+      _hwHinted = true
+      if (self._onSerialOut) self._onSerialOut('[sim] IMU/Encoder/Battery read physics sensors — start the Simulation to get live values\n')
+    }
+    class IMU {
+      begin() { _hwHint(); return true }
+      update() { this._r = roboticsHardware.imu(); return !!this._r }
+      _get() { return this._r ?? roboticsHardware.imu() }
+      getRoll()   { _hwHint(); return this._get()?.roll ?? 0 }
+      getPitch()  { _hwHint(); return this._get()?.pitch ?? 0 }
+      getYaw()    { _hwHint(); return this._get()?.yaw ?? 0 }
+      getAccelX() { return this._get()?.accel.x ?? 0 }
+      getAccelY() { return this._get()?.accel.y ?? 9.81 }
+      getAccelZ() { return this._get()?.accel.z ?? 0 }
+      getGyroX()  { return this._get()?.gyro.x ?? 0 }
+      getGyroY()  { return this._get()?.gyro.y ?? 0 }
+      getGyroZ()  { return this._get()?.gyro.z ?? 0 }
+    }
+    class Encoder {
+      constructor(pin) { this._pin = pin == null ? -1 : Number(pin) }
+      attach(pin) { this._pin = Number(pin) }
+      _servoId() { return (pinMap[this._pin] || []).find(c => c.type === 'servo')?.id ?? null }
+      read() { _hwHint(); const e = roboticsHardware.encoder(this._servoId()); return e ? e.deg : 90 }
+      readVelocity() { const e = roboticsHardware.encoder(this._servoId()); return e ? e.degPerSec : 0 }
+    }
+    class Battery {
+      readVoltage() { _hwHint(); return roboticsHardware.battery()?.voltage ?? 0 }
+      readCurrent() { return roboticsHardware.battery()?.current ?? 0 }
+      readPercent() { return roboticsHardware.battery()?.percent ?? 0 }
+    }
+
     // ── SUBO board library shims ──────────────────────────────────────────────
     // Lets real Subo sketches (Subo.h / MotorExpansion.h) run in the simulator.
     // Motor-expansion pins (GPIO): M1A=9, M1B=3, M2A=10, M2B=11 → drive wired motors.
@@ -479,7 +520,7 @@ while (true) {
         'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
         'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
         'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
-        'LDR','DHT11','ColorSensor','RGB',
+        'LDR','DHT11','ColorSensor','RGB','IMU','Encoder','Battery',
         'walk','turn','stopWalking',
         `"use strict";
          return (async () => {
@@ -502,7 +543,7 @@ while (true) {
         SuboMatrixInit, setAllLED, setSingleLED, playLEDSeq, stripclear,
         playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor,
         delayMicroseconds, pulseIn, tone, noTone, Wire, Adafruit_SSD1306,
-        LDR, DHT11, ColorSensor, RGB,
+        LDR, DHT11, ColorSensor, RGB, IMU, Encoder, Battery,
         walk, turn, stopWalking
       ).then(() => { self._running = false })
 

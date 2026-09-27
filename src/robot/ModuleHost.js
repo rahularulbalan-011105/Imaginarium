@@ -1,4 +1,5 @@
 import { loadModules } from './ModuleLoader.js'
+import { MODULE_REGISTRY } from './modules.js'
 
 // ── ModuleHost ───────────────────────────────────────────────────────────────
 // Stage 4 of the digital-twin migration. Owns the lifecycle of the physics
@@ -19,7 +20,11 @@ export class ModuleHost {
   // env, …) that modules read in enter()/step().
   enter(blueprint, ctx = {}) {
     this._ctx = { blueprint, output: {}, ...ctx }
+    // Stable sort by declared pipeline stage (gait → balance → IK → servo → joint).
     this.modules = loadModules(blueprint)
+      .map((m, i) => ({ m, i, st: m?.constructor?.stage ?? 50 }))
+      .sort((a, b) => a.st - b.st || a.i - b.i)
+      .map(x => x.m)
     for (const m of this.modules) {
       try { m.enter?.(this._ctx) } catch (e) { console.error('[ModuleHost] enter failed:', m?.constructor?.key, e) }
     }
@@ -28,6 +33,21 @@ export class ModuleHost {
   }
 
   hasModule(key) { return this.modules.some(m => m?.constructor?.key === key) }
+
+  // Guarantee a module is present (e.g. joint dynamics are intrinsic to any
+  // articulated body, whatever its locomotion capability). Inserted in stage order.
+  ensureModule(key) {
+    if (this.hasModule(key)) return false
+    const C = MODULE_REGISTRY[key]
+    if (!C) return false
+    const m = new C()
+    try { m.enter?.(this._ctx) } catch (e) { console.error('[ModuleHost] enter failed:', key, e) }
+    const st = C.stage ?? 50
+    const at = this.modules.findIndex(x => (x?.constructor?.stage ?? 50) > st)
+    if (at < 0) this.modules.push(m); else this.modules.splice(at, 0, m)
+    this.active = true
+    return true
+  }
 
   // Step every module once over the shared ctx (extra merges in per-frame inputs).
   step(dt, extra = {}) {

@@ -15,6 +15,10 @@ import { ModuleHost } from '../robot/ModuleHost.js'
 import { aiRuntime } from '../robot/ai/AIRuntime.js'
 import { execPathFor } from '../robot/RobotBlueprint.js'
 import { autoBlueprintForObjects } from '../robot/autoBlueprint.js'
+import { ArticulatedSession } from './physics/robotics/ArticulatedSession.js'
+import { resolveRobotConfig } from './physics/robotics/config.js'
+import { useRigidStore } from '../stores/rigidStore.js'
+import { useJointStore } from '../stores/jointStore.js'
 
 const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc'])
 const DRIVE_BODY_ID  = 'robot_drive'
@@ -190,7 +194,7 @@ class DriveManager {
 
 
   enter(objects) {
-    if (!this.scene || this.rootGroup || this._useRapierFreefall) return
+    if (!this.scene || this.rootGroup || this._useRapierFreefall || this._articulated) return
 
     // Split scene objects into robot parts (go into rootGroup) and standalone
     // obstacles (stay fixed; get static Rapier colliders so the robot stops on contact).
@@ -226,6 +230,13 @@ class DriveManager {
     this._hostTried  = false
     if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
     console.log('[Drive] locomotion →', forcedPath, this._blueprint?.metadata?.auto ? '(auto-blueprint)' : '(blueprint)')
+
+    // ── Articulated physics (capability-driven) ─────────────────────────────
+    // A 'legs' blueprint runs on the articulated engine: one Rapier body per
+    // link, servo torque actuators, contact physics. Anything it can't model
+    // (no actuated joints, Rapier not ready, user chose 'kinematic') falls
+    // through to the legacy kinematic path below, unchanged.
+    if (forcedPath === 'legged' && this._startArticulated(topLevel, standaloneObjects)) return
 
     // Bonded (surface-welded) parts fall as ONE rigid body — a Rapier COMPOUND
     // body (a collider per part) so the weld tumbles and lands on a real face,
@@ -683,11 +694,48 @@ class DriveManager {
     this._lastTime = null
   }
 
+  _startArticulated(topLevel, standaloneObjects) {
+    const all = useSceneStore.getState().objects
+    const rootObj = all.find(o => o.physics?.robot) ?? all.find(o => o.id === this._blueprint?.rootId) ?? null
+    const robotConfig = resolveRobotConfig(rootObj, this._blueprint)
+    if (robotConfig.model === 'kinematic') return false
+    const ps = usePhysicsStore.getState()
+    const session = new ArticulatedSession({ scene: this.scene, objectMgr: this.objectMgr, physicsManager, simulation: simulationManager })
+    const ok = session.start({
+      objects: topLevel, allObjects: all, standalone: standaloneObjects,
+      blueprint: this._blueprint,
+      attachments: useElectronicsStore.getState().attachments,
+      bonds: Object.values(useRigidStore.getState().bonds || {}),
+      joints: Object.values(useJointStore.getState().joints || {}),
+      rootId: rootObj?.id ?? this._blueprint?.rootId ?? null,
+      robotConfig,
+      worldConfig: ps.worldPhysicsConfig(),
+      debugLayers: ps.debugLayers,
+    })
+    if (!ok) return false
+    this._articulated = session
+    this._lastTime = null
+    ps.setIsLeggedRobot(true)
+    return true
+  }
+
+  /** Live access for the Physics panel (debug toggles). */
+  get articulated() { return this._articulated ?? null }
+
   exit(updateObject) {
     // Tear down the executable module host (Stage 4) regardless of path.
     if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
     this._hostTried = false
     this._blueprint = null
+
+    if (this._articulated) {
+      this._articulated.stop()
+      this._articulated = null
+      this._lastTime = null
+      usePhysicsStore.getState().setIsLeggedRobot(false)
+      usePhysicsStore.getState().setLeggedControl(0, 0)
+      return
+    }
 
     if (!this.rootGroup && !this._useRapierFreefall) return
 
@@ -777,6 +825,15 @@ class DriveManager {
 
   // Called every animation frame.
   step() {
+    if (this._articulated) {
+      const now = performance.now() / 1000
+      const dt = this._lastTime !== null ? Math.min(now - this._lastTime, 0.1) : 0
+      this._lastTime = now
+      const lc = usePhysicsStore.getState().leggedControl
+      // DrivePanel speeds (±8 su/s, ±1.8 rad/s) → normalised gait command.
+      this._articulated.frame(dt, { forward: (lc?.speed || 0) / 8, turn: (lc?.turn || 0) / 1.8 })
+      return
+    }
     if (!this.rootGroup && !this._useRapierFreefall) return
 
     const now = performance.now() / 1000

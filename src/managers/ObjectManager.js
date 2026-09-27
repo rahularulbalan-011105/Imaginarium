@@ -704,6 +704,9 @@ class ObjectManager {
   // Maps write(90) → 0 rad so the horn stays at the model's neutral (export) position.
   // write(0) → -π/2, write(180) → +π/2  (full ±90° sweep around neutral).
   animateServo(id, angle) {
+    // While a physics session owns this servo, the command becomes an ACTUATOR
+    // TARGET (torque-limited, dynamic) — the horn/mesh is moved only by physics.
+    if (this._servoRouter && this._servoRouter(id, angle)) return
     const o = this.objects.get(id)
     if (!o) return
     const clamped = Math.max(0, Math.min(180, angle))
@@ -712,6 +715,10 @@ class ObjectManager {
     if (o.userData.rotorMesh)  o.userData.rotorMesh.rotation[axis]  = rad
     if (o.userData.rotorGroup) o.userData.rotorGroup.rotation[axis] = rad
   }
+
+  /** Route Servo.write() to a physics engine: fn(id, deg) → true if it took it. */
+  setServoRouter(fn) { this._servoRouter = fn || null }
+  get physicsDriven() { return !!this._servoRouter }
 
   // Rotate a free (un-attached) gear by a delta in radians around its local Y axis.
   // Clear per-gear angle tracking — call when entering or exiting simulation.

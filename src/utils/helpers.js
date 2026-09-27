@@ -1,6 +1,7 @@
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useJointStore } from '../stores/jointStore.js'
+import { usePhysicsStore } from '../stores/physicsStore.js'
 import { useRobotStore } from '../stores/robotStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 
@@ -62,5 +63,8 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
     rigid:   { bonds:   rigidState.bonds   },
     joints:  { joints:  jointState.joints  },
     robots:  { blueprints: robotState.blueprints },
+    // World physics (gravity, timestep, solver, terrain). Sparse; absent in older
+    // files, which then load with defaults (see physics/robotics/config.js).
+    physics: usePhysicsStore.getState().serializePhysics(),
   }
 }

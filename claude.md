@@ -47,6 +47,7 @@
 | **Vite** (5) | Dev server + bundler |
 | **electron** / **electron-builder** (dev) | Desktop shell / packaging |
 | **playwright** (dev) | Headless UI/theme verification |
+| **vitest** (dev) | Headless physics tests — real Rapier WASM under Node (`npm test`) |
 | **gh-pages** (dev) | GitHub Pages deploy |
 
 > **Install:** new deps sometimes need `npm install --legacy-peer-deps` (three-bvh-csg peer conflict).
@@ -62,6 +63,7 @@ toolsapp/
 ├── utm-dashboard.html              # 2nd Vite page — visit-analytics dashboard (JSONP → Google Sheet)
 ├── vite.config.js                  # base path /Imaginarium/, 2 HTML inputs, VITE_BASE override
 ├── tailwind.config.js              # remaps gray→--g-*, indigo→--a-* (accent), slate→text channels
+├── vitest.config.js                # headless physics tests (tests/physics/*.test.js)
 ├── postcss.config.js · package.json · netlify.toml · vercel.json
 │
 ├── electron/
@@ -115,6 +117,7 @@ toolsapp/
     │   ├── CodeEditor.jsx          # Arduino C++ editor + Templates + Run (code-run anchor); pre-flight compiler diagnostics gate
     │   ├── CompilerOutput.jsx      # Arduino-IDE-style compiler report panel (errors/warnings/success + snippet+caret + clickable jump)
     │   ├── SimulationPanel.jsx     # Start/Stop sim (simulate anchor), environment, battle entry
+    │   ├── PhysicsPanel.jsx        # Physics section: world/terrain/debug + body/actuator/joint/thermal/encoder + robot gait/balance/power/IMU + live telemetry
     │   ├── DrivePanel.jsx          # In-viewport sim HUD (wheeled + legged drive controls, serial log)
     │   ├── BattlePanel.jsx         # Robo-Sumo HUD + setup (local/online) + Physics-Arena launch (You vs AI)
     │   ├── SettingsPanel.jsx       # Theme, grid/axes, snap, print bed
@@ -182,7 +185,23 @@ toolsapp/
     │   │   ├── PhysicsManager.js   # Rapier WASM world; bodies/joints; combat: createCombatBody/impulse/raycast/contact events
     │   │   ├── PhysicsIntegrator.js# Kinematic fallback (inertia, drag, friction, wind)
     │   │   ├── MassCalculator.js   # Volume×density mass, inertia, frontal area
-    │   │   └── EnvironmentConfig.js# Earth/Moon/Mars/Zero-G presets
+    │   │   ├── EnvironmentConfig.js# Earth/Moon/Mars/Zero-G presets
+    │   │   └── robotics/           # ── ARTICULATED PHYSICS (legged robots; see "Articulated physics") ──
+    │   │       ├── ArticulatedRobot.js  # Physics graph → 1 Rapier body/link + impulse joints; servos, contacts, sensors, stability, power
+    │   │       ├── RoboticsRuntime.js   # Fixed-timestep orchestrator (multi-robot, terrain, render interpolation)
+    │   │       ├── ArticulatedSession.js# App lifecycle: scene → graph → runtime; mesh reparent/restore; Servo.write routing
+    │   │       ├── sceneGraph.js        # Scene (servo pivots, attachments, bonds, jointStore) → PhysicsGraph
+    │   │       ├── PhysicsGraph.js      # Pure-data graph format + validation/topology helpers
+    │   │       ├── ServoActuator.js     # Servo model: profile, PD, DC torque-speed, backlash, deadband, electrical; presets
+    │   │       ├── ThermalModel.js · BatteryModel.js   # actuator heating/derate/cut-out · OCV/sag/current-limit/brownout
+    │   │       ├── sensors.js           # IMU (noise/bias/drift/complementary filter) · joint encoder (quantised)
+    │   │       ├── kinematics.js        # Generic PoE FK + DLS IK (3-D/6-D, limits, failure states)
+    │   │       ├── gait.js · balance.js # Generic gait (crawl/walk/trot/pace/bound/gallop/tripod/wave/custom, COM sway) · IMU/COM balance
+    │   │       ├── stability.js         # COM, support polygon (convex hull), margin → stable/marginal/unstable
+    │   │       ├── materials.js · terrain.js  # friction/restitution/density presets · slope/stairs/uneven/rocks/gaps/platform
+    │   │       ├── DebugDraw.js · telemetry.js # debug overlay · non-React telemetry bus + sketch hardware bridge
+    │   │       ├── config.js            # defaults, per-object/robot/world resolution, project migration
+    │   │       └── robotTemplates.js · units.js  # reference quadruped/hexapod graphs · SI ↔ scene-unit bridge
     │   └── robot/
     │       ├── LeggedSystem.js     # Auto-detect + drive hexapod/quadruped/biped
     │       ├── GaitEngine.js       # Tripod/trot/alternating gaits
@@ -272,7 +291,7 @@ The app is **viewport-first**. `App.jsx` renders a vertical shell:
 - **Right workspace** = full-height section panel + slim grouped **icon rail** (drag-resizable 224–560 px). One section at a time.
 
 **Right-panel sections** (rail groups → ids):
-Design: Properties · Objects · Library — Create: Electronics · Mechanical — Build: Wiring · Joints · Robot — Program: Blocks · Code — Run: Simulation · Battle — Setup: Settings.
+Design: Properties · Objects · Library — Create: Electronics · Mechanical — Build: Wiring · Joints · Robot — Program: Blocks · Code — Run: Simulation · Physics — Setup: Settings.
 The **⊕ Boolean** section is injected only when two boolean-capable objects are selected.
 
 ---
@@ -354,7 +373,17 @@ Arduino, **SUBO** (custom ESP32-S3), servo, DC/BO motor, LED, sensors (IR/ultras
 **Rapier WASM** (`PhysicsManager`) + kinematic fallback (`PhysicsIntegrator`) — inertia, drag, rolling friction, wind. `MassCalculator` = volume×density mass. Presets: Earth/Moon/Mars/Zero-G. Scale: 1 su = 5 cm. (Rapier needs COOP/COEP headers for SharedArrayBuffer in production.)
 
 ### Robots — wheeled & legged
-Wheeled: auto-detect ≥2 motors → `DifferentialDrive`. Legged: auto-detect hexapod/quad/biped from servo+arm pairs → `GaitEngine` (tripod/trot/alternating) + `IKSolver`. `DrivePanel` HUD. Robot **blueprint/AI** system in `src/robot/` (`RobotBlueprint`/`ModuleLoader`/`RobotRuntime`/`autoBlueprint` + `ai/`).
+Wheeled: auto-detect ≥2 motors → `DifferentialDrive`. **Legged: articulated physics** (next section) whenever the blueprint's locomotion is `legs`; the old kinematic `LeggedSystem` + `GaitEngine`/`IKSolver` (managers/robot/) is kept as the **fallback** (graph has no actuated joints, Rapier not ready, or Robot → Physics model = `kinematic`). `DrivePanel` HUD.
+
+### Articulated physics (legged robots) — `managers/physics/robotics/`
+The robot moves because **controller → actuator torque → joint → rigid bodies → contacts → physics**, never because a mesh transform is set.
+- **Pipeline** (`RoboticsRuntime`, fixed 240 Hz default, ≤8 substeps/frame, render interpolated): per step `control` (the blueprint's modules via `ModuleHost`, stage-ordered: `GaitEngine` → `BalanceSystem` → `InverseKinematics` → `ServoPhysics` → `JointPhysics`) → `world.step()` → `postStep` (contacts → IMU/encoders → COM/support polygon → battery/thermal → pose history).
+- **Graph** (`sceneGraph.js`): links = union-find over bonds + parts attached into a servo horn (the horn pivot's contents = the child link); loose parts join what they physically touch (knee servo on a thigh), else the base. Joints: servo pivot → actuated revolute (anchor = pivot, axis = pivot's local Y); motor attachments → free continuous; jointStore hinge/slider/ball → passive. Colliders are per-object OBBs (or sphere/cylinder/capsule/convex) using only an object's OWN meshes (skips attached parts and editor overlays: pins, wires, outlines…).
+- **Servo** (`ServoActuator.js`): profiled setpoint → PD → **clamped to** the DC torque-speed line × (bus V / rated V) × thermal derate × supply limit → back-solved into Rapier's **force-based joint motor** (solved implicitly — stable on light links) → can never exceed its torque; overloaded joints sag/stall. Backlash, deadband, gear friction, efficiency, winding-loss current, heat. **Armature** (reflected rotor inertia) is added to the child link about the joint axis (conditioning + realism; approximation: also resists whole-body rotation about that axis).
+- **Contacts**: exact normal forces (Rapier's accumulated impulse × N/(N+1) for N solver iterations); friction per foot = exact Coulomb when slipping, Newton-residual share (clamped to the cone) when sticking — Rapier's JS API doesn't expose tangent impulses. Stick/slip switches μs↔μd per foot (Min combine rule).
+- **Firmware**: `Servo.write()` → `objectManager.animateServo` → servo router → actuator target. Sketches can also use `IMU` (`begin/update/getRoll/getPitch/getYaw/getAccelX…/getGyroX…`), `Encoder enc(pin)` (`read()` servo-degrees, `readVelocity()`), `Battery` (`readVoltage/readCurrent/readPercent`) — all read the simulated sensor models. `walk()/turn()` and the arrow keys drive the gait.
+- **Config** (sparse, rides existing save/undo): per object `obj.physics = {material, mass, collider, servo:{preset,…,thermal,encoder}, joint:{minAngleDeg,maxAngleDeg,damping,friction}}`; per robot on the assembly root `obj.physics.robot = {model, forward, gait, balance, power, imu}`; world in the project snapshot `physics` key (gravity, timestep, solver, terrain) via `physicsStore.serializePhysics/loadPhysics`. Old projects load with defaults.
+- **Multi-robot**: each robot gets a Rapier collision-group slot (links never self-collide; robots/terrain collide). In-app the simulator runs ONE scene robot (as before); the runtime and tests run several. Robot **blueprint/AI** system in `src/robot/` (`RobotBlueprint`/`ModuleLoader`/`RobotRuntime`/`autoBlueprint` + `ai/`).
 
 ### Robo-Sumo Battle (Mode A)
 Push out of a ring / drain HP by ramming; 100 HP, 3 lives. **Arcade 2D disc physics** (NOT Rapier). Local (P1 WASD / P2 arrows) + **online WebRTC/PeerJS** with split-authority netcode, box-cluster proxy → streamed exact geometry (backpressure-paced), orientation via `geometa`. `BattleManager` + `gameStore`.
@@ -450,6 +479,7 @@ A Rapier-based, modular combat engine (distinct from the arcade Sumo). Launched 
 npm install            # add --legacy-peer-deps if peer-dep conflicts appear
 npm run dev            # Vite dev → http://localhost:5173/Imaginarium/   (note the base path)
 npm run build          # Production build (dist/)
+npm test               # Headless physics test-suite (Vitest + real Rapier): rigid bodies, servos, IK, gaits, falls, terrain, power, thermal, save/load, undo
 npm run preview        # Serve dist/  (pin a port: npm run preview -- --port 4180)
 npm run deploy         # Build + publish to gh-pages
 npm run electron       # Electron desktop shell
@@ -538,6 +568,13 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 
 ## Troubleshooting
 
+**Legged robot sags / legs fold / "stall" in the Physics telemetry** → the servos are too weak for the robot (real behaviour): pick a stronger servo model (Physics → Actuator) or lighten the parts. Also check its mass in Physics → Body.
+**Legged robot walks the wrong way** → set Physics → Robot → Forward axis to the way it faces.
+**Crawling quadruped tips sideways** → keep COM sway on (Locomotion), lower the cadence; trot is dynamic and needs speed.
+**A joint looks locked though its servo is off** → never configure a Rapier motor with stiffness = damping = 0 (that is a rigid velocity lock); `ArticulatedRobot._applyServo` uses a vanishing damper for "off".
+**Colliders far bigger than the part** → a non-physical overlay inside the object's hierarchy isn't flagged; add its `userData` flag to `NON_PHYSICAL_FLAGS` in `sceneGraph.js`.
+**Wanted the old kinematic legged behaviour** → Physics → Robot → Physics model = `kinematic`.
+
 **View Cube overlaps a menu/popup** → it reads `useAnyOverlay()` and fades out; register new overlays with `useOverlay('id', open)`.
 **A tool "disappeared" from the toolbox** → creation moved to right-panel Library/Electronics/Mechanical sections.
 **Tutorial arrow points at nothing** → the step's `data-tour` anchor moved; open its section, or fix `coachSteps.js`.
@@ -558,5 +595,7 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 
 ---
 
-**Last Updated:** 2026-07-14 · **Version:** 1.8.0
+**Last Updated:** 2026-09-27 · **Version:** 1.9.0 — adds the **articulated legged-robot physics engine** (servo torque actuators, contacts, IMU/encoders, gait/IK/balance, power/thermal, terrain, Physics panel, headless test-suite)
+
+**Previous:** 2026-07-14 · 1.8.0
 Full robotics platform · SUBO board (largest-substrate pin anchoring) + **SUBO Arduino library** · Constructa branding + video loading screen · Robo-Sumo (local+online) · **Physics-Arena combat** Stages 1–4 + third-person **You-vs-AI PvP layer** (chase camera, easy AI, LMB/RMB weapons, hit VFX/damage numbers/audio, chassis lean) · **Arduino compiler diagnostics** · expanded UTM analytics + event funnel + email capture + mobile device-split · sensor render fix + electronics manual resize + **legged code-walk (`walk`/`turn`/`stopWalking`)** + robust drive grounding (ignores degenerate GLB bboxes) · custom domain `constructa.atumx.in`.
