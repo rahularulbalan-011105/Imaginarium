@@ -2,14 +2,14 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 
 export default function StatusBar() {
-  const objects = useSceneStore((s) => s.objects)
+  const objectCount = useSceneStore((s) => s.objects.length)
   const selectedId = useSceneStore((s) => s.selectedId)
   const selectedObj = useSceneStore((s) => s.objects.find((o) => o.id === selectedId))
   const transformMode = useUiStore((s) => s.transformMode)
 
   return (
     <div className="flex items-center gap-4 px-4 h-7 bg-gray-900/80 border-t border-gray-700/50 text-[11px] text-gray-500 shrink-0">
-      <span>Objects: <span className="text-gray-300">{objects.length}</span></span>
+      <span>Objects: <span className="text-gray-300">{objectCount}</span></span>
       {selectedObj ? (
         <>
           <span>│</span>

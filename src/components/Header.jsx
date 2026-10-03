@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react'
+import { modelKeysFor, isModelLoaded, ensureModels } from '../utils/modelLoader.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -24,7 +25,8 @@ export default function Header() {
   const setProjectName = useSceneStore((s) => s.setProjectName)
   const projectId      = useSceneStore((s) => s.projectId)
   const setProjectId   = useSceneStore((s) => s.setProjectId)
-  const objects        = useSceneStore((s) => s.objects)
+  // Read at click time — subscribing re-rendered the header on every edit/drag.
+  const partCount = () => useSceneStore.getState().objects.length
   const gridVisible    = useSceneStore((s) => s.gridVisible)
   const axesVisible    = useSceneStore((s) => s.axesVisible)
   const setObjects     = useSceneStore((s) => s.setObjects)
@@ -69,7 +71,17 @@ export default function Header() {
   [])
 
   // ── apply loaded / imported data to all stores ────────────────────────────
-  const applyProjectData = useCallback((data) => {
+  const applyProjectData = useCallback(async (data) => {
+    // Models load on demand: fetch exactly the GLBs this project uses before its
+    // objects are created (pins anchor to real board geometry). The app shell is
+    // already interactive; this shows its own project-loading progress.
+    const keys = modelKeysFor(data?.objects)
+    if (keys.some(k => !isModelLoaded(k))) {
+      const ui = useUiStore.getState()
+      ui.setProjectLoading({ done: 0, total: keys.length })
+      try { await ensureModels(keys, (done, total) => ui.setProjectLoading({ done, total })) }
+      finally { ui.setProjectLoading(null) }
+    }
     setProjectName(data.name || 'Untitled Project')
     setProjectId(data.projectId || uuidv4())
     setObjects(data.objects || [])
@@ -119,7 +131,7 @@ export default function Header() {
       await storageManager.saveProject(getSnapshot())
       setSaveFlash(true)
       setTimeout(() => setSaveFlash(false), 1200)
-      trackEvent('project_saved', { parts: objects.length })
+      trackEvent('project_saved', { parts: partCount() })
       window.dispatchEvent(new Event('constructa:saved'))   // → soft email capture
       window.dispatchEvent(new CustomEvent('constructa:autosave', { detail: { state: 'saved', at: Date.now() } }))
     } catch (e) {
@@ -132,7 +144,7 @@ export default function Header() {
 
   // ── new project ───────────────────────────────────────────────────────────
   const handleNewProject = () => {
-    if (objects.length > 0 && !confirm('Start a new project? Unsaved changes will be lost.')) return
+    if (partCount() > 0 && !confirm('Start a new project? Unsaved changes will be lost.')) return
     clearScene()
     clearAttachments()
     usePhysicsStore.getState().loadPhysics({})       // new project → default world physics
@@ -167,7 +179,7 @@ export default function Header() {
   // ── export / import ───────────────────────────────────────────────────────
   const handleExportJSON = async () => {
     setShowMenu(false)
-    trackEvent('export_json', { parts: objects.length })
+    trackEvent('export_json', { parts: partCount() })
     await saveJSONToFile(getSnapshot(), `${projectName || 'project'}.json`)
   }
 
@@ -177,7 +189,7 @@ export default function Header() {
     try {
       const { url } = await buildShareUrl(getSnapshot())
       try { await navigator.clipboard.writeText(url) } catch { /* clipboard may be blocked */ }
-      trackEvent('share_link_created', { parts: objects.length })
+      trackEvent('share_link_created', { parts: partCount() })
       history.replaceState(null, '', url)   // reflect the shareable URL in the address bar
       setShareMsg(url.length > 12000
         ? `Link copied (~${Math.round(url.length / 1024)} KB). It's long — for big projects, Export JSON is more reliable.`

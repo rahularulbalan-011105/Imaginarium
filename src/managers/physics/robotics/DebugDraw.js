@@ -2,16 +2,9 @@
 // has — Rapier's own collider/joint wireframes plus robot state — and nothing in
 // normal CAD mode. Geometry buffers are allocated once and reused every frame.
 import * as THREE from 'three'
+import { DEBUG_LAYERS } from './config.js'
 
-export const DEBUG_LAYERS = {
-  colliders: false,   // Rapier collision shapes + joint frames (world.debugRender)
-  com:       true,    // centre of mass (and its ground projection)
-  support:   true,    // support polygon, coloured by stability state
-  contacts:  true,    // foot contact points + normals
-  forces:    false,   // ground reaction force vectors
-  joints:    false,   // joint axes, coloured by actuator temperature / stall
-  velocity:  false,   // link velocity vectors
-}
+export { DEBUG_LAYERS }   // defined in config.js (kept light for the stores)
 
 const STATE_COLOR = { stable: 0x22c55e, marginal: 0xf59e0b, unstable: 0xef4444 }
 

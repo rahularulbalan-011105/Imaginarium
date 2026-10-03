@@ -3,13 +3,33 @@ import * as THREE from 'three'
 import { sceneManager } from '../managers/SceneManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useSceneStore } from '../stores/sceneStore.js'
+import { useUiStore } from '../stores/uiStore.js'
+import { useGameStore } from '../stores/gameStore.js'
+import { useCombatStore } from '../stores/combatStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 
 const fmt = v => v.toFixed(2)
 
+// Only measure what is actually drawn: a hidden object (or one inside a hidden
+// parent, or detached from the scene) has no on-screen body, so its box would
+// float over empty space.
+function isShown(mesh) {
+  let n = mesh
+  while (n) {
+    if (!n.visible) return false
+    if (n === sceneManager.scene) return true
+    n = n.parent
+  }
+  return false
+}
+
 function getActualSize(mesh) {
   if (mesh.isMesh && mesh.geometry) {
-    mesh.geometry.computeBoundingBox()
+    // Geometry bounds only change when the vertices do — recomputing O(vertices)
+    // every frame was pure waste. Keyed on the position attribute's version so
+    // in-place edits (bend, fillet…) still refresh it.
+    const g = mesh.geometry, ver = g.attributes.position?.version ?? 0
+    if (!g.boundingBox || g.userData.__bbVer !== ver) { g.computeBoundingBox(); g.userData.__bbVer = ver }
     const ls = mesh.geometry.boundingBox.getSize(new THREE.Vector3())
     return new THREE.Vector3(
       ls.x * Math.abs(mesh.scale.x),
@@ -92,8 +112,13 @@ function LabelBox({ left, top, width, height, radius, axis, val, editAxis, draft
 }
 
 export default function DimensionOverlay() {
-  const selectedId   = useSceneStore(s => s.selectedId)
+  const rawSelectedId = useSceneStore(s => s.selectedId)
   const updateObject = useSceneStore(s => s.updateObject)
+  // Dimensions are an editing aid — never shown while a simulation, battle or arena runs.
+  const simActive    = useUiStore(s => s.simActive)
+  const battleActive = useGameStore(s => s.battleActive)
+  const arenaActive  = useCombatStore(s => s.arenaActive)
+  const selectedId = (simActive || battleActive || arenaActive) ? null : rawSelectedId
   const { snapshot } = useHistory()
 
   const [d, setD]           = useState(null)
@@ -102,16 +127,43 @@ export default function DimensionOverlay() {
   const [draftVal, setDraftVal] = useState('')
 
   useEffect(() => {
+    // Change detection: the overlay only needs recomputing when the object, the
+    // camera or the canvas size changed. Previously it re-measured and called
+    // setD() with a fresh object every frame (a 60 fps React re-render).
+    const lastKey = new Float64Array(16 + 16 + 16 + 2)
+    let hasKey = false, lastD = null
+    setD(null)   // drop the previous selection's box — the new tick only sets on change
+    const setIfChanged = (next) => {
+      const same = next === lastD || (next && lastD &&
+        Math.abs(next.x0 - lastD.x0) < 0.5 && Math.abs(next.x1 - lastD.x1) < 0.5 &&
+        Math.abs(next.y0 - lastD.y0) < 0.5 && Math.abs(next.y1 - lastD.y1) < 0.5 &&
+        next.size.equals(lastD.size))
+      if (!same) { lastD = next; setD(next) }
+    }
+    const unchanged = (mesh, cam, W, H) => {
+      const a = mesh.matrixWorld.elements, b = cam.matrixWorld.elements, c = cam.projectionMatrix.elements
+      let same = hasKey
+      for (let i = 0; i < 16; i++) {
+        if (lastKey[i] !== a[i]) { same = false; lastKey[i] = a[i] }
+        if (lastKey[16 + i] !== b[i]) { same = false; lastKey[16 + i] = b[i] }
+        if (lastKey[32 + i] !== c[i]) { same = false; lastKey[32 + i] = c[i] }
+      }
+      if (lastKey[48] !== W || lastKey[49] !== H) { same = false; lastKey[48] = W; lastKey[49] = H }
+      hasKey = true
+      return same
+    }
     const tick = () => {
       rafRef.current = requestAnimationFrame(tick)
 
       if (!selectedId || !sceneManager.camera || !sceneManager.renderer) {
-        setD(null); return
+        setIfChanged(null); return
       }
       const mesh = objectManager.getMesh(selectedId)
-      if (!mesh) { setD(null); return }
+      if (!mesh || !isShown(mesh)) { setIfChanged(null); return }
 
       mesh.updateMatrixWorld(true)
+      const dom0 = sceneManager.renderer.domElement
+      if (unchanged(mesh, sceneManager.camera, dom0.clientWidth, dom0.clientHeight)) return
 
       const size = getActualSize(mesh)
 
@@ -125,21 +177,22 @@ export default function DimensionOverlay() {
         return [(p.x + 1) / 2 * W, (-p.y + 1) / 2 * H]
       }
 
+      if (wb.isEmpty()) { setIfChanged(null); return }
       const { min: mn, max: mx } = wb
       const pts = [
         [mn.x,mn.y,mn.z],[mx.x,mn.y,mn.z],[mx.x,mx.y,mn.z],[mn.x,mx.y,mn.z],
         [mn.x,mn.y,mx.z],[mx.x,mn.y,mx.z],[mx.x,mx.y,mx.z],[mn.x,mx.y,mx.z],
       ].map(([x,y,z]) => proj(new THREE.Vector3(x,y,z))).filter(Boolean)
 
-      if (pts.length < 4) { setD(null); return }
+      if (pts.length < 4) { setIfChanged(null); return }
 
       const xs = pts.map(p => p[0]), ys = pts.map(p => p[1])
       const x0 = Math.min(...xs), x1 = Math.max(...xs)
       const y0 = Math.min(...ys), y1 = Math.max(...ys)
 
-      if (x1 - x0 < 24 || y1 - y0 < 24) { setD(null); return }
+      if (x1 - x0 < 24 || y1 - y0 < 24) { setIfChanged(null); return }
 
-      setD({ size, x0, x1, y0, y1 })
+      setIfChanged({ size, x0, x1, y0, y1 })
     }
     rafRef.current = requestAnimationFrame(tick)
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }

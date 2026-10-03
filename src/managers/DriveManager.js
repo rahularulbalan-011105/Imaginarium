@@ -15,10 +15,23 @@ import { ModuleHost } from '../robot/ModuleHost.js'
 import { aiRuntime } from '../robot/ai/AIRuntime.js'
 import { execPathFor } from '../robot/RobotBlueprint.js'
 import { autoBlueprintForObjects } from '../robot/autoBlueprint.js'
-import { ArticulatedSession } from './physics/robotics/ArticulatedSession.js'
 import { resolveRobotConfig } from './physics/robotics/config.js'
+import { getCurrentQuality } from '../utils/devicePerformance.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useJointStore } from '../stores/jointStore.js'
+
+// The articulated engine (robotics runtime, IK, gait, contacts, debug draw) is
+// loaded on demand together with Rapier — not on the startup path.
+let _ArticulatedSession = null
+let _roboticsPromise = null
+export function loadRobotics() {
+  if (!_roboticsPromise) {
+    _roboticsPromise = import('./physics/robotics/ArticulatedSession.js').then(m => { _ArticulatedSession = m.ArticulatedSession; return m })
+  }
+  return _roboticsPromise
+}
+/** Everything a simulation needs: Rapier WASM + the articulated engine. */
+export function preparePhysics() { return Promise.all([physicsManager.init(), loadRobotics()]) }
 
 const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc'])
 const DRIVE_BODY_ID  = 'robot_drive'
@@ -88,8 +101,12 @@ class DriveManager {
   init(scene, objectMgr) {
     this.scene     = scene
     this.objectMgr = objectMgr
-    // Start loading the Rapier WASM immediately so it's ready by simulation time
-    physicsManager.init()
+    // Rapier (~0.8 MB gzip + WASM compile) is only needed for simulation, so it
+    // is NOT loaded on the startup path: fetch it once the browser is idle after
+    // boot (usually ready long before the user presses Sim; SimulationPanel
+    // awaits it otherwise).
+    const idle = typeof requestIdleCallback === 'function' ? requestIdleCallback : (fn) => setTimeout(fn, 3000)
+    idle(() => { preparePhysics() }, { timeout: 8000 })
   }
 
   get isActive() { return !!this.rootGroup || this._useRapierFreefall }
@@ -699,8 +716,9 @@ class DriveManager {
     const rootObj = all.find(o => o.physics?.robot) ?? all.find(o => o.id === this._blueprint?.rootId) ?? null
     const robotConfig = resolveRobotConfig(rootObj, this._blueprint)
     if (robotConfig.model === 'kinematic') return false
+    if (!_ArticulatedSession) { loadRobotics(); return false }   // not loaded yet → kinematic this run
     const ps = usePhysicsStore.getState()
-    const session = new ArticulatedSession({ scene: this.scene, objectMgr: this.objectMgr, physicsManager, simulation: simulationManager })
+    const session = new _ArticulatedSession({ scene: this.scene, objectMgr: this.objectMgr, physicsManager, simulation: simulationManager })
     const ok = session.start({
       objects: topLevel, allObjects: all, standalone: standaloneObjects,
       blueprint: this._blueprint,
@@ -709,7 +727,12 @@ class DriveManager {
       joints: Object.values(useJointStore.getState().joints || {}),
       rootId: rootObj?.id ?? this._blueprint?.rootId ?? null,
       robotConfig,
-      worldConfig: ps.worldPhysicsConfig(),
+      // The device profile may floor the robotics step (Low: 120 Hz, verified
+      // stable in tests); it never changes servo/contact correctness.
+      worldConfig: (() => {
+        const wc = ps.worldPhysicsConfig(), q = getCurrentQuality()
+        return q ? { ...wc, timestep: Math.max(wc.timestep, q.physicsMinTimestep ?? 0), telemetryHz: q.telemetryHz } : wc
+      })(),
       debugLayers: ps.debugLayers,
     })
     if (!ok) return false

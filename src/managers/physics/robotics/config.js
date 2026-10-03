@@ -16,9 +16,25 @@ import { DEFAULT_BATTERY } from './BatteryModel.js'
 import { DEFAULT_IMU, DEFAULT_ENCODER } from './sensors.js'
 import { DEFAULT_THERMAL } from './ThermalModel.js'
 import { DEFAULT_SERVO_PRESET } from './ServoActuator.js'
-import { DEFAULT_WORLD_PHYSICS } from './RoboticsRuntime.js'
 
 export const PHYSICS_CONFIG_VERSION = 1
+
+export const DEFAULT_WORLD_PHYSICS = {
+  timestep:         1 / 240,   // s — servo PD + light links need a small fixed step
+  maxSubsteps:      8,         // per rendered frame (beyond this the sim slows, never explodes)
+  solverIterations: 8,
+  gravity:          -9.81,     // m/s² along Y
+}
+
+export const DEBUG_LAYERS = {
+  colliders: false,   // Rapier collision shapes + joint frames (world.debugRender)
+  com:       true,    // centre of mass (and its ground projection)
+  support:   true,    // support polygon, coloured by stability state
+  contacts:  true,    // foot contact points + normals
+  forces:    false,   // ground reaction force vectors
+  joints:    false,   // joint axes, coloured by actuator temperature / stall
+  velocity:  false,   // link velocity vectors
+}
 
 export const GRAVITY_PRESETS = { earth: -9.80665, moon: -1.62, mars: -3.72, zero_g: 0 }
 

@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import { useUiStore } from '../stores/uiStore.js'
+import { physicsManager } from '../managers/physics/PhysicsManager.js'
+import { preparePhysics } from '../managers/DriveManager.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import Icon from './ui/Icon.jsx'
 import { trackEvent } from '../utils/utmTracking.js'
@@ -35,6 +38,7 @@ export default function SimulationPanel() {
   const environment  = usePhysicsStore((s) => s.environment)
   const setEnvironment = usePhysicsStore((s) => s.setEnvironment)
   const gravity      = usePhysicsStore((s) => s.gravity)
+  const [preparing, setPreparing] = useState(false)
 
   return (
     <div className="p-3 flex flex-col gap-4">
@@ -43,7 +47,17 @@ export default function SimulationPanel() {
         <SectionTitle>Simulation</SectionTitle>
         <button
           data-tour="simulate"
-          onClick={() => { if (!simActive) trackEvent('sim_started'); setSimActive(!simActive) }}
+          onClick={async () => {
+            if (simActive) { setSimActive(false); return }
+            trackEvent('sim_started')
+            // Rapier loads in the background after boot; if the user is quicker,
+            // wait for it rather than silently falling back to kinematic physics.
+            if (!physicsManager.ready) setPreparing(true)
+            await preparePhysics()
+            setPreparing(false)
+            setSimActive(true)
+          }}
+          disabled={preparing}
           className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 ${simActive ? 'animate-pulse' : 'hover:brightness-110'}`}
           style={simActive
             ? { background: '#eab308', color: '#1a1a1a', boxShadow: '0 2px 10px rgba(234,179,8,0.4)' }

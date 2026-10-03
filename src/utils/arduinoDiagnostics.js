@@ -30,6 +30,8 @@ const CORE_FUNCS = {
   floor: 1, ceil: 1, round: 1, log: 1, exp: 1, sin: 1, cos: 1, tan: 1,
   random: null, randomSeed: 1, tone: null, noTone: 1, pulseIn: null,
   bitRead: 2, bitWrite: 3, bitSet: 2, bitClear: 2, lowByte: 1, highByte: 1,
+  // Simulator legged-locomotion API (SimulationManager): walk(speed%) / turn(rate%).
+  walk: 1, turn: 1, stopWalking: 0,
 }
 // SUBO library free functions (Subo.h / MotorExpansion.h) → arity.
 const SUBO_FUNCS = {

@@ -5,6 +5,7 @@ import { useRigidStore } from '../stores/rigidStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { runBoolean, buildUnionMembers } from '../utils/csg.js'
+import { loadCSG } from '../utils/csgLib.js'
 
 const OPERATIONS = [
   {
@@ -82,6 +83,7 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
     await new Promise((r) => setTimeout(r, 20))
 
     try {
+      await loadCSG()
       const result = runBoolean(selectedId, secondaryId, opId)
       if (!result) {
         setError('Operation failed — make sure the shapes overlap.')

@@ -106,7 +106,20 @@ class JointManager {
         continue
       }
 
+      // Idle skip: same parent pose, same joint value, child untouched → the
+      // constraint would produce the identical pose again.
+      parentMesh.updateWorldMatrix(true, false)
+      const cache = this._stepCache ??= new Map()
+      let c = cache.get(joint.id)
+      const v0 = joint.currentAngle ?? 0, v1 = joint.currentPosition ?? 0
+      const br = joint.ballRot ?? {}
+      if (c && c.v0 === v0 && c.v1 === v1 && c.bx === br.x && c.by === br.y && c.bz === br.z &&
+          c.type === joint.type && sameMat16(c.p, parentMesh.matrixWorld.elements) && sameMat16(c.c, childMesh.matrix.elements)) continue
       this._applyJointConstraint(joint, parentMesh, childMesh)
+      childMesh.updateMatrix()
+      if (!c) { c = { p: new Float64Array(16), c: new Float64Array(16) }; cache.set(joint.id, c) }
+      c.v0 = v0; c.v1 = v1; c.bx = br.x; c.by = br.y; c.bz = br.z; c.type = joint.type
+      c.p.set(parentMesh.matrixWorld.elements); c.c.set(childMesh.matrix.elements)
     }
   }
 
@@ -353,3 +366,8 @@ class JointManager {
 }
 
 export const jointManager = new JointManager()
+
+function sameMat16(a, b) {
+  for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false
+  return true
+}

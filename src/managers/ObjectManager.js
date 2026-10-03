@@ -795,36 +795,44 @@ class ObjectManager {
   // Bonds are sorted topologically so A→B→C chains update in the right order.
   propagateAllBonds(bonds) {
     if (!bonds || bonds.length === 0) return
-    const childSet = new Set(bonds.map(b => b.childId))
-    // Bonds whose parent is itself a bond-child must be processed after their parent bond
-    const sorted = [...bonds].sort((a, b) =>
-      (childSet.has(a.parentId) ? 1 : 0) - (childSet.has(b.parentId) ? 1 : 0)
-    )
-    const _pos  = new THREE.Vector3()
-    const _quat = new THREE.Quaternion()
-    const _scl  = new THREE.Vector3()
-    const _rel  = new THREE.Matrix4()
-    const _inv  = new THREE.Matrix4()
-    for (const bond of sorted) {
+    // Sort only when the bond list changes (bonds whose parent is itself a
+    // bond-child must be processed after their parent bond).
+    if (bonds !== this._bondsRef) {
+      const childSet = new Set(bonds.map(b => b.childId))
+      this._bondsSorted = [...bonds].sort((a, b) =>
+        (childSet.has(a.parentId) ? 1 : 0) - (childSet.has(b.parentId) ? 1 : 0))
+      this._bondsRef = bonds
+    }
+    const T = this._bondTmp ??= { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), scl: new THREE.Vector3(), rel: new THREE.Matrix4(), inv: new THREE.Matrix4(), world: new THREE.Matrix4() }
+    const cache = this._bondCache ??= new Map()   // bondId → { p: Float64Array(16), c: Float64Array(16) }
+    for (const bond of this._bondsSorted) {
       const parentMesh = this.objects.get(bond.parentId)
       const childMesh  = this.objects.get(bond.childId)
       if (!parentMesh || !childMesh) continue
-      parentMesh.updateMatrixWorld(true)
-      _rel.fromArray(bond.relativeMatrix)
+      // Ancestors only (not the whole subtree — GLB boards are deep trees).
+      parentMesh.updateWorldMatrix(true, false)
+      // Idle skip: if neither the parent's world pose nor the child's pose moved
+      // since we last applied this bond, the result would be identical.
+      let c = cache.get(bond.id)
+      if (c && sameMat(c.p, parentMesh.matrixWorld.elements) && sameMat(c.c, childMesh.matrix.elements)) continue
+      T.rel.fromArray(bond.relativeMatrix)
       // World-space target for the child
-      const worldMat = parentMesh.matrixWorld.clone().multiply(_rel)
+      const worldMat = T.world.copy(parentMesh.matrixWorld).multiply(T.rel)
       // If the child lives inside a group (e.g. drive rootGroup), convert the
       // world-space matrix into that group's local space before applying.
       const cp = childMesh.parent
       if (cp && cp !== this.scene) {
-        cp.updateMatrixWorld(true)
-        _inv.copy(cp.matrixWorld).invert()
-        worldMat.premultiply(_inv)
+        cp.updateWorldMatrix(true, false)
+        T.inv.copy(cp.matrixWorld).invert()
+        worldMat.premultiply(T.inv)
       }
-      worldMat.decompose(_pos, _quat, _scl)
-      childMesh.position.copy(_pos)
-      childMesh.quaternion.copy(_quat)
-      childMesh.updateMatrixWorld(true)
+      worldMat.decompose(T.pos, T.quat, T.scl)
+      childMesh.position.copy(T.pos)
+      childMesh.quaternion.copy(T.quat)
+      childMesh.updateMatrix()
+      childMesh.updateWorldMatrix(false, false)
+      if (!c) { c = { p: new Float64Array(16), c: new Float64Array(16) }; cache.set(bond.id, c) }
+      c.p.set(parentMesh.matrixWorld.elements); c.c.set(childMesh.matrix.elements)
     }
   }
 
@@ -833,7 +841,10 @@ class ObjectManager {
     const o = this.objects.get(id)
     if (!o || !o.userData.emissiveMeshes) return
     const intensity = Math.max(0, Math.min(1, brightness / 255))
-    const ledColor  = new THREE.Color(o.userData.ledColor ?? '#ff0000')
+    // Parse the LED colour once per LED, not every frame.
+    const key = o.userData.ledColor ?? '#ff0000'
+    if (o.userData._ledColorKey !== key) { o.userData._ledColor = new THREE.Color(key); o.userData._ledColorKey = key }
+    const ledColor  = o.userData._ledColor
     for (const mesh of o.userData.emissiveMeshes) {
       if (!mesh.material) continue
       mesh.material.emissive.copy(ledColor).multiplyScalar(intensity)
@@ -935,11 +946,13 @@ class ObjectManager {
       const fromMesh = this.objects.get(ud.fromPinId.split(':')[0])
       const toMesh   = this.objects.get(ud.toPinId.split(':')[0])
       if (!fromMesh || !toMesh) continue
-      const a = fromMesh.getWorldPosition(new THREE.Vector3()); a.y += 0.5
-      const b = toMesh.getWorldPosition(new THREE.Vector3());   b.y += 0.5
+      const T = this._wireTmp ??= { a: new THREE.Vector3(), b: new THREE.Vector3() }
+      const a = fromMesh.getWorldPosition(T.a); a.y += 0.5
+      const b = toMesh.getWorldPosition(T.b);   b.y += 0.5
       if (ud._wa && ud._wb &&
           ud._wa.distanceToSquared(a) < 1e-6 && ud._wb.distanceToSquared(b) < 1e-6) continue
-      ud._wa = a.clone(); ud._wb = b.clone()
+      // (allocation below happens only when the wire actually moved)
+      ud._wa = (ud._wa ?? new THREE.Vector3()).copy(a); ud._wb = (ud._wb ?? new THREE.Vector3()).copy(b)
       const archY = Math.max(a.y, b.y) + 1.5
       line.geometry.setFromPoints([
         a,
@@ -989,12 +1002,7 @@ class ObjectManager {
 
     // removeFromParent works whether parent is the scene or a rotorGroup
     o.removeFromParent()
-    o.traverse(child => {
-      if (child.isMesh) {
-        child.geometry?.dispose()
-        child.material?.dispose()
-      }
-    })
+    o.traverse(disposeNode)
     _importedGeoms.delete(id)
     this.objects.delete(id)
   }
@@ -1277,6 +1285,23 @@ class ObjectManager {
     for (const id of [...this.objects.keys()]) this.removeMesh(id)
     for (const id of [...this.wires.keys()]) this.removeWire(id)
   }
+}
+
+// Free a node's GPU resources — except geometry shared with the model cache
+// (and textures of GLB materials, which material.dispose() leaves alone). Pin
+// label sprites own their canvas texture, so that IS released.
+function disposeNode(n) {
+  if (n.geometry && !n.geometry.userData?.__shared) n.geometry.dispose()
+  const mats = Array.isArray(n.material) ? n.material : (n.material ? [n.material] : [])
+  for (const m of mats) {
+    if (n.isSprite && m.map) m.map.dispose()
+    m.dispose()
+  }
+}
+
+function sameMat(a, b) {
+  for (let i = 0; i < 16; i++) if (a[i] !== b[i]) return false
+  return true
 }
 
 export const objectManager = new ObjectManager()

@@ -214,7 +214,14 @@ function Burst({ n = 16 }) {
   return <div ref={ref} className="absolute inset-0 pointer-events-none" style={{ overflow: 'visible' }} />
 }
 
+// Gate: the coach's detection hooks subscribe to the whole scene; mount them only
+// while the coach is running (it used to re-render on every edit even when idle).
 export default function GuidedCoach() {
+  const active = useOnboardingStore((s) => s.coachActive)
+  return active ? <GuidedCoachActive /> : null
+}
+
+function GuidedCoachActive() {
   const active  = useOnboardingStore((s) => s.coachActive)
   const mission = useOnboardingStore((s) => s.coachMission)
   const stepIdx = useOnboardingStore((s) => s.coachStep)

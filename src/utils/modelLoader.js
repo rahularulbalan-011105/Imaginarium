@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js'
 import { STLLoader } from 'three-stdlib'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
@@ -34,6 +35,9 @@ export function flattenToGeometry(object3d) {
 }
 
 const loader = new GLTFLoader()
+// Built-in GLBs are meshopt-compressed (tools/optimize-models.mjs); the decoder
+// ships with three, so no extra dependency.
+loader.setMeshoptDecoder(MeshoptDecoder)
 
 // Scale to use for each model type (longest bounding-box dimension → this value)
 export const MODEL_SCALE_TARGET = {
@@ -72,7 +76,7 @@ const MODEL_PATHS = {
   buzzer:     `${BASE}models/buzzer.glb`,
   oled:       `${BASE}models/oled.glb`,
   gas_sensor: `${BASE}models/gas_sensor.glb`,
-  color_sensor: `${BASE}models/color_sensor.glb`,
+  // color_sensor: no GLB exists — it always used the procedural model (was a 404 at boot)
   ldr_sensor:   `${BASE}models/ldr.glb`,
   dht11:        `${BASE}models/dht11.glb`,
 }
@@ -92,53 +96,97 @@ const WEAPON_SCALE = { weapon_autocannon: 3.2, weapon_shotgun: 2.6, weapon_rocke
 
 // Load a weapon model on demand; cached (and shares cloneModel with everything).
 // Resolves to the THREE.Group or null (missing → weapon still works, just no mesh).
-export function loadWeaponModel(key) {
+export function loadWeaponModel(key) { return loadModel(key) }
+
+// ── On-demand loading ─────────────────────────────────────────────────────────
+// Models are NOT preloaded at boot any more: the editor mounts immediately and a
+// model is fetched the first time something needs it (library click, project
+// load, hover prefetch, idle prefetch). cloneModel() stays synchronous — callers
+// that create a component first `await ensureModels([...])`.
+const _pending = {}   // key → Promise (dedupes concurrent requests: one fetch/parse per GLB)
+
+function _prepare(key, root) {
+  // Geometry of cached models is SHARED by every clone (cloneModel copies the
+  // hierarchy, not the buffers) — flag it so deleting one instance never
+  // disposes the GPU buffers the cache and other instances still use.
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; if (c.geometry) c.geometry.userData.__shared = true } })
+  // target null/0 → use the GLB's own size as authored (already sized & centred
+  // in Blender). Otherwise normalise the longest dim to target.
+  if (MODEL_SCALE_TARGET[key]) scaleAndCenter(root, MODEL_SCALE_TARGET[key])
+  if (WEAPON_SCALE[key]) scaleAndCenter(root, WEAPON_SCALE[key])
+  return root
+}
+
+/** True once a model has resolved (loaded, or known-missing → procedural fallback). */
+export function isModelLoaded(key) { return key in _cache }
+
+/** Model keys that have a GLB (built-in electronics + library models). */
+export function hasModel(key) { return key in MODEL_PATHS }
+
+/** Load one model (deduplicated, cached). Resolves to the THREE.Group or null. */
+export function loadModel(key) {
   if (key in _cache) return Promise.resolve(_cache[key])
-  const path = WEAPON_PATHS[key]
+  if (_pending[key]) return _pending[key]
+  const path = MODEL_PATHS[key] ?? WEAPON_PATHS[key]
   if (!path) { _cache[key] = null; return Promise.resolve(null) }
-  return new Promise((resolve) => {
+  const t0 = typeof performance !== 'undefined' ? performance.now() : 0
+  _pending[key] = new Promise((resolve) => {
     loader.load(
       path,
       (gltf) => {
-        const root = gltf.scene
-        root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
-        if (WEAPON_SCALE[key]) scaleAndCenter(root, WEAPON_SCALE[key])
-        _cache[key] = root
-        resolve(root)
+        _cache[key] = _prepare(key, gltf.scene)
+        delete _pending[key]
+        if (typeof performance !== 'undefined') _loadTimes[key] = Math.round(performance.now() - t0)
+        _notify(key)
+        resolve(_cache[key])
       },
       undefined,
-      () => { _cache[key] = null; resolve(null) },
+      () => { _cache[key] = null; delete _pending[key]; _notify(key); resolve(null) },   // 404 → procedural fallback
     )
   })
+  return _pending[key]
 }
 
-// onProgress(done, total) fires as each model resolves — drives the load bar.
-export async function preloadModels(onProgress) {
-  const entries = Object.entries(MODEL_PATHS)
-  const total = entries.length
+/** Load several models; onProgress(done, total). */
+export async function ensureModels(keys, onProgress) {
+  const list = [...new Set(keys)].filter(k => (k in MODEL_PATHS || k in WEAPON_PATHS) && !(k in _cache))
   let done = 0
-  const tick = () => { done++; if (onProgress) { try { onProgress(done, total) } catch { /* ignore */ } } }
-  const jobs = entries.map(([key, path]) =>
-    new Promise((resolve) => {
-      loader.load(
-        path,
-        (gltf) => {
-          const root = gltf.scene
-          root.traverse(c => {
-            if (c.isMesh) { c.castShadow = true; c.receiveShadow = true }
-          })
-          // target null/0 → use the GLB's own size as authored (already sized &
-          // centred in Blender). Otherwise normalise the longest dim to target.
-          if (MODEL_SCALE_TARGET[key]) scaleAndCenter(root, MODEL_SCALE_TARGET[key])
-          _cache[key] = root
-          tick(); resolve()
-        },
-        undefined,
-        () => { _cache[key] = null; tick(); resolve() }   // 404 → procedural fallback
-      )
-    })
-  )
-  await Promise.all(jobs)
+  await Promise.all(list.map(k => loadModel(k).then(() => { done++; try { onProgress?.(done, list.length) } catch { /* ignore */ } })))
+  return list.length
+}
+
+/** Which model keys a set of scene objects needs (electronics types + library models). */
+export function modelKeysFor(objects) {
+  const keys = new Set()
+  for (const o of objects ?? []) {
+    if (o?.type && (o.type in MODEL_PATHS || o.type in WEAPON_PATHS)) keys.add(o.type)
+    if (o?.modelKey && o.modelKey in MODEL_PATHS) keys.add(o.modelKey)
+  }
+  return [...keys]
+}
+
+/** Background prefetch at idle priority — never competes with interaction. */
+export function prefetchModels(keys) {
+  const queue = keys.filter(k => !(k in _cache) && !_pending[k])
+  const idle = typeof requestIdleCallback === 'function' ? requestIdleCallback : (fn) => setTimeout(fn, 200)
+  const next = () => {
+    const k = queue.shift()
+    if (!k) return
+    loadModel(k).then(() => idle(next, { timeout: 4000 }))
+  }
+  idle(next, { timeout: 4000 })
+}
+
+// Listeners for "model X finished loading" (Viewport creates deferred meshes).
+const _listeners = new Set()
+const _loadTimes = {}
+function _notify(key) { for (const fn of _listeners) { try { fn(key) } catch { /* ignore */ } } }
+export function onModelLoaded(fn) { _listeners.add(fn); return () => _listeners.delete(fn) }
+export function modelLoadTimes() { return { ..._loadTimes } }
+
+/** @deprecated boot no longer waits for models; kept for compatibility. */
+export async function preloadModels(onProgress) {
+  await ensureModels(Object.keys(MODEL_PATHS), onProgress)
   _done = true
 }
 

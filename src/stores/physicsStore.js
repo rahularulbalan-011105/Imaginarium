@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { ENVIRONMENTS } from '../managers/physics/EnvironmentConfig.js'
-import { DEFAULT_WORLD_CONFIG, migrateProjectPhysics, sparse } from '../managers/physics/robotics/config.js'
-import { DEBUG_LAYERS } from '../managers/physics/robotics/DebugDraw.js'
+import { DEFAULT_WORLD_CONFIG, DEBUG_LAYERS, migrateProjectPhysics, sparse } from '../managers/physics/robotics/config.js'
 
 const _earth = ENVIRONMENTS.earth
 

@@ -1,4 +1,6 @@
 import * as THREE from 'three'
+import { bootProgress } from '../utils/bootProgress.js'
+import { readCapabilities, classify, resolveQuality, AdaptiveResolution, setCurrentQuality } from '../utils/devicePerformance.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { TransformControls } from 'three/addons/controls/TransformControls.js'
 import { objectManager } from './ObjectManager.js'
@@ -40,14 +42,20 @@ class SceneManager {
     this.scene.background = new THREE.Color(0xffffff)
     this.scene.fog = new THREE.FogExp2(0xffffff, 0.008)
 
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
+    // Quality profile. Antialiasing is a context attribute, so it's decided before
+    // the renderer exists from cheap signals (no probe context); everything else
+    // is refined from the real GPU right after (applyQuality).
+    const perf = useUiStore.getState().perf
+    const preCaps = readCapabilities({ getParameter: () => 0, getExtension: () => null })
+    const preQ = resolveQuality(perf.profile, classify(preCaps), perf.overrides)
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: preQ.antialias, powerPreference: 'high-performance' })
     this.renderer.setSize(width, height)
-    // Cap the pixel ratio: on a 2× (retina/HiDPI) laptop, rendering at full DPR
-    // means ~4× the pixels every frame — the single biggest cost on low-end GPUs.
-    // 1.5 keeps it crisp while roughly halving the work vs 2×.
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
+    this.caps = readCapabilities(this.renderer.getContext())
+    this.detectedProfile = classify(this.caps)
+    this._antialias = preQ.antialias
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    bootProgress.mark('renderer')
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.2
 
@@ -72,6 +80,12 @@ class SceneManager {
     sun.shadow.camera.top = 30
     sun.shadow.camera.bottom = -30
     this.scene.add(sun)
+    this.sun = sun
+    // Never let devicePixelRatio be an uncontrolled multiplier: the profile caps it,
+    // and in Auto the adaptive controller lowers it when frames run long.
+    this.adaptive = new AdaptiveResolution()
+    this.applyQuality()
+    this._unsubPerf = useUiStore.subscribe((st, prev) => { if (st.perf !== prev.perf) this.applyQuality() })
 
     const fill = new THREE.DirectionalLight(0x8090cc, 0.4)
     fill.position.set(-10, 5, -15)
@@ -128,6 +142,36 @@ class SceneManager {
   // Injected by App so the loop can drive motor animation without a circular import
   onAnimationTick = null
 
+  // Cheap counters for the performance overlay (no per-frame allocation).
+  stats = { frames: 0, renderMs: 0, calls: 0, triangles: 0 }
+
+  /** (Re)apply the effective quality: pixel-ratio range, shadows, shadow map size. */
+  applyQuality() {
+    if (!this.renderer) return
+    const perf = useUiStore.getState().perf
+    const q = resolveQuality(perf.profile, this.detectedProfile, perf.overrides)
+    this.quality = q
+    setCurrentQuality(q)
+    const dpr = window.devicePixelRatio || 1
+    const max = Math.min(dpr, q.maxPixelRatio), min = Math.min(max, q.minPixelRatio)
+    this.adaptive.setRange(min, max)
+    const ratio = q.fixedPixelRatio != null ? Math.min(dpr, q.fixedPixelRatio) : (q.auto ? this.adaptive.ratio : max)
+    if (!q.auto && q.fixedPixelRatio == null) this.adaptive.ratio = max
+    this.renderer.setPixelRatio(ratio)
+    const size = q.shadowMapSize
+    if (this.sun) {
+      this.sun.castShadow = q.shadows
+      if (this.sun.shadow.mapSize.x !== size) {
+        this.sun.shadow.mapSize.set(size, size)
+        this.sun.shadow.map?.dispose(); this.sun.shadow.map = null   // re-allocated at the new size
+      }
+    }
+    this.renderer.shadowMap.enabled = q.shadows
+    this.renderer.shadowMap.needsUpdate = true
+    this.antialiasPendingReload = q.antialias !== this._antialias
+    this.requestRender?.()
+  }
+
   _startLoop() {
     const IDLE_INTERVAL = 120  // ms between paints when nothing is moving (~8fps)
     const tick = () => {
@@ -143,8 +187,21 @@ class SceneManager {
       // refreshes within ~120ms even if some change forgot to wake us.
       const now = performance.now()
       if (now < this._wakeUntil || now - this._lastRender >= IDLE_INTERVAL) {
+        // Adaptive resolution samples only continuous (awake) frames — idle
+        // repaints are spaced out on purpose and would read as "slow".
+        const awake = now < this._wakeUntil
+        if (awake && this._lastAwake && this.quality?.auto && this.quality.fixedPixelRatio == null) {
+          const r = this.adaptive.sample(now - this._lastRender)
+          if (r !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(r)
+        }
+        this._lastAwake = awake
+        const t0 = performance.now()
         this.renderer.render(this.scene, this.camera)
+        const st = this.stats
+        st.frames++; st.renderMs += (performance.now() - t0 - st.renderMs) * 0.1
+        st.calls = this.renderer.info.render.calls; st.triangles = this.renderer.info.render.triangles
         this._lastRender = now
+        if (!this._firstFrame) { this._firstFrame = true; bootProgress.mark('workspace') }
       }
     }
     tick()
@@ -460,6 +517,7 @@ class SceneManager {
   }
 
   dispose() {
+    this._unsubPerf?.(); this._unsubPerf = null
     this.stopLoop()
     this.orbitControls?.dispose()
     this.transformControls?.dispose()

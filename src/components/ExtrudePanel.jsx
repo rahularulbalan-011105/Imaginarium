@@ -1,11 +1,12 @@
 import * as THREE from 'three'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { useUiStore } from '../stores/uiStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { runBoolean } from '../utils/csg.js'
+import { loadCSG } from '../utils/csgLib.js'
 
-export default function ExtrudePanel() {
+function ExtrudePanel() {
   const extrudeState    = useUiStore(s => s.extrudeState)
   const setExtrudeState = useUiStore(s => s.setExtrudeState)
   const setExtrudeTool  = useUiStore(s => s.setExtrudeTool)
@@ -46,7 +47,8 @@ export default function ExtrudePanel() {
     setDraftDepth(String(d))
   }
 
-  const handleMerge = () => {
+  const handleMerge = async () => {
+    await loadCSG()
     const result = runBoolean(sourceObjectId, extrudeObjectId, 'union')
     if (result) {
       addCSGObject(
@@ -142,3 +144,7 @@ export default function ExtrudePanel() {
     </div>
   )
 }
+
+// Memoized: rendered with no props inside Viewport, which re-renders on every
+// object change (mesh sync). Without this, each drag frame re-rendered it.
+export default memo(ExtrudePanel)

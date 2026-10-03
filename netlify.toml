@@ -29,3 +29,21 @@
     Cross-Origin-Opener-Policy = "same-origin-allow-popups"
     Permissions-Policy = "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
     Content-Security-Policy = "default-src 'self'; base-uri 'self'; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval' https://apis.google.com https://accounts.google.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; media-src 'self' blob: data:; connect-src 'self' https: wss: ws: blob: data:; worker-src 'self' blob:; frame-src https://accounts.google.com https://content.googleapis.com; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
+
+# Caching: Vite emits content-hashed files under /assets — safe to cache forever.
+# HTML must always revalidate so a deploy can never strand users on an old entry.
+# Models have stable names, so they revalidate (cheap 304 via ETag).
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/models/*"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "no-cache"

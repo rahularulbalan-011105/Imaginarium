@@ -4,6 +4,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { sceneManager } from '../managers/SceneManager.js'
 import { sliceByScreenPolyline } from '../utils/sliceTool.js'
+import { loadCSG } from '../utils/csgLib.js'
 
 // On-canvas editable polyline for the Slice tool.
 //  • click empty space → add a point (the line continues from the last point)
@@ -35,12 +36,13 @@ export default function SlicePolylineOverlay({ containerRef }) {
   const clearAll = () => { setPts([]); setErr(null) }
   const exit = () => { clearAll(); setSliceTool(false) }
 
-  const apply = () => {
+  const apply = async () => {
     setErr(null)
     if (!selectedId) { setErr('Select the shape you want to slice first.'); return }
     if (pts.length < 2) { setErr('Draw a line across the shape (add at least 2 points).'); return }
     const r = containerRef.current.getBoundingClientRect()
     const screenPts = pts.map(p => ({ x: p.x + r.left, y: p.y + r.top }))
+    await loadCSG()   // CSG engine loads on demand
     try {
       const res = sliceByScreenPolyline(selectedId, screenPts, sceneManager.camera, r)
       if (!res) { setErr('Cut failed — make sure the line crosses right through the shape.'); return }

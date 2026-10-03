@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
+
+// Heavy, rarely-first-used panels load on demand (Blockly alone is ~1 MB).
+const BlocksPanel  = lazy(() => import('./components/BlocksPanel.jsx'))
+const PhysicsPanel = lazy(() => import('./components/PhysicsPanel.jsx'))
+const PanelFallback = () => <div className="p-4 text-xs" style={{ color: 'rgb(var(--g-500))' }}>Loading…</div>
 import Header from './components/Header.jsx'
 import Viewport from './components/Viewport.jsx'
 import PropertiesPanel from './components/PropertiesPanel.jsx'
@@ -6,7 +11,6 @@ import ObjectList from './components/ObjectList.jsx'
 import StatusBar from './components/StatusBar.jsx'
 import BooleanPanel, { isBooleanCandidate } from './components/BooleanPanel.jsx'
 import CodeEditor from './components/CodeEditor.jsx'
-import BlocksPanel from './components/BlocksPanel.jsx'
 import PanelErrorBoundary from './components/PanelErrorBoundary.jsx'
 import AssetLibrary from './components/AssetLibrary.jsx'
 import ElectronicsLibrary from './components/ElectronicsLibrary.jsx'
@@ -26,7 +30,6 @@ import PanelHint from './components/onboarding/PanelHint.jsx'
 import RobotPanel from './components/RobotPanel.jsx'
 import OverlayBridge from './components/OverlayBridge.jsx'
 import SimulationPanel from './components/SimulationPanel.jsx'
-import PhysicsPanel from './components/PhysicsPanel.jsx'
 import SettingsPanel from './components/SettingsPanel.jsx'
 import Icon from './components/ui/Icon.jsx'
 import { useSceneStore } from './stores/sceneStore.js'
@@ -36,6 +39,8 @@ import { useRigidStore } from './stores/rigidStore.js'
 import { useSurfaceStore } from './stores/surfaceStore.js'
 import { useGearStore } from './stores/gearStore.js'
 import { useJointStore } from './stores/jointStore.js'
+import { usePhysicsStore } from './stores/physicsStore.js'
+import { useRobotStore } from './stores/robotStore.js'
 import { useHistory } from './hooks/useHistory.js'
 import { resetBaseline } from './managers/history/editorDispatch.js'
 import { jointManager } from './managers/JointManager.js'
@@ -48,40 +53,41 @@ import { simulationManager } from './managers/SimulationManager.js'
 import { driveManager } from './managers/DriveManager.js'
 import { wireManager } from './managers/WireManager.js'
 import { buildProjectSnapshot, snapRotationToAxes } from './utils/helpers.js'
-import { preloadModels } from './utils/modelLoader.js'
+import { prefetchModels } from './utils/modelLoader.js'
+import { bootProgress } from './utils/bootProgress.js'
+import PerfOverlay from './components/PerfOverlay.jsx'
 import { trackEvent } from './utils/utmTracking.js'
+import { loadCSG } from './utils/csgLib.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
 const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo']
 
-function LoadingScreen({ progress = 0 }) {
-  const pct = Math.max(4, Math.min(100, Math.round(progress * 100)))   // min 4% so the bar is visible
-  // Plays public/loading.mp4 (drop your promo/demo clip there). Falls back to the
-  // logo screen if the video is missing or can't autoplay.
-  const [videoOk, setVideoOk] = useState(true)
-  const videoSrc = (import.meta.env.BASE_URL || '/') + 'loading.mp4'
+// Startup overlay. It does NOT gate the editor: the editor mounts underneath at
+// once and this fades out as soon as the viewport has drawn its first frame.
+// Models, physics, Blockly etc. load later, on demand.
+function BootOverlay({ onDone }) {
+  const [st, setSt] = useState(() => bootProgress.get())
+  const [leaving, setLeaving] = useState(false)
+  useEffect(() => bootProgress.subscribe(setSt), [])
+  useEffect(() => {
+    if (!st.workspace) return
+    setLeaving(true)
+    const t = setTimeout(onDone, 260)
+    return () => clearTimeout(t)
+  }, [st.workspace, onDone])
+  const row = (done, label) => (
+    <div className="flex items-center gap-2" style={{ color: done ? '#fdba74' : 'rgba(229,231,235,0.55)', fontSize: 13 }}>
+      <span style={{ width: 14, display: 'inline-block', textAlign: 'center' }}>{done ? '✓' : '•'}</span>{label}
+    </div>
+  )
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#000', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      {videoOk
-        ? <video
-            src={videoSrc}
-            autoPlay muted loop playsInline
-            onError={() => setVideoOk(false)}
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-        : <ConstructaLogo width={440} style={{ maxWidth: '78vw' }} />
-      }
-      {/* Progress overlay (bottom, over a dark gradient so it stays readable) */}
-      <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '48px 0 26px', background: 'linear-gradient(transparent, rgba(0,0,0,0.72))' }}>
-        <div style={{ width: 'min(340px, 74vw)', margin: '0 auto' }}>
-          <div style={{ height: 8, borderRadius: 6, background: 'rgba(255,255,255,0.2)', overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg,#ff7a18,#ffa94d)', transition: 'width 220ms ease' }} />
-          </div>
-          <div className="flex items-center justify-between" style={{ marginTop: 8, fontSize: 13, color: '#e5e7eb' }}>
-            <span>Loading your workshop…</span>
-            <span style={{ fontVariantNumeric: 'tabular-nums' }}>{pct}%</span>
-          </div>
-        </div>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, background: '#0b0d12', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 22, opacity: leaving ? 0 : 1, transition: 'opacity 240ms ease', pointerEvents: leaving ? 'none' : 'auto' }}>
+      <ConstructaLogo width={360} style={{ maxWidth: '72vw' }} />
+      <div style={{ display: 'grid', gap: 6, minWidth: 200 }}>
+        <div style={{ color: '#e5e7eb', fontSize: 13, marginBottom: 2 }}>Loading Constructa</div>
+        {row(st.core, 'Core')}
+        {row(st.renderer, 'Renderer')}
+        {row(st.workspace, 'Workspace')}
       </div>
     </div>
   )
@@ -106,7 +112,6 @@ function AppEditor() {
   const duplicateObject = useSceneStore((s) => s.duplicateObject)
   const selectedId = useSceneStore((s) => s.selectedId)
   const secondaryId = useSceneStore((s) => s.secondaryId)
-  const objects = useSceneStore((s) => s.objects)
   const toggleGrid = useSceneStore((s) => s.toggleGrid)
   const toggleAxes = useSceneStore((s) => s.toggleAxes)
   const setTransformMode = useUiStore((s) => s.setTransformMode)
@@ -148,11 +153,14 @@ function AppEditor() {
   const addWireConnection    = useElectronicsStore((s) => s.addWireConnection)
   const removeWireConnection = useElectronicsStore((s) => s.removeWireConnection)
 
-  const objA = objects.find(o => o.id === selectedId)
-  const objB = objects.find(o => o.id === secondaryId)
-  // Boolean panel now supports both geometry + electronics pairs
-  const bothBoolean = secondaryId && isBooleanCandidate(objA) && isBooleanCandidate(objB)
-  const bothGeometry = bothBoolean  // kept for any other checks
+  // Boolean panel now supports both geometry + electronics pairs. Selected as a
+  // primitive so the whole editor does NOT re-render on every transform tick
+  // (subscribing to `objects` here re-rendered every panel on each drag move).
+  const bothBoolean = useSceneStore((s) => {
+    if (!s.secondaryId) return false
+    const a = s.objects.find(o => o.id === s.selectedId), b = s.objects.find(o => o.id === s.secondaryId)
+    return isBooleanCandidate(a) && isBooleanCandidate(b)
+  })
 
   // When a second object is selected, jump to the Boolean tab automatically —
   // but keep all other tabs (Joints, Props, …) reachable so two-object actions
@@ -204,7 +212,11 @@ function AppEditor() {
       // while the articulated physics engine owns the robot (bonded parts are one
       // rigid body there, posed by physics — the kinematic pass would fight it).
       const physicsOwnsRobot = objectManager.physicsDriven
-      const bonds = Object.values(useRigidStore.getState().bonds)
+      // Stable array per bonds-object (the store replaces the object on change),
+      // so the bond pass can cache its ordering instead of re-sorting each frame.
+      const bondsObj = useRigidStore.getState().bonds
+      if (bondsObj !== bondsCache.obj) { bondsCache.obj = bondsObj; bondsCache.arr = Object.values(bondsObj) }
+      const bonds = bondsCache.arr
       if (bonds.length > 0 && !physicsOwnsRobot) {
         // Skip propagating a bond whose child is currently being dragged by the
         // transform gizmo — otherwise the frame loop fights the user's drag.
@@ -274,7 +286,14 @@ function AppEditor() {
   useEffect(() => {
     storageManager.enableAutoSave(
       () => buildProjectSnapshot(useSceneStore.getState(), useElectronicsStore.getState()),
-      30000
+      30000,
+      // Persistent slices only — selection, simulation state etc. never dirty it.
+      [
+        [useSceneStore, s => s.objects], [useSceneStore, s => s.projectName],
+        [useElectronicsStore, s => s.connections], [useElectronicsStore, s => s.code], [useElectronicsStore, s => s.attachments],
+        [useRigidStore, s => s.bonds], [useJointStore, s => s.joints], [useSurfaceStore, s => s.patches],
+        [useRobotStore, s => s.blueprints], [usePhysicsStore, s => s.worldPhysics], [usePhysicsStore, s => s.gravity],
+      ],
     )
     return () => storageManager.disableAutoSave()
   }, [])
@@ -385,8 +404,11 @@ function AppEditor() {
       if ((e.ctrlKey || e.metaKey) && (e.key === 'g' || e.key === 'G')) {
         e.preventDefault()
         const st = useSceneStore.getState()
-        if (e.shiftKey) { if (st.ungroupSelected()) snapshot() }
-        else            { if (st.groupSelected())   snapshot() }
+        // CSG engine loads on demand (normally already preloaded at idle).
+        loadCSG().then(() => {
+          if (e.shiftKey) { if (st.ungroupSelected()) snapshot() }
+          else            { if (st.groupSelected())   snapshot() }
+        })
         return
       }
 
@@ -508,12 +530,12 @@ function AppEditor() {
       case 'wiring':   return <WiringPanel />
       case 'joints':   return <JointPanel />
       case 'robot':    return <RobotPanel />
-      case 'blocks':   return <PanelErrorBoundary label="Blocks"><BlocksPanel /></PanelErrorBoundary>
+      case 'blocks':   return <PanelErrorBoundary label="Blocks"><Suspense fallback={<PanelFallback />}><BlocksPanel /></Suspense></PanelErrorBoundary>
       case 'library':  return <AssetLibrary />
       case 'electronics': return <ElectronicsLibrary />
       case 'mechanical':  return <MechanicalLibrary />
       case 'sim':      return <PanelErrorBoundary label="Simulation"><SimulationPanel /></PanelErrorBoundary>
-      case 'physics':  return <PanelErrorBoundary label="Physics"><PhysicsPanel /></PanelErrorBoundary>
+      case 'physics':  return <PanelErrorBoundary label="Physics"><Suspense fallback={<PanelFallback />}><PhysicsPanel /></Suspense></PanelErrorBoundary>
       case 'settings': return <SettingsPanel />
       case 'code':     return <CodeEditor />
       case 'properties':
@@ -604,16 +626,54 @@ function AppEditor() {
   )
 }
 
-// ── Loader shell — waits for GLB models before mounting the editor ────────────
+// ── App shell ────────────────────────────────────────────────────────────────
+// P0 path only: the editor mounts immediately (no model preloading). Built-in
+// GLBs load on demand (library click / project load / idle prefetch); Rapier,
+// Blockly and cloud sync load when first needed.
+const bondsCache = { obj: null, arr: [] }
+
+// Built-in models to warm at idle after boot. On Data-Saver / slow links only
+// the small, most-used parts are prefetched; everything else loads on use.
+const PREFETCH_SMALL = ['servo', 'motor_bo', 'motor_dc', 'led', 'buzzer', 'ultrasonic']
+const PREFETCH_REST  = ['arduino', 'subo', 'ir_sensor', 'ldr_sensor', 'oled', 'gas_sensor', 'dht11', 'free_wheels']
+function prefetchAfterBoot() {
+  const c = typeof navigator !== 'undefined' ? navigator.connection : null
+  const constrained = !!(c && (c.saveData || /2g|3g/.test(c.effectiveType || '')))
+  prefetchModels(constrained ? PREFETCH_SMALL : [...PREFETCH_SMALL, ...PREFETCH_REST])
+}
+
+function ProjectLoadingBanner() {
+  const p = useUiStore((s) => s.projectLoading)
+  if (!p) return null
+  return (
+    <div style={{ position: 'fixed', top: 64, left: '50%', transform: 'translateX(-50%)', zIndex: 200 }}
+      className="px-3 py-1.5 rounded-lg text-xs font-medium shadow-lg"
+      data-testid="project-loading">
+      <span style={{ color: 'rgb(var(--g-200))' }}>Loading project models… {p.done}/{p.total}</span>
+    </div>
+  )
+}
+
 export default function App() {
-  const [modelsReady, setModelsReady] = useState(false)
-  const [progress, setProgress] = useState(0)   // 0..1 real model-load progress
+  const [booting, setBooting] = useState(true)
   useEffect(() => {
-    preloadModels((done, total) => setProgress(total ? done / total : 0)).then(() => {
-      setModelsReady(true)
-      trackEvent('app_loaded', { device: navigator.userAgentData?.mobile ? 'mobile' : 'desktop' })
+    bootProgress.mark('core')
+    return bootProgress.subscribe((st) => {
+      if (st.workspace && !App._tracked) {
+        App._tracked = true
+        prefetchAfterBoot()
+        ;(typeof requestIdleCallback === 'function' ? requestIdleCallback : (f) => setTimeout(f, 2000))(() => loadCSG(), { timeout: 10000 })
+        trackEvent('app_loaded', { device: navigator.userAgentData?.mobile ? 'mobile' : 'desktop', boot_ms: st.times.workspace })
+      }
     })
   }, [])
-  if (!modelsReady) return <LoadingScreen progress={progress} />
-  return <AppEditor />
+  const done = useCallback(() => setBooting(false), [])
+  return (
+    <>
+      <AppEditor />
+      <ProjectLoadingBanner />
+      <PerfOverlay />
+      {booting && <BootOverlay onDone={done} />}
+    </>
+  )
 }

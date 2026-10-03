@@ -3,6 +3,7 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { getTheme, toggleTheme } from '../theme/theme.js'
 import Icon from './ui/Icon.jsx'
+import { sceneManager } from '../managers/SceneManager.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SettingsPanel — a consolidated home for workspace settings that were spread
@@ -113,6 +114,8 @@ export default function SettingsPanel() {
           active={snapSurface} valueLabel={snapSurface ? 'On' : 'Off'} onClick={() => setSnapSurface(!snapSurface)} />
       </div>
 
+      <PerformanceSection />
+
       {/* ── 3D Printing ────────────────────────────────────────────────────── */}
       <div className="flex flex-col gap-1.5">
         <SectionTitle>3D Printing</SectionTitle>
@@ -121,6 +124,54 @@ export default function SettingsPanel() {
         <Row icon="grid" label="Plate size" hint="Cycle: 180 / 220 / 256 / 300 mm" active={false}
           valueLabel={`${printBedSizeMm}mm`} onClick={() => setPrintBedSizeMm(cycle(BED_SIZES, printBedSizeMm))} />
       </div>
+    </div>
+  )
+}
+
+// ── Performance ──────────────────────────────────────────────────────────────
+// Default Auto (detected device profile + adaptive resolution). Everything here
+// only trades rendering/telemetry cost — never CAD precision or robot control.
+const PROFILE_CYCLE = ['auto', 'low', 'medium', 'high']
+const TRI = [null, true, false]                         // auto → on → off
+const triLabel = (v) => (v == null ? 'Auto' : v ? 'On' : 'Off')
+const SCALE_CYCLE = [null, 0.5, 0.75, 1, 1.25, 1.5, 2]
+const PHYS_CYCLE = [null, 'high', 'low']
+const TEL_CYCLE = [null, 5, 10, 20]
+const cap = (s) => s[0].toUpperCase() + s.slice(1)
+
+function PerformanceSection() {
+  const perf = useUiStore((s) => s.perf)
+  const setPerf = useUiStore((s) => s.setPerf)
+  const [open, setOpen] = useState(false)
+  const o = perf.overrides
+  const detected = sceneManager.detectedProfile
+  const setO = (k, v) => setPerf({ overrides: { [k]: v } })
+  return (
+    <div className="flex flex-col gap-1.5">
+      <SectionTitle>Performance</SectionTitle>
+      <Row icon="gauge" label="Profile" active={perf.profile !== 'auto'}
+        hint={`Auto picks from this device (detected: ${detected ?? '…'}) and adapts render resolution to keep ~60 FPS`}
+        valueLabel={perf.profile === 'auto' ? `Auto (${detected ?? '…'})` : cap(perf.profile)}
+        onClick={() => setPerf({ profile: cycle(PROFILE_CYCLE, perf.profile) })} />
+      <Row icon="chart" label="Performance overlay" hint="FPS, draw calls, memory, physics cost [F9]" active={perf.overlay}
+        valueLabel={perf.overlay ? 'On' : 'Off'} onClick={() => setPerf({ overlay: !perf.overlay })} />
+      <button className="text-[10px] text-left px-1 py-0.5" style={{ color: 'rgb(var(--g-500))' }} onClick={() => setOpen(!open)}>
+        {open ? '▾' : '▸'} Advanced
+      </button>
+      {open && (
+        <div className="flex flex-col gap-1.5">
+          <Row icon="scale" label="Render scale" hint="Fixed resolution multiplier (Auto = adaptive)" active={o.renderScale != null}
+            valueLabel={o.renderScale == null ? 'Auto' : `${o.renderScale}×`} onClick={() => setO('renderScale', cycle(SCALE_CYCLE, o.renderScale ?? null))} />
+          <Row icon="sun" label="Shadows" hint="Real-time shadows" active={o.shadows != null}
+            valueLabel={triLabel(o.shadows)} onClick={() => setO('shadows', cycle(TRI, o.shadows ?? null))} />
+          <Row icon="sparkles" label="Antialiasing" hint="Smooth edges — takes effect after reloading the page" active={o.antialias != null}
+            valueLabel={triLabel(o.antialias) + (sceneManager.antialiasPendingReload ? ' · reload' : '')} onClick={() => setO('antialias', cycle(TRI, o.antialias ?? null))} />
+          <Row icon="cpu" label="Physics quality" hint="Robot physics rate: High 240 Hz · Low 120 Hz (both verified stable)" active={o.physicsQuality != null}
+            valueLabel={o.physicsQuality == null ? 'Auto' : cap(o.physicsQuality)} onClick={() => setO('physicsQuality', cycle(PHYS_CYCLE, o.physicsQuality ?? null))} />
+          <Row icon="chart" label="Telemetry rate" hint="How often the Physics panel refreshes live values" active={o.telemetryHz != null}
+            valueLabel={o.telemetryHz == null ? 'Auto' : `${o.telemetryHz} Hz`} onClick={() => setO('telemetryHz', cycle(TEL_CYCLE, o.telemetryHz ?? null))} />
+        </div>
+      )}
     </div>
   )
 }

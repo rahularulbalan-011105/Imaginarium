@@ -25,7 +25,7 @@ import ViewportToolbox from './ViewportToolbox.jsx'
 import DrivePanel from './DrivePanel.jsx'
 import { useHistory } from '../hooks/useHistory.js'
 import { driveManager } from '../managers/DriveManager.js'
-import { loadGLTFFromFile, loadSTLFromFile } from '../utils/modelLoader.js'
+import { loadGLTFFromFile, loadSTLFromFile, loadModel, isModelLoaded, modelKeysFor } from '../utils/modelLoader.js'
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -35,6 +35,10 @@ export default function Viewport() {
   const initialized = useRef(false)
   const dragging = useRef(false)
   const prevObjects = useRef([])
+  const prevSelected = useRef(null)
+  const pendingMeshes = useRef(new Set())   // object ids waiting for their GLB
+  const [modelTick, setModelTick] = useState(0)
+  const [glError, setGlError] = useState(null)
 
   const objects = useSceneStore((s) => s.objects)
   const selectedId = useSceneStore((s) => s.selectedId)
@@ -138,7 +142,14 @@ export default function Viewport() {
     if (initialized.current || !canvasRef.current) return
     const container = containerRef.current
     const { width, height } = container.getBoundingClientRect()
-    sceneManager.init(canvasRef.current, width, height)
+    try {
+      sceneManager.init(canvasRef.current, width, height)
+    } catch (e) {
+      // No WebGL (disabled/blocked/unsupported GPU): explain instead of a blank page.
+      console.error('[Viewport] WebGL unavailable:', e)
+      setGlError(e?.message || 'WebGL could not be started')
+      return
+    }
     patchManager.init(sceneManager.scene, sceneManager.camera, objectManager)
     driveManager.init(sceneManager.scene, objectManager)
     alignmentManager.init(sceneManager.scene, sceneManager.camera, sceneManager.renderer)
@@ -327,16 +338,44 @@ export default function Viewport() {
       }
     }
 
+    // Only objects whose data changed need a mesh update — plus the previous and
+    // new selection (outline). Updating every object on every change re-traversed
+    // and re-flagged every material in the scene on each edit/selection.
+    const selChanged = prevSelected.current !== selectedId
     for (const [id, obj] of curr) {
       if (!prev.has(id)) {
+        // Built-in models load on demand. If one isn't ready yet (a path that
+        // didn't pre-load it), create the mesh as soon as it arrives instead of
+        // falling back to a placeholder.
+        const missing = modelKeysFor([obj]).find(k => !isModelLoaded(k))
+        if (missing) {
+          pendingMeshes.current.add(id)
+          loadModel(missing).then(() => setModelTick(t => t + 1))
+          continue
+        }
         objectManager.createMesh(obj)
-      } else if (!dragging.current || prev.get(id) !== obj) {
+      } else if (prev.get(id) !== obj || (selChanged && (id === selectedId || id === prevSelected.current))) {
         objectManager.updateMesh(id, obj)
       }
     }
 
     prevObjects.current = objects
+    prevSelected.current = selectedId
   }, [objects, selectedId])
+
+  // Create meshes that were waiting for their model to load.
+  useEffect(() => {
+    if (!initialized.current || pendingMeshes.current.size === 0) return
+    const byId = new Map(useSceneStore.getState().objects.map(o => [o.id, o]))
+    for (const id of [...pendingMeshes.current]) {
+      const obj = byId.get(id)
+      if (!obj) { pendingMeshes.current.delete(id); continue }
+      if (modelKeysFor([obj]).some(k => !isModelLoaded(k))) continue
+      pendingMeshes.current.delete(id)
+      if (!objectManager.getMesh(id)) objectManager.createMesh(obj)
+    }
+    sceneManager.requestRender?.()
+  }, [modelTick])
 
   // Keep objectManager mesh hierarchy in sync with the attachments store.
   // Runs AFTER the objects effect (declaration order) so all meshes exist first.
@@ -371,7 +410,7 @@ export default function Viewport() {
       }
     }
     return () => { cancelled = true }
-  }, [objects, attachments])
+  }, [objects, attachments, modelTick])
 
   // Sync selection → TransformControls + highlights
   useEffect(() => {
@@ -695,6 +734,17 @@ export default function Viewport() {
       onDragLeave={() => setDropHighlight(false)}
       onDrop={handleViewportDrop}
     >
+      {glError && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgb(var(--g-950))' }}>
+          <div className="max-w-md text-sm leading-relaxed" style={{ color: 'rgb(var(--g-200))' }}>
+            <div className="text-base font-semibold mb-2" style={{ color: 'rgb(var(--g-100))' }}>3D view unavailable</div>
+            Constructa needs WebGL to draw the 3D workspace, and this browser couldn't start it.
+            Try enabling hardware acceleration in your browser settings, updating your graphics
+            driver, or using a current Chrome, Edge, Firefox or Safari. Code, wiring and your
+            saved projects still work.
+          </div>
+        </div>
+      )}
       {dropHighlight && (
         <div className="absolute inset-0 z-30 pointer-events-none border-4 border-indigo-400/80 rounded-sm">
           <div className="absolute inset-0 flex items-center justify-center">

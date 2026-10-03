@@ -71,7 +71,7 @@ export async function initCloudSync() {
   S.started = true
   if (!cloudConfigured || !isCloudMode()) return
 
-  const supabase = getSupabase()
+  const supabase = await getSupabase()
   if (!supabase) return
   S.active = true
   setStatus('loading')
@@ -187,7 +187,7 @@ function structuralKey() {
   const e = useElectronicsStore.getState()
   return [
     s.objects.length,
-    e.connections?.length ?? 0,
+    Object.keys(e.connections ?? {}).length,   // connections is an id→wire MAP (.length was always undefined → wiring edits never saved)
     Object.keys(e.attachments || {}).length,
     (e.code || '').length,
   ].join(':')
@@ -279,7 +279,7 @@ async function runSave() {
 
   S.saving = true
   setStatus('saving')
-  const supabase = getSupabase()
+  const supabase = await getSupabase()
   try {
     // .select('id') lets us CONFIRM the write actually applied. A 504/timeout throws
     // here; an RLS/permission miss returns 0 rows — both must count as failures so we

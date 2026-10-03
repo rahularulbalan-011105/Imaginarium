@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { useSceneStore } from '../stores/sceneStore.js'
-import { getMass, getMassForObject } from '../managers/physics/MassCalculator.js'
+import { effectiveMass } from '../managers/physics/MassCalculator.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
@@ -13,6 +13,7 @@ import { r3, radToDeg, degToRad, snapRotationToAxes } from '../utils/helpers.js'
 import DimensionEditorPanel from './DimensionEditorPanel.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
 import FilletPanel from './FilletPanel.jsx'
+import { loadCSG } from '../utils/csgLib.js'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
   const handleChange = (axis) => (e) => {
@@ -1239,7 +1240,7 @@ export default function PropertiesPanel() {
       )}
       {!isElectronics && secondaryObj && (
         <button
-          onClick={() => { if (groupSelected()) snapshot() }}
+          onClick={async () => { await loadCSG(); if (groupSelected()) snapshot() }}
           className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-purple-700 hover:bg-purple-600 text-white transition-colors"
         >
           ⊕ Group selected (Ctrl+G)
@@ -1285,7 +1286,7 @@ export default function PropertiesPanel() {
       )}
       {!obj.unionMembers && Array.isArray(obj.groupMembers) && obj.groupMembers.length > 0 && (
         <button
-          onClick={() => { if (ungroupSelected()) snapshot() }}
+          onClick={async () => { await loadCSG(); if (ungroupSelected()) snapshot() }}
           className="w-full mb-2 py-1.5 rounded text-xs font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100 transition-colors"
         >
           ⊟ Ungroup ({obj.groupMembers.length}) (Ctrl+Shift+G)
@@ -1434,7 +1435,7 @@ function InspectRow({ label, value, accent }) {
 
 function InspectSection({ obj, secondaryObj }) {
   let mass = 0
-  try { mass = getMassForObject(obj) } catch (_) {}
+  try { mass = effectiveMass(obj) } catch (_) {}
 
   // World-space bounding box (size + center) from the live mesh.
   let dims = null, center = null

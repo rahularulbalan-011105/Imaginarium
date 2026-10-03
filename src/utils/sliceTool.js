@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { Evaluator, Brush, INTERSECTION, SUBTRACTION } from 'three-bvh-csg'
+import { csgLib } from './csgLib.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { objectManager } from '../managers/ObjectManager.js'
 
@@ -12,8 +12,11 @@ import { objectManager } from '../managers/ObjectManager.js'
 //   pieceA = shape ∩ cutter      (the side the region covers)
 //   pieceB = shape − cutter      (the other side)
 
-const evaluator = new Evaluator()
-evaluator.useGroups = false   // slicing ignores materials/groups — geometry only
+let _evaluator = null   // created on first use (the CSG engine loads on demand)
+function evaluatorOf(L) {
+  if (!_evaluator) { _evaluator = new L.Evaluator(); _evaluator.useGroups = false }   // geometry only
+  return _evaluator
+}
 
 // World-space geometry of a mesh or group (transforms baked in).
 function worldGeometry(object3d) {
@@ -98,6 +101,7 @@ function perimeterCorners(from, to, L) {
  * Returns { pieceA, pieceB } (each { geometryJSON, color, position }) or null.
  */
 export function sliceByScreenPolyline(objectId, screenPts, camera, rect) {
+  const CSG = csgLib(), { Brush, INTERSECTION, SUBTRACTION } = CSG, evaluator = evaluatorOf(CSG)
   const mesh = objectManager.getMesh(objectId)
   if (!mesh || !camera || !rect || screenPts.length < 2) return null
 

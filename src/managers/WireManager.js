@@ -130,9 +130,10 @@ class WireManager {
   update() {
     const EPS_SQ = 0.0005 * 0.0005  // ~0.5 mm threshold — skip rebuild if nothing moved
 
+    // Scratch vectors reused every frame (this runs at the render rate).
+    const T = this._tmp ??= { p0: new THREE.Vector3(), p2: new THREE.Vector3(), mid: new THREE.Vector3(), from: new THREE.Vector3() }
     for (const [connId, w] of this.wires) {
-      const p0 = new THREE.Vector3()
-      const p2 = new THREE.Vector3()
+      const p0 = T.p0, p2 = T.p2
       w.fromSphere.getWorldPosition(p0)
       w.toSphere.getWorldPosition(p2)
       w.controlPoints[0].copy(p0)
@@ -140,7 +141,7 @@ class WireManager {
 
       // Recompute the arch midpoint from live pin positions.
       // Preserve user-dragged handle offset relative to the auto-midpoint.
-      const autoMid = p0.clone().lerp(p2, 0.5)
+      const autoMid = T.mid.copy(p0).lerp(p2, 0.5)
       const d = p0.distanceTo(p2)
       autoMid.y = Math.max(p0.y, p2.y) + Math.min(d * 0.14, 1.2) + 0.35
 
@@ -168,7 +169,7 @@ class WireManager {
 
     // Update preview wire while drawing
     if (this._dragging && this._previewLine && this._fromSphere) {
-      const from = new THREE.Vector3()
+      const from = T.from
       this._fromSphere.getWorldPosition(from)
       const cp = buildWireControlPoints(from, this._previewMid)
       rebuildWireLine(this._previewLine, cp)

@@ -153,4 +153,23 @@ describe('legged robots', () => {
     expect(fy).toBeCloseTo(robot.stability.mass * G, 0)
     expect(forceToN(1)).toBeCloseTo(0.05, 9)
   })
+
+  it('LOW physics quality (120 Hz) keeps servos/joints/contacts stable', async () => {
+    const { rt } = await makeWorld({ timestep: 1 / 120 })
+    const q = rt.addRobot(buildQuadruped())
+    rt.run(seconds(rt, 3))
+    expect(q.basePose().p.y).toBeGreaterThan(q.graph.standHeight * 0.93)
+    expect(Math.abs(tilt(q).roll)).toBeLessThan(0.03)
+    expect(q.stability.state).toBe('stable')
+
+    const { rt: rt2 } = await makeWorld({ timestep: 1 / 120 })
+    const hx = rt2.addRobot(buildHexapod())
+    rt2.run(seconds(rt2, 0.5))
+    const start = { ...hx.basePose().p }
+    hx.setMode('gait'); hx.setCommand({ forward: 1 })
+    let maxTilt = 0
+    for (let i = 0; i < seconds(rt2, 8); i++) { rt2.step(); maxTilt = Math.max(maxTilt, Math.abs(tilt(hx).roll), Math.abs(tilt(hx).pitch)) }
+    expect(forwardProgress(hx, start)).toBeGreaterThan(8)
+    expect(maxTilt).toBeLessThan(0.2)
+  })
 })

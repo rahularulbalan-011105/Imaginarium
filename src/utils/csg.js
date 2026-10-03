@@ -1,11 +1,13 @@
 import * as THREE from 'three'
-import { Evaluator, Brush, SUBTRACTION, ADDITION, INTERSECTION } from 'three-bvh-csg'
+import { csgLib } from './csgLib.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
-// Single shared evaluator. useGroups defaults to true — required for correct
-// SUBTRACTION results in three-bvh-csg@0.0.18.
-const evaluator = new Evaluator()
+// Single shared evaluator (created on first use — the engine loads on demand).
+// useGroups defaults to true — required for correct SUBTRACTION results in
+// three-bvh-csg@0.0.18.
+let _evaluator = null
+const evaluatorOf = (L) => (_evaluator ??= new L.Evaluator())
 
 /**
  * Extract a merged BufferGeometry from a THREE.Object3D (Mesh or Group).
@@ -51,6 +53,7 @@ function extractGeometry(object3d) {
  * operations: 'union' | 'subtract' (A−B) | 'subtractB' (B−A) | 'intersect'
  */
 export function runBoolean(idA, idB, operation) {
+  const CSG = csgLib(), { Brush, SUBTRACTION, ADDITION, INTERSECTION } = CSG, evaluator = evaluatorOf(CSG)
   const meshA = objectManager.getMesh(idA)
   const meshB = objectManager.getMesh(idB)
   if (!meshA || !meshB) return null
@@ -168,6 +171,7 @@ export function buildUnionMembers(objA, objB) {
 // Union a list of WORLD-space geometry JSONs into one centered result.
 // Returns { geometryJSON, position } or null.
 export function unionWorldGeoJSONs(list) {
+  const CSG = csgLib(), { Brush, ADDITION } = CSG, evaluator = evaluatorOf(CSG)
   const loader = new THREE.BufferGeometryLoader()
   // Normalize to position + normal, NON-indexed — the form both the CSG evaluator
   // and mergeGeometries accept, and consistent across all members.

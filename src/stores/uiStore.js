@@ -1,6 +1,24 @@
 import { create } from 'zustand'
 
-export const useUiStore = create((set) => ({
+// Performance preferences (small, per-device) — localStorage, never the project.
+const PERF_KEY = 'constructa.performance.v1'
+const loadPerf = () => {
+  try { return { profile: 'auto', overrides: {}, overlay: false, ...JSON.parse(localStorage.getItem(PERF_KEY) || '{}') } }
+  catch { return { profile: 'auto', overrides: {}, overlay: false } }
+}
+const savePerf = (p) => { try { localStorage.setItem(PERF_KEY, JSON.stringify(p)) } catch { /* private mode */ } }
+
+export const useUiStore = create((set, get) => ({
+  // Performance: 'auto' | 'low' | 'medium' | 'high' + advanced overrides
+  // { renderScale, shadows, antialias, physicsQuality, effects, telemetryHz }.
+  perf: loadPerf(),
+  setPerf: (patch) => {
+    const perf = { ...get().perf, ...patch, overrides: { ...get().perf.overrides, ...(patch.overrides ?? {}) } }
+    for (const [k, v] of Object.entries(perf.overrides)) if (v === null || v === undefined || v === '') delete perf.overrides[k]
+    savePerf(perf)
+    set({ perf })
+  },
+
   activePanel: 'properties',
   sidebarCollapsed: false,
   statusMessage: 'Ready',
@@ -39,6 +57,11 @@ export const useUiStore = create((set) => ({
   setShowProjectDialog: (v) => set({ showProjectDialog: v }),
   setSurfaceTool: (v) => set({ surfaceToolActive: v }),
   setSimActive: (v) => set({ simActive: v }),
+
+  // Project hydration progress (NOT app startup): { done, total } while a
+  // project's models are being fetched before its objects are created.
+  projectLoading: null,
+  setProjectLoading: (v) => set({ projectLoading: v }),
   setExtrudeTool: (v) => set({ extrudeToolActive: v, ...(v ? {} : { extrudeState: null }) }),
   setSliceTool: (v) => set({ sliceToolActive: v }),
   setExtrudeState: (s) => set({ extrudeState: s }),

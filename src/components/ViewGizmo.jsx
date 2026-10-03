@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, memo } from 'react'
 import { sceneManager } from '../managers/SceneManager.js'
 import Icon from './ui/Icon.jsx'
 import { GLASS, glassStyle } from './ui/surfaces.js'
@@ -30,7 +30,7 @@ const FACES = {
   right: { pts: '84,33 50,52 50,90 84,71', view: 'right', label: 'Right' },
 }
 
-export default function ViewGizmo() {
+function ViewGizmo() {
   const [label, setLabel] = useState('Perspective')
   const [open, setOpen] = useState(false)
   const [hover, setHover] = useState(null)
@@ -157,3 +157,7 @@ export default function ViewGizmo() {
     </div>
   )
 }
+
+// Memoized: rendered with no props inside Viewport, which re-renders on every
+// object change (mesh sync). Without this, each drag frame re-rendered it.
+export default memo(ViewGizmo)

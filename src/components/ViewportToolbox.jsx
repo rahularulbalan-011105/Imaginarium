@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -57,7 +58,7 @@ function Tile({ icon, label, onClick, title, active, dataTour, badge, corner }) 
 
 const Divider = () => <div className="border-t my-1.5" style={{ borderColor: 'rgb(var(--g-600) / 0.4)' }} />
 
-export default function ViewportToolbox() {
+function ViewportToolbox() {
   const gridVisible       = useSceneStore((s) => s.gridVisible)
   const axesVisible       = useSceneStore((s) => s.axesVisible)
   const toggleGrid        = useSceneStore((s) => s.toggleGrid)
@@ -166,3 +167,7 @@ export default function ViewportToolbox() {
     </div>
   )
 }
+
+// Memoized: rendered with no props inside Viewport, which re-renders on every
+// object change (mesh sync). Without this, each drag frame re-rendered it.
+export default memo(ViewportToolbox)

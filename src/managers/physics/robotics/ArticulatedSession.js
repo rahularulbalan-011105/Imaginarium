@@ -59,6 +59,8 @@ export class ArticulatedSession {
       return false
     }
 
+    // Telemetry is sampled for the UI (5–10 Hz by device profile), never per step.
+    this._publishInterval = worldConfig.telemetryHz ? 1 / worldConfig.telemetryHz : PUBLISH_INTERVAL
     const R = this.pm.R, world = this.pm.world, ground = this.pm.groundCollider
     this._groundSaved = ground ? { friction: ground.friction(), restitution: ground.restitution() } : null
     this.runtime = new RoboticsRuntime({
@@ -143,7 +145,7 @@ export class ArticulatedSession {
     this.debug?.update([r], this.debug.layers.colliders ? this.pm.world : null)
 
     this._publishAcc += dt
-    if (this._publishAcc >= PUBLISH_INTERVAL) {
+    if (this._publishAcc >= this._publishInterval) {
       this._publishAcc = 0
       const t = r.telemetry()
       t.runtime = { ...this.runtime.stats, timestep: this.runtime.config.timestep, time: this.runtime.time }

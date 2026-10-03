@@ -13,13 +13,9 @@ import { ArticulatedRobot } from './ArticulatedRobot.js'
 import { buildTerrain } from './terrain.js'
 import { getMaterial, applyMaterialToDesc, DEFAULT_GROUND_MATERIAL } from './materials.js'
 import { L } from './units.js'
+import { DEFAULT_WORLD_PHYSICS } from './config.js'
 
-export const DEFAULT_WORLD_PHYSICS = {
-  timestep:         1 / 240,   // s — servo PD + light links need a small fixed step
-  maxSubsteps:      8,         // per rendered frame (beyond this the sim slows, never explodes)
-  solverIterations: 8,
-  gravity:          -9.81,     // m/s² along Y
-}
+export { DEFAULT_WORLD_PHYSICS }   // defined in config.js (kept light for the stores)
 
 export class RoboticsRuntime {
   /**

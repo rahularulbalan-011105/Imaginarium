@@ -1,11 +1,11 @@
-import { useCallback } from 'react'
+import { useCallback, memo } from 'react'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 
-export default function SurfaceAttachPrompt() {
+function SurfaceAttachPrompt() {
   const patches          = useSurfaceStore(s => s.patches)
   const selectedPatchIds = useSurfaceStore(s => s.selectedIds)
   const removePatch         = useSurfaceStore(s => s.removePatch)
@@ -109,3 +109,7 @@ export default function SurfaceAttachPrompt() {
     </div>
   )
 }
+
+// Memoized: rendered with no props inside Viewport, which re-renders on every
+// object change (mesh sync). Without this, each drag frame re-rendered it.
+export default memo(SurfaceAttachPrompt)

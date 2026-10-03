@@ -1,3 +1,4 @@
+import { memo, useCallback } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { wireManager } from '../managers/WireManager.js'
@@ -35,26 +36,29 @@ export default function ObjectList() {
   const connections = useElectronicsStore((s) => s.connections)
   const { snapshot } = useHistory()
 
-  const handleRowClick = (e, id) => {
-    if (e.shiftKey && selectedId && id !== selectedId) {
+  // Stable handlers (read the live selection at click time) so memoized rows
+  // don't re-render just because the list did.
+  const handleRowClick = useCallback((e, id) => {
+    const { selectedId: sel } = useSceneStore.getState()
+    if (e.shiftKey && sel && id !== sel) {
       // Shift+click → set as secondary for boolean ops
       setSecondaryId(id)
       return
     }
-    if (selectedId === id) clearSelection()
+    if (sel === id) clearSelection()
     else selectObject(id)
-  }
+  }, [setSecondaryId, clearSelection, selectObject])
 
-  const handleDelete = (e, id) => {
+  const handleDelete = useCallback((e, id) => {
     e.stopPropagation()
-    snapshot()
     removeObject(id)
-  }
+    snapshot()   // record the deletion itself as the undo step (was taken before it)
+  }, [removeObject, snapshot])
 
-  const handleToggleVisible = (e, obj) => {
+  const handleToggleVisible = useCallback((e, obj) => {
     e.stopPropagation()
     updateObject(obj.id, { visible: !obj.visible })
-  }
+  }, [updateObject])
 
   const connEntries = Object.entries(connections)
 
@@ -80,48 +84,17 @@ export default function ObjectList() {
           <span className="ml-1 text-gray-600">· Shift+click to select 2nd for Boolean</span>
         )}
       </div>
-      {[...objects].reverse().map((obj) => {
-        const isPrimary = obj.id === selectedId
-        const isSecondary = obj.id === secondaryId
-        return (
-          <div
-            key={obj.id}
-            onClick={(e) => handleRowClick(e, obj.id)}
-            className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-gray-800/50 group transition-colors ${
-              isPrimary
-                ? 'bg-indigo-900/20 border-l-2 border-l-indigo-500'
-                : isSecondary
-                ? 'bg-orange-900/30 border-l-2 border-l-orange-500'
-                : 'hover:bg-gray-800/50'
-            }`}
-          >
-            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: obj.color }} />
-            <span className="text-sm shrink-0">{TYPE_ICONS[obj.type] ?? '📦'}</span>
-            <span className={`flex-1 text-xs truncate ${
-              isPrimary ? 'text-indigo-800' : isSecondary ? 'text-orange-700' : 'text-gray-300'
-            }`}>
-              {obj.name}
-              {isSecondary && <span className="ml-1 text-[9px] text-orange-700 opacity-70">2nd</span>}
-            </span>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                onClick={(e) => handleToggleVisible(e, obj)}
-                title={obj.visible ? 'Hide' : 'Show'}
-                className="text-gray-400 hover:text-slate-900 text-xs px-1 py-0.5 rounded hover:bg-gray-700"
-              >
-                {obj.visible ? '👁' : '🚫'}
-              </button>
-              <button
-                onClick={(e) => handleDelete(e, obj.id)}
-                title="Delete"
-                className="text-gray-400 hover:text-red-400 text-xs px-1 py-0.5 rounded hover:bg-gray-700"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )
-      })}
+      {[...objects].reverse().map((obj) => (
+        <ObjectRow
+          key={obj.id}
+          obj={obj}
+          isPrimary={obj.id === selectedId}
+          isSecondary={obj.id === secondaryId}
+          onRowClick={handleRowClick}
+          onDelete={handleDelete}
+          onToggleVisible={handleToggleVisible}
+        />
+      ))}
 
       {/* ── Wire connections list ── */}
       {connEntries.length > 0 && (
@@ -161,3 +134,47 @@ export default function ObjectList() {
     </div>
   )
 }
+
+// One row. Memoized: updateObject keeps unchanged objects by reference, so a
+// drag re-renders only the dragged row. `content-visibility: auto` lets the
+// browser skip layout/paint for off-screen rows (large scenes stay cheap).
+const ObjectRow = memo(function ObjectRow({ obj, isPrimary, isSecondary, onRowClick, onDelete, onToggleVisible }) {
+  return (
+    <div
+      onClick={(e) => onRowClick(e, obj.id)}
+      style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 33px' }}
+      className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-gray-800/50 group transition-colors ${
+        isPrimary
+          ? 'bg-indigo-900/20 border-l-2 border-l-indigo-500'
+          : isSecondary
+          ? 'bg-orange-900/30 border-l-2 border-l-orange-500'
+          : 'hover:bg-gray-800/50'
+      }`}
+    >
+      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: obj.color }} />
+      <span className="text-sm shrink-0">{TYPE_ICONS[obj.type] ?? '📦'}</span>
+      <span className={`flex-1 text-xs truncate ${
+        isPrimary ? 'text-indigo-800' : isSecondary ? 'text-orange-700' : 'text-gray-300'
+      }`}>
+        {obj.name}
+        {isSecondary && <span className="ml-1 text-[9px] text-orange-700 opacity-70">2nd</span>}
+      </span>
+      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={(e) => onToggleVisible(e, obj)}
+          title={obj.visible ? 'Hide' : 'Show'}
+          className="text-gray-400 hover:text-slate-900 text-xs px-1 py-0.5 rounded hover:bg-gray-700"
+        >
+          {obj.visible ? '👁' : '🚫'}
+        </button>
+        <button
+          onClick={(e) => onDelete(e, obj.id)}
+          title="Delete"
+          className="text-gray-400 hover:text-red-400 text-xs px-1 py-0.5 rounded hover:bg-gray-700"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
+  )
+})

@@ -9,7 +9,8 @@
 // landing app: those keys are NOT bearer JWTs, so the default `Authorization`
 // header must be stripped and sent only as `apikey`. Once a real user session is
 // set, Supabase sends the user's access token as the bearer, which we keep.
-import { createClient } from '@supabase/supabase-js'
+// The SDK (~880 KB) is imported dynamically: cloud sync is only active for
+// ?project= / ?share= sessions, so normal editor startup never downloads it.
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
@@ -37,9 +38,11 @@ function makeFetch(key) {
 
 let _client = null
 
-/** Lazily create the client. Returns null if env vars are absent (cloud sync off). */
-export function getSupabase() {
+/** Lazily load the SDK and create the client. Resolves null if cloud sync is off. */
+export async function getSupabase() {
   if (!cloudConfigured) return null
+  if (_client) return _client
+  const { createClient } = await import('@supabase/supabase-js')
   if (_client) return _client
   _client = createClient(SUPABASE_URL, SUPABASE_KEY, {
     global: { fetch: makeFetch(SUPABASE_KEY) },

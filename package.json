@@ -15,7 +15,9 @@
     "build:electron": "cross-env VITE_BASE=./ vite build",
     "build:win": "cross-env VITE_BASE=./ vite build && electron-builder --win",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "check:bundle": "node tools/check-bundle.mjs",
+    "optimize:models": "node tools/optimize-models.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

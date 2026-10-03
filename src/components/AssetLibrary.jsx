@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useAssetStore } from '../stores/assetStore.js'
 import { useHistory } from '../hooks/useHistory.js'
-import { loadGLTFFromFile, loadSTLFromFile, cloneModel, flattenToGeometry } from '../utils/modelLoader.js'
+import { loadGLTFFromFile, loadSTLFromFile, cloneModel, flattenToGeometry, ensureModels, loadModel } from '../utils/modelLoader.js'
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
 import { svgTextToGeometry } from '../utils/svgImport.js'
 
@@ -71,7 +71,8 @@ export default function AssetLibrary() {
 
   // Insert a built-in GLB model. Clones the preloaded model into the per-id
   // registry so it renders immediately; `modelKey` lets it reload later.
-  const addModel = (key, name, color) => {
+  const addModel = async (key, name, color) => {
+    await ensureModels([key])          // on-demand model load (deduplicated, cached)
     const objId = uuidv4()
     const model = cloneModel(key)
     if (model) storeImportedGeometry(objId, model)
@@ -241,6 +242,7 @@ export default function AssetLibrary() {
             <button
               key={key}
               onClick={() => addModel(key, label, color)}
+              onPointerEnter={() => loadModel(key)}
               title={label}
               className="flex flex-col items-center gap-0.5 py-2 rounded bg-gray-800 hover:bg-cyan-900/30 hover:text-cyan-100 transition-colors"
             >
