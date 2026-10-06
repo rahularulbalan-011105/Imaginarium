@@ -71,7 +71,7 @@ export const COACH_STEPS = [
     id: 'flatten-chassis', selector: 'mode-scale', icon: '⤢', demo: 'scale',
     title: 'Step 2 — Flatten me out',
     why: "A bit boxy, aren't I? Squash me into a wide, thin chassis so my parts have room.",
-    how: 'Use the Scale tool — make length & width above 4, thickness about 0.5. (Or Props → Dimensions.)',
+    how: 'Use the Scale tool — make length & width above 4, thickness about 0.5. (Or CAD → Design → Edit → Dimensions.)',
     toolTip: { tool: 'Scale', text: 'Resizes the selected object — drag the handles to stretch or shrink it.' },
     cta: 'Wide & flat: L/W > 4, thickness ~0.5.',
     success: "Now THAT'S a chassis. ⤢",
@@ -79,7 +79,7 @@ export const COACH_STEPS = [
   },
   {
     // Point at the BO Motor button; until the Elec panel is open, fall back to
-    // the Elec rail tab so the arrow first leads the user THERE, then to the motor.
+    // the ELEC rail button so the arrow first leads the user THERE, then to the motor.
     id: 'add-motors', selector: 'elec-motor_bo', fallback: 'tab-electronics', icon: '⚙',
     title: 'Step 3 — Give me muscles',
     why: 'I need TWO motors — one per side — so I can drive AND steer. One alone just spins me in circles.',
@@ -135,8 +135,8 @@ export const COACH_STEPS = [
   {
     id: 'attach-both', selector: 'pick-attach', fallback: 'tab-properties', icon: '◎',
     title: 'Step 6 — Mark where my wheels go',
-    why: 'Each wheel needs to know exactly where it meets my motor shaft. Open my Props and mark the spot.',
-    how: 'Open Props, select a wheel, click ◎ Pick Attachment Point, then click the exact spot on the wheel. Do both.',
+    why: 'Each wheel needs to know exactly where it meets my motor shaft. Open CAD → Design and mark the spot.',
+    how: 'Select a wheel, open CAD → Design (Attach), click ◎ Pick Attachment Point, then click the exact spot on the wheel. Do both.',
     cta: 'Select the circle, then pick a point — on both wheels.',
     success: 'X marks the spot — twice! ◎◎',
     detect: { type: 'attachPointPicked', count: 2 },
@@ -155,7 +155,7 @@ export const COACH_STEPS = [
     id: 'fix-wheel-y', selector: 'shaft-pos-y', fallback: 'tab-properties', icon: '🩹',
     title: 'Wheel stuck inside me?',
     why: "If a wheel ended up sunk into my body, no worries — just nudge it out along the Y axis.",
-    how: 'Click the sunken wheel, then in Props → Fine position, lower its Y until the wheel sits clear of the chassis. (Skip if both wheels already look right.)',
+    how: 'Click the sunken wheel, then in CAD → Design → Fine position, lower its Y until the wheel sits clear of the chassis. (Skip if both wheels already look right.)',
     cta: 'Fixed it (or all good)? — Continue →',
     success: 'Wheels sitting pretty. 🩹',
     detect: { type: 'ack' },
@@ -179,7 +179,7 @@ export const COACH_STEPS = [
     selector: (scene, elec) => {
       const rep = wiringReport(scene, elec)
       if (!rep.ready) return 'tab-wiring'
-      // A wrong wire exists → point at its ✂ Cut button so the user removes it.
+      // A wrong wire exists → point at its wire chip so the user removes it.
       if (rep.wrong.length) return `conn-cut-${rep.wrong[0]}`
       const next = rep.missing[0]
       if (!next) return 'wire-connect'
@@ -190,7 +190,7 @@ export const COACH_STEPS = [
     },
     title: 'Step 9 — Wire me up',
     why: "My brain can't reach my motors yet — connect us! Each motor needs a signal pin AND a ground.",
-    how: 'Follow the arrow: click a motor TERM, then the Arduino pin, then ⚡ Connect. BOTH motors: TERM_A → D3, TERM_B → GND. Wire it wrong and I’ll flag it — the arrow will point at the wire to cut.',
+    how: 'Follow the arrow: click a motor TERM, then the Arduino pin, then ⚡ Connect. BOTH motors: TERM_A → D3, TERM_B → GND. Wire it wrong and I’ll flag it — the arrow will point at the wire — click it, then Delete.',
     cta: 'TERM A → pin → Connect, then TERM B → GND → Connect — both motors.',
     success: 'I can feel my motors! 🔌⚡',
     detect: { type: 'wiredCorrectly' },
@@ -199,8 +199,8 @@ export const COACH_STEPS = [
     id: 'open-code', selector: 'tab-code', icon: '{ }',
     title: 'Step 10 — Teach me',
     why: "I'm built and wired… and standing perfectly still, because nobody told me what to DO!",
-    how: 'Open the { } Code tab. (Prefer no typing? Blocks works too.)',
-    cta: 'Open the Code tab.',
+    how: 'Open CODE → C++ Coding. (Prefer no typing? Block Coding works too.)',
+    cta: 'Open CODE → C++ Coding.',
     success: 'Ready for orders. { }',
     detect: { type: 'panel', value: 'code' },
   },

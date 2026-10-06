@@ -371,8 +371,12 @@ function AppEditor() {
       // During a battle/arena, the combat manager owns WASD / arrows — block editor shortcuts.
       if (useGameStore.getState().battleActive || useCombatStore.getState().arenaActive) return
 
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
-      if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
+      // Text fields (code editor, inputs) and the Blockly workspace keep their own
+      // native undo — the editor history must not swallow Ctrl+Z while typing.
+      const ownUndo = isTyping || !!e.target.closest?.('.injectionDiv, .blocklyWidgetDiv')
+      if (!ownUndo && (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); redo(); return }
+      if (!ownUndo && (e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
+      if (!ownUndo && (e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
 
       // Ctrl+C — copy selected (non-electronics only)
       if ((e.ctrlKey || e.metaKey) && e.key === 'c') {

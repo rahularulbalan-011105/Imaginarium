@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useOnboardingStore } from '../../onboarding/onboardingStore.js'
+import { locatePanel } from '../shell/nav.js'
 import { useSceneStore } from '../../stores/sceneStore.js'
 import { useElectronicsStore } from '../../stores/electronicsStore.js'
 import { useRigidStore } from '../../stores/rigidStore.js'
@@ -355,8 +356,21 @@ function GuidedCoachActive() {
     // BO Motor button once it exists). selector/fallback may be a function of live
     // state so the arrow can MOVE mid-step (e.g. Cylinder → Scale once 2 exist).
     const resolveSel = (s) => (typeof s === 'function' ? s(useSceneStore.getState(), useElectronicsStore.getState()) : s)
-    const find = () => document.querySelector(`[data-tour="${resolveSel(step.selector)}"]`)
-      || (step.fallback ? document.querySelector(`[data-tour="${resolveSel(step.fallback)}"]`) : null)
+    // A `tab-<panel>` anchor lives in the context panel, which only shows the
+    // ACTIVE parent's tabs — when it isn't on screen, point at that parent in the
+    // nav rail (e.g. tab-wiring → ELEC) so the arrow always leads somewhere.
+    const q = (sel) => {
+      if (!sel) return null
+      const el = document.querySelector(`[data-tour="${sel}"]`)
+      if (el || !sel.startsWith('tab-')) return el
+      return document.querySelector(`[data-tour="nav-${locatePanel(sel.slice(4)).parent.id}"]`)
+    }
+    const find = () => {
+      const primary = resolveSel(step.selector)
+      return document.querySelector(`[data-tour="${primary}"]`)
+        || (step.fallback ? q(resolveSel(step.fallback)) : null)
+        || q(primary)
+    }
     const measure = (doScroll) => {
       const el = find()
       if (el) {
@@ -901,7 +915,7 @@ function GuidedCoachActive() {
               <div className="mt-2 px-2.5 py-1.5 rounded-lg text-[11px] font-medium flex items-start gap-1.5"
                 style={{ background: 'rgba(239,68,68,0.16)', border: '1px solid rgba(239,68,68,0.45)', color: '#fca5a5' }}>
                 <span>⚠</span>
-                <span>That wire’s wrong! Follow the arrow to <b>✂ Cut</b> it, then wire it the right way (TERM_A→D5/D6, TERM_B→GND).</span>
+                <span>That wire’s wrong! Follow the arrow, click it and choose <b>Delete</b>, then wire it the right way (TERM_A→D5/D6, TERM_B→GND).</span>
               </div>
             )}
 
