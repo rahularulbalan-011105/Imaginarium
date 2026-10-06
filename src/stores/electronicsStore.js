@@ -62,10 +62,19 @@ export const useElectronicsStore = create((set, get) => ({
   setAutoSense: (v) => set({ autoSense: v }),
 
   // ── connections ──────────────────────────────────────────────────────────
-  addWireConnection: (fromPinId, toPinId, connId) => {
+  // The ONE connection list every wiring view (Pick a Pin, Workbench, 3D) uses.
+  // `extra` may carry an explicit { color }; without it wires are role-coloured.
+  addWireConnection: (fromPinId, toPinId, connId, extra) => {
     set(s => ({
-      connections: { ...s.connections, [connId]: { fromPinId, toPinId } },
+      connections: { ...s.connections, [connId]: { fromPinId, toPinId, ...(extra ?? {}) } },
     }))
+  },
+
+  // Edit a wire in place (colour, or re-point one end) — same record, same id.
+  updateWireConnection: (connId, patch) => {
+    set(s => s.connections[connId]
+      ? { connections: { ...s.connections, [connId]: { ...s.connections[connId], ...patch } } }
+      : {})
   },
 
   removeWireConnection: (connId) => {

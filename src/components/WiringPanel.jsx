@@ -1,140 +1,67 @@
 import { useState, useCallback, useEffect } from 'react'
 import { v4 as uuidv4 } from 'uuid'
-import * as THREE from 'three'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
-import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
-import WiringWorkbench from './WiringWorkbench.jsx'
+import ConnectionMenu from './ConnectionMenu.jsx'
+import { ELEC_TYPES, PIN_DEFS, pinRole, wireStyle, friendlyPin, isDuplicate, ROLE_COLORS } from '../utils/wiring.js'
 
-const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
-
-const PIN_DEFS = {
-  arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2'],
-  // Official Subo IO header (Subo.h): IO1..IO21 + power rails. Matches SUBO_PIN_ORDER in
-  // electronicsFactory so panel buttons map to the same pinIds. Motor 1 = IO20/IO21,
-  // Motor 2 = IO19/IO18 (MotorExpansion). IOn → GPIO via SUBO_IO_TO_GPIO.
-  subo:     ['IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12','IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21','5V','GND1','GND2'],
-  motor:    ['TERM_A','TERM_B'],
-  motor_bo: ['TERM_A','TERM_B'],
-  motor_dc: ['TERM_A','TERM_B'],
-  led:      ['ANODE','CATHODE'],
-  servo:    ['SIGNAL','VCC','GND'],
-  ir_sensor:  ['OUT','GND','VCC'],
-  ultrasonic: ['VCC','TRIG','ECHO','GND'],
-  buzzer:     ['SIGNAL','GND'],
-  oled:       ['GND','VCC','SCL','SDA'],
-  gas_sensor: ['VCC','GND','DO','AO'],
-  color_sensor: ['VCC','GND','S0','S1','S2','S3','OUT'],
-  ldr_sensor:   ['VCC','GND','AO','DO'],
-  dht11:        ['VCC','GND','DATA'],
-}
-
-const WIRE_COLORS = ['#f59e0b','#3b82f6','#22c55e','#ef4444','#8b5cf6','#ec4899','#06b6d4','#f97316']
+// ─────────────────────────────────────────────────────────────────────────────
+// Pick a Pin — click a pin, click another, Connect. Reads and writes the single
+// electronicsStore.connections list (the Workbench and the 3D view use the same
+// list, and the 3D wires follow it via wireManager.syncFromStore).
+// Each wire shows in its role colour (red power · black GND · signal colours) on
+// the pins it joins; right-click a wire (or a wired pin) → Edit / Delete.
+// ─────────────────────────────────────────────────────────────────────────────
 
 const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩', ir_sensor: '👁', ultrasonic: '📡', buzzer: '🔔', oled: '📺', gas_sensor: '💨', color_sensor: '🎨', ldr_sensor: '🔆', dht11: '🌡' }
-function compIcon(type) { return COMP_ICONS[type] ?? '📦' }
-
-function routeWire(fromMesh, toMesh) {
-  if (!fromMesh || !toMesh) return null
-  const from = fromMesh.position.clone().add(new THREE.Vector3(0, 0.5, 0))
-  const to   = toMesh.position.clone().add(new THREE.Vector3(0, 0.5, 0))
-  const mid1 = new THREE.Vector3(from.x, Math.max(from.y, to.y) + 1.5, from.z)
-  const mid2 = new THREE.Vector3(to.x,   Math.max(from.y, to.y) + 1.5, to.z)
-  return [from, mid1, mid2, to]
-}
-
-function buildWireLine(points, color = '#6366f1') {
-  const geo = new THREE.BufferGeometry().setFromPoints(points)
-  const mat = new THREE.LineBasicMaterial({ color, linewidth: 2 })
-  return new THREE.Line(geo, mat)
-}
-
-// ── Pin button ────────────────────────────────────────────────────────────────
-function PinButton({ pinId, pin, step, srcPin, dstPin, connectedPins, connForPin, onClick }) {
-  const isSelected  = pinId === srcPin || pinId === dstPin
-  const isConnected = connectedPins.has(pinId)
-  const isSrc       = step === 'dest' && pinId === srcPin
-  const isWaiting   = step === 'dest' && pinId !== srcPin && !isConnected
-
-  let bg, textColor, border, cursor
-  if (isSelected)  { bg = 'bg-indigo-600/50'; textColor = 'text-indigo-700'; border = 'border-indigo-500/70'; cursor = 'cursor-pointer' }
-  else if (isConnected) { bg = 'bg-green-900/40'; textColor = 'text-green-700'; border = 'border-green-600/50'; cursor = 'cursor-pointer' }
-  else if (isWaiting)   { bg = 'bg-blue-900/30'; textColor = 'text-blue-700'; border = 'border-blue-700/40'; cursor = 'cursor-pointer' }
-  else { bg = 'bg-gray-700/40'; textColor = 'text-gray-400'; border = 'border-gray-600/30'; cursor = 'cursor-pointer' }
-
-  let title = step === 'source'
-    ? `Start wire here`
-    : isConnected ? `Connect another wire to ${pin}` : `Connect to ${pin}`
-
-  return (
-    <button
-      disabled={isSrc}
-      onClick={onClick}
-      data-tour={`pin-${pinId}`}
-      className={`py-1 px-0.5 rounded text-[9px] font-mono border transition-colors ${bg} ${textColor} ${border} ${cursor} disabled:opacity-40 disabled:cursor-not-allowed`}
-      title={title}
-    >
-      {pin}
-      {isConnected && <span className="text-green-400 ml-0.5">●</span>}
-    </button>
-  )
-}
+const ROLE_DOT = { power: ROLE_COLORS.power, gnd: ROLE_COLORS.gnd, signal: '#f97316' }
 
 export default function WiringPanel() {
-  const objects      = useSceneStore(s => s.objects)
-  const connections  = useElectronicsStore(s => s.connections)
+  const objects     = useSceneStore(s => s.objects)
+  const connections = useElectronicsStore(s => s.connections)
   const addWireConnection    = useElectronicsStore(s => s.addWireConnection)
-  const removeWireConnection = useElectronicsStore(s => s.removeWireConnection)
+  const updateWireConnection = useElectronicsStore(s => s.updateWireConnection)
   const { snapshot } = useHistory()
 
   const elecObjects = objects.filter(o => ELEC_TYPES.has(o.type))
 
-  // 'idle' = nothing selected
-  // 'source' = source pin selected, waiting for dest
-  // 'confirm' = both selected, show confirm
-  // 'disconnect' = user clicked a connected pin, showing disconnect prompt
-  const [mode, setMode]       = useState('idle')
-  const [srcPin, setSrcPin]   = useState(null)
-  const [dstPin, setDstPin]   = useState(null)
-  const [wireColor, setWireColor] = useState(WIRE_COLORS[0])
-  const [disconnectConnId, setDisconnectConnId] = useState(null)
-  const [disconnectInfo, setDisconnectInfo]     = useState(null) // { from, to, color }
-  const [wbOpen, setWbOpen] = useState(false)   // drag-to-connect workbench modal
+  // 'idle' → 'source' (first pin picked) → 'confirm' (both picked)
+  // 'reconnect' = re-pointing one end of an existing wire (from the Edit menu)
+  const [mode, setMode]     = useState('idle')
+  const [srcPin, setSrcPin] = useState(null)
+  const [dstPin, setDstPin] = useState(null)
+  const [reconnect, setReconnect] = useState(null)   // { connId, end }
+  const [menu, setMenu]     = useState(null)         // { connId, x, y }
 
   // Mirror the in-progress wire into the store so the guided coach can point its
   // arrow at the next pin / the Connect button as the user wires.
   const setWireDraft = useElectronicsStore(s => s.setWireDraft)
   useEffect(() => { setWireDraft({ mode, srcPin, dstPin }) }, [mode, srcPin, dstPin, setWireDraft])
 
-  const reset = () => { setMode('idle'); setSrcPin(null); setDstPin(null); setDisconnectConnId(null); setDisconnectInfo(null) }
+  const reset = () => { setMode('idle'); setSrcPin(null); setDstPin(null); setReconnect(null) }
 
-  // Map: pinId → connId (for quickly finding a connection by pin)
-  const pinToConn = {}
-  for (const [connId, { fromPinId, toPinId }] of Object.entries(connections)) {
-    pinToConn[fromPinId] = connId
-    pinToConn[toPinId]   = connId
-  }
-
-  const connectedPins = new Set(Object.keys(pinToConn))
-
-  const friendlyPin = (pinId) => {
-    if (!pinId) return '?'
-    const [compId, pin] = pinId.split(':')
-    const comp = objects.find(o => o.id === compId)
-    return `${comp?.name ?? compId} · ${pin}`
+  // pinId → [connId] (a pin can fan out to any number of wires)
+  const wiresAt = {}
+  for (const [connId, c] of Object.entries(connections)) {
+    (wiresAt[c.fromPinId] ??= []).push(connId)
+    ;(wiresAt[c.toPinId] ??= []).push(connId)
   }
 
   const handlePinClick = (compId, pinName) => {
     const pinId = `${compId}:${pinName}`
-
-    // Any pin can take any number of wires (GND, 5V, signal — all fan-out freely).
-    // Clicking a pin only ever STARTS or COMPLETES a wire; disconnecting is done
-    // separately from the "Active Connections" list below.
-    if (mode === 'idle') {
-      setSrcPin(pinId)
-      setMode('source')
-    } else if (mode === 'source') {
+    if (mode === 'reconnect' && reconnect) {
+      const c = connections[reconnect.connId]
+      const other = reconnect.end === 'fromPinId' ? c?.toPinId : c?.fromPinId
+      if (c && pinId !== other && !isDuplicate(connections, pinId, other)) {
+        updateWireConnection(reconnect.connId, { [reconnect.end]: pinId })
+        snapshot('reconnect wire')
+      }
+      reset()
+      return
+    }
+    if (mode === 'idle') { setSrcPin(pinId); setMode('source') }
+    else if (mode === 'source') {
       if (pinId === srcPin) { reset(); return }   // clicking the same pin cancels
       setDstPin(pinId)
       setMode('confirm')
@@ -143,216 +70,135 @@ export default function WiringPanel() {
 
   const connect = useCallback(() => {
     if (!srcPin || !dstPin) return
-    // Skip if this exact pair is already wired (either direction). Different
-    // pins sharing GND/5V are fine — only an identical duplicate is rejected.
-    const dup = Object.values(connections).some(c =>
-      (c.fromPinId === srcPin && c.toPinId === dstPin) ||
-      (c.fromPinId === dstPin && c.toPinId === srcPin))
-    if (dup) { reset(); return }
-    const connId = uuidv4()
-    addWireConnection(srcPin, dstPin, connId)
-
-    const [srcComp] = srcPin.split(':')
-    const [dstComp] = dstPin.split(':')
-    const fromMesh = objectManager.getMesh(srcComp)
-    const toMesh   = objectManager.getMesh(dstComp)
-    const pts = routeWire(fromMesh, toMesh)
-    if (pts) {
-      const line = buildWireLine(pts, wireColor)
-      line.userData.connId    = connId
-      line.userData.fromPinId = srcPin   // lets ObjectManager.updateWires() re-route
-      line.userData.toPinId   = dstPin   // this wire as the components move
-      objectManager.addWire(connId, line)
+    // Only an identical duplicate is rejected — GND/5V fan out freely.
+    if (!isDuplicate(connections, srcPin, dstPin)) {
+      addWireConnection(srcPin, dstPin, uuidv4())   // 3D wire follows via syncFromStore
+      snapshot('wire')
     }
-
-    snapshot()
     reset()
-  }, [srcPin, dstPin, wireColor, connections, addWireConnection, snapshot])
+  }, [srcPin, dstPin, connections, addWireConnection, snapshot])
 
-  const disconnect = useCallback((connId) => {
-    objectManager.removeWire(connId)
-    removeWireConnection(connId)
-    snapshot()
-    reset()
-  }, [removeWireConnection, snapshot])
+  const openMenu = (connId) => (e) => { e.preventDefault(); e.stopPropagation(); setMenu({ connId, x: e.clientX, y: e.clientY }) }
+  const startReconnect = (connId, end) => { setMode('reconnect'); setReconnect({ connId, end }); setSrcPin(null); setDstPin(null) }
 
   if (elecObjects.length === 0) {
     return (
       <div className="p-4 text-center py-10">
         <div className="text-3xl mb-2 opacity-30">⚡</div>
-        <div className="text-xs text-gray-500">No electronics in scene.<br />Add an Arduino, Motor, Servo, or LED first.</div>
-      </div>
-    )
-  }
-
-  // ── Disconnect prompt ──────────────────────────────────────────────────────
-  if (mode === 'disconnect' && disconnectInfo) {
-    return (
-      <div className="flex flex-col gap-3 p-3">
-        <div className="text-[10px] text-red-400 uppercase tracking-wider font-semibold">Remove Connection?</div>
-        <div className="bg-gray-800/60 border border-red-700/30 rounded-lg p-3">
-          <div className="flex items-center gap-2 text-xs mb-1">
-            <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: disconnectInfo.color }} />
-            <span className="text-gray-100 font-medium">{friendlyPin(disconnectInfo.from)}</span>
-          </div>
-          <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
-          <div className="flex items-center gap-2 text-xs">
-            <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: disconnectInfo.color }} />
-            <span className="text-gray-100 font-medium">{friendlyPin(disconnectInfo.to)}</span>
-          </div>
-        </div>
-        <button
-          onClick={() => disconnect(disconnectConnId)}
-          className="w-full py-2 rounded text-xs font-bold bg-red-900/40 hover:bg-red-700/50 border border-red-700/40 text-red-700 hover:text-slate-900 transition-colors"
-        >
-          ✂ Disconnect
-        </button>
-        <button
-          onClick={reset}
-          className="w-full py-1.5 rounded text-xs bg-gray-700/40 hover:bg-gray-600/40 text-gray-400 transition-colors"
-        >
-          Cancel
-        </button>
+        <div className="text-xs text-gray-500">No electronics in scene.<br />Add an Arduino, Motor, Servo, or LED from ELEC → Elec first.</div>
       </div>
     )
   }
 
   // ── Confirm new connection ─────────────────────────────────────────────────
   if (mode === 'confirm') {
+    const preview = wireStyle('preview', { fromPinId: srcPin, toPinId: dstPin })
     return (
       <div className="flex flex-col gap-3 p-3">
-        <div className="text-[10px] text-green-400 uppercase tracking-wider font-semibold">Confirm Connection</div>
-
-        {/* Wire color picker */}
-        <div>
-          <div className="text-[9px] text-gray-500 mb-1.5">Wire color</div>
-          <div className="flex gap-1.5 flex-wrap">
-            {WIRE_COLORS.map(c => (
-              <button
-                key={c}
-                onClick={() => setWireColor(c)}
-                className={`w-6 h-6 rounded-full border-2 transition-transform ${wireColor === c ? 'border-white scale-110' : 'border-transparent hover:scale-105'}`}
-                style={{ background: c }}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Preview */}
-        <div className="bg-gray-800/60 border border-green-700/30 rounded-lg p-3">
-          <div className="flex items-center gap-2 text-xs mb-1">
-            <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: wireColor }} />
-            <span className="text-gray-100 font-medium">{friendlyPin(srcPin)}</span>
-          </div>
-          <div className="text-gray-500 text-[10px] pl-5 mb-1">→</div>
+        <div className="ui-section-title">Confirm connection</div>
+        <div className="ui-card p-3">
           <div className="flex items-center gap-2 text-xs">
-            <div className="w-3 h-1.5 rounded flex-shrink-0" style={{ background: wireColor }} />
-            <span className="text-indigo-700 font-medium">{friendlyPin(dstPin)}</span>
+            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: preview.color }} />
+            <span className="font-medium" style={{ color: 'rgb(var(--g-100))' }}>{friendlyPin(srcPin, objects)}</span>
           </div>
+          <div className="my-1 ml-1.5 h-4 w-0.5 rounded" style={{ background: preview.color }} aria-hidden="true" />
+          <div className="flex items-center gap-2 text-xs">
+            <span className="w-3 h-3 rounded-full shrink-0" style={{ background: preview.color }} />
+            <span className="font-medium" style={{ color: 'rgb(var(--g-100))' }}>{friendlyPin(dstPin, objects)}</span>
+          </div>
+          <div className="text-[10px] mt-2" style={{ color: 'rgb(var(--g-400))' }}>{preview.label} wire — colour set automatically (change it later with right-click → Edit).</div>
         </div>
-
-        <button
-          onClick={connect}
-          data-tour="wire-connect"
-          className="w-full py-2 rounded text-xs font-bold bg-green-900/40 hover:bg-green-700/50 border border-green-700/40 text-green-700 hover:text-slate-900 transition-colors"
-        >
-          ⚡ Connect
-        </button>
-        <button
-          onClick={reset}
-          className="w-full py-1.5 rounded text-xs bg-gray-700/40 hover:bg-gray-600/40 text-gray-400 transition-colors"
-        >
-          Cancel
-        </button>
+        <button onClick={connect} data-tour="wire-connect" className="ui-btn ui-btn-primary w-full !py-2">⚡ Connect</button>
+        <button onClick={reset} className="ui-btn w-full">Cancel</button>
       </div>
     )
   }
 
-  // ── Idle / source picking ──────────────────────────────────────────────────
+  // ── Idle / picking ────────────────────────────────────────────────────────
+  const reconnectConn = reconnect && connections[reconnect.connId]
   return (
-    <div className="flex flex-col h-full">
-      {wbOpen && <WiringWorkbench onClose={() => setWbOpen(false)} />}
-
-      {/* Drag-to-connect workbench launcher */}
-      <button
-        onClick={() => setWbOpen(true)}
-        className="m-2 py-2 rounded text-xs font-semibold bg-amber-600 hover:bg-amber-500 text-white shrink-0"
-        title="Open a 2D workbench where you drag wires between component terminals"
-      >
-        🔌 Wiring Workbench — drag to connect
-      </button>
-
-      {/* Header + step indicator */}
-      <div className="px-3 py-2 border-b border-gray-700/50 shrink-0">
-        {mode === 'idle' ? (
+    <div className="flex flex-col">
+      <div className="px-3 py-2.5">
+        {mode === 'idle' && (
           <>
-            <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold">
-              ① Pick a pin to start a wire
-            </div>
-            <div className="text-[9px] text-gray-500 mt-0.5">Pins fan out freely — wire GND/5V to as many parts as you like. Remove wires from the list below.</div>
-          </>
-        ) : (
-          <>
-            <div className="text-[10px] text-blue-400 uppercase tracking-wider font-semibold">
-              ② Pick destination pin
-            </div>
-            <div className="flex items-center gap-1 mt-0.5">
-              <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
-              <span className="text-[10px] text-gray-100">{friendlyPin(srcPin)}</span>
-            </div>
-            <button onClick={reset} className="text-[9px] text-gray-500 hover:text-gray-300 mt-1 transition-colors">
-              ← Cancel
-            </button>
+            <div className="ui-section-title">① Pick a pin to start a wire</div>
+            <div className="text-[10px] mt-0.5" style={{ color: 'rgb(var(--g-400))' }}>Right-click a wire to edit or delete it.</div>
           </>
         )}
+        {mode === 'source' && (
+          <>
+            <div className="ui-section-title">② Pick the other pin</div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'rgb(var(--g-200))' }}>From {friendlyPin(srcPin, objects)}</div>
+            <button onClick={reset} className="text-[10px] mt-1 ui-icon-btn rounded px-1">← Cancel</button>
+          </>
+        )}
+        {mode === 'reconnect' && reconnectConn && (
+          <>
+            <div className="ui-section-title">Pick the new {reconnect.end === 'fromPinId' ? 'start' : 'end'} pin</div>
+            <div className="text-[11px] mt-0.5" style={{ color: 'rgb(var(--g-200))' }}>
+              Keeps {friendlyPin(reconnect.end === 'fromPinId' ? reconnectConn.toPinId : reconnectConn.fromPinId, objects)}
+            </div>
+            <button onClick={reset} className="text-[10px] mt-1 ui-icon-btn rounded px-1">← Cancel</button>
+          </>
+        )}
+        <div className="flex items-center gap-3 mt-2 text-[10px]" style={{ color: 'rgb(var(--g-400))' }} aria-label="Wire colour legend">
+          <Legend color={ROLE_COLORS.power} label="Power" /><Legend color={ROLE_COLORS.gnd} label="GND" /><Legend color="#f97316" label="Signal" />
+        </div>
       </div>
 
-      {/* Wire color picker — only in idle mode */}
-      {mode === 'idle' && (
-        <div className="px-3 py-2 border-b border-gray-700/50 shrink-0">
-          <div className="text-[9px] text-gray-500 uppercase tracking-wider mb-1.5">Wire Color</div>
-          <div className="flex gap-1.5 flex-wrap">
-            {WIRE_COLORS.map(c => (
-              <button
-                key={c}
-                onClick={() => setWireColor(c)}
-                className={`w-5 h-5 rounded-full border-2 transition-transform ${wireColor === c ? 'border-white scale-110' : 'border-transparent hover:scale-105'}`}
-                style={{ background: c }}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Component pin grid */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-3">
+      <div className="px-3 pb-3 space-y-2.5">
         {elecObjects.map(comp => {
           const pins = PIN_DEFS[comp.type] ?? []
           return (
-            <div key={comp.id} className="bg-gray-800/50 rounded-lg border border-gray-700/40 overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-2 bg-gray-800/80 border-b border-gray-700/30">
-                <span className="text-base">{compIcon(comp.type)}</span>
-                <div>
-                  <div className="text-xs font-semibold text-gray-100 leading-tight">{comp.name}</div>
-                  <div className="text-[9px] text-gray-500 capitalize leading-tight">{comp.type}</div>
+            <div key={comp.id} className="ui-card overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid rgb(var(--g-700) / 0.45)' }}>
+                <span className="text-base">{COMP_ICONS[comp.type] ?? '📦'}</span>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold leading-tight truncate" style={{ color: 'rgb(var(--g-100))' }}>{comp.name}</div>
+                  <div className="text-[9px] capitalize leading-tight" style={{ color: 'rgb(var(--g-500))' }}>{comp.type.replace('_', ' ')}</div>
                 </div>
               </div>
-              <div className="px-3 py-2 grid grid-cols-3 gap-1">
+              <div className="px-2 py-1.5">
                 {pins.map(pin => {
                   const pinId = `${comp.id}:${pin}`
-                  const connId = pinToConn[pinId]
+                  const wires = wiresAt[pinId] ?? []
+                  const selected = pinId === srcPin || pinId === dstPin
+                  const role = pinRole(pin)
                   return (
-                    <PinButton
-                      key={pin}
-                      pinId={pinId}
-                      pin={pin}
-                      step={mode}
-                      srcPin={srcPin}
-                      dstPin={dstPin}
-                      connectedPins={connectedPins}
-                      connForPin={connId}
-                      onClick={() => handlePinClick(comp.id, pin)}
-                    />
+                    <div key={pin} className="flex items-center gap-1.5 py-0.5 min-h-[28px]">
+                      <button
+                        data-tour={`pin-${pinId}`}
+                        onClick={() => handlePinClick(comp.id, pin)}
+                        onContextMenu={wires.length ? openMenu(wires[0]) : undefined}
+                        title={mode === 'idle' ? `Start a wire at ${pin}` : `Connect to ${pin}`}
+                        aria-label={`${comp.name} pin ${pin}${wires.length ? `, ${wires.length} wire${wires.length > 1 ? 's' : ''}` : ''}`}
+                        className="shrink-0 w-[72px] flex items-center gap-1.5 px-1.5 py-1 rounded-lg text-[10px] font-mono font-semibold border transition-colors"
+                        style={selected
+                          ? { background: 'rgb(var(--a-600))', borderColor: 'rgb(var(--a-600))', color: '#fff' }
+                          : { background: 'rgb(var(--g-800))', borderColor: wires.length ? 'rgb(var(--a-600) / 0.35)' : 'transparent', color: 'rgb(var(--g-200))' }}
+                      >
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: selected ? '#fff' : ROLE_DOT[role] }} aria-hidden="true" />
+                        {pin}
+                      </button>
+                      <div className="flex-1 min-w-0 flex flex-wrap gap-1">
+                        {wires.map(connId => {
+                          const c = connections[connId]
+                          const st = wireStyle(connId, c)
+                          const other = c.fromPinId === pinId ? c.toPinId : c.fromPinId
+                          return (
+                            <button key={connId}
+                              data-tour={`conn-cut-${connId}`}
+                              onClick={openMenu(connId)} onContextMenu={openMenu(connId)}
+                              title={`${st.label} wire to ${friendlyPin(other, objects)} — click or right-click to edit / delete`}
+                              className="max-w-full flex items-center gap-1 pl-1 pr-1.5 py-0.5 rounded-md text-[9.5px] font-medium hover:brightness-95"
+                              style={{ background: 'rgb(var(--g-800))', color: 'rgb(var(--g-200))' }}>
+                              <span className="w-4 h-[3px] rounded-full shrink-0" style={{ background: st.color }} aria-hidden="true" />
+                              <span className="truncate">{friendlyPin(other, objects)}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
                   )
                 })}
               </div>
@@ -361,42 +207,11 @@ export default function WiringPanel() {
         })}
       </div>
 
-      {/* Active connections list — always visible at bottom */}
-      {Object.keys(connections).length > 0 && (
-        <div className="border-t border-gray-700/50 shrink-0">
-          <div className="px-3 pt-2 pb-1">
-            <div className="text-[9px] text-gray-400 uppercase tracking-wider font-semibold">
-              Active Connections ({Object.keys(connections).length})
-            </div>
-          </div>
-          <div className="max-h-40 overflow-y-auto px-3 pb-2 space-y-1">
-            {Object.entries(connections).map(([connId, { fromPinId, toPinId }]) => {
-              const wire   = objectManager.getWire?.(connId)
-              const wColor = wire?.material?.color ? '#' + wire.material.color.getHexString() : '#888'
-              return (
-                <div
-                  key={connId}
-                  className="flex items-center gap-2 bg-gray-800/40 hover:bg-gray-700/40 rounded px-2 py-1.5 group transition-colors"
-                >
-                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: wColor }} />
-                  <div className="flex-1 min-w-0 text-[9px]">
-                    <div className="text-gray-300 truncate">{friendlyPin(fromPinId)}</div>
-                    <div className="text-gray-500 truncate">→ {friendlyPin(toPinId)}</div>
-                  </div>
-                  <button
-                    onClick={() => disconnect(connId)}
-                    data-tour={`conn-cut-${connId}`}
-                    className="shrink-0 opacity-40 group-hover:opacity-100 text-red-400 hover:text-red-300 hover:bg-red-900/30 rounded px-1.5 py-0.5 text-[10px] font-medium transition-all"
-                    title="Disconnect"
-                  >
-                    ✂ Cut
-                  </button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {menu && <ConnectionMenu {...menu} onClose={() => setMenu(null)} onReconnect={startReconnect} />}
     </div>
   )
+}
+
+function Legend({ color, label }) {
+  return <span className="flex items-center gap-1"><span className="w-4 h-[3px] rounded-full" style={{ background: color }} />{label}</span>
 }

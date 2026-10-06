@@ -5,6 +5,7 @@ import {
   buildWireLine,
   rebuildWireLine,
 } from '../utils/electronicsFactory.js'
+import { wireStyle } from '../utils/wiring.js'
 
 const PIN_COLOR_HOVER   = 0xffffff
 const HANDLE_RADIUS     = 0.14
@@ -57,6 +58,7 @@ class WireManager {
     this._revealed  = new Set()   // componentIds whose pins are currently shown
 
     // Callbacks → set by App
+    this.getConnections = null  // () => electronicsStore.connections (for syncFromStore)
     this.onWireCreated = null   // (fromPinId, toPinId, connId) => void
     this.onWireRemoved = null   // (connId) => void
   }
@@ -79,6 +81,12 @@ class WireManager {
       }
     })
     this._refreshPins()   // apply current reveal state (new pins default to hidden)
+    // A part's pins exist only once its model has loaded — wires saved in the
+    // store for it can be drawn now.
+    if (this.getConnections && !this._syncQueued) {
+      this._syncQueued = true
+      queueMicrotask(() => { this._syncQueued = false; this.syncFromStore(this.getConnections()) })
+    }
   }
 
   // ── Pin reveal (called by the app on selection / panel change) ───────────────
@@ -326,47 +334,77 @@ class WireManager {
 
     // Avoid duplicates
     if (!this.wires.has(connId)) {
-      const from = new THREE.Vector3()
-      const to   = new THREE.Vector3()
-      this._fromSphere.getWorldPosition(from)
-      toSphere.getWorldPosition(to)
-
-      const color = this._wireColor(this._fromSphere, toSphere)
-      const controlPoints = buildWireControlPoints(from, to)
-      const { line } = buildWireLine(controlPoints, color)
-      line.userData.connId = connId
-      this.scene.add(line)
-
-      // Bend handle sphere (shown on hover)
-      const handleMat = new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        emissive: 0x444444,
-        transparent: true,
-        opacity: 0,
-        depthWrite: false,
-      })
-      const handleSphere = new THREE.Mesh(
-        new THREE.SphereGeometry(HANDLE_RADIUS, 10, 10),
-        handleMat
-      )
-      handleSphere.position.copy(controlPoints[1])
-      handleSphere.userData.isWireHandle = true
-      handleSphere.userData.connId       = connId
-      this.scene.add(handleSphere)
-
-      this.wires.set(connId, {
-        line, handleSphere, controlPoints,
-        fromSphere: this._fromSphere,
-        toSphere,
-        color,
-        handleDragged: false,
-        handleOffset:  null,
-      })
-
+      const color = new THREE.Color(wireStyle(connId, { fromPinId: fromId, toPinId: toId }).color).getHex()
+      this._createWireMesh(connId, this._fromSphere, toSphere, color)
       if (this.onWireCreated) this.onWireCreated(fromId, toId, connId)
     }
 
     this._cancelDrag()
+  }
+
+  _createWireMesh(connId, fromSphere, toSphere, color) {
+    const from = new THREE.Vector3()
+    const to   = new THREE.Vector3()
+    fromSphere.getWorldPosition(from)
+    toSphere.getWorldPosition(to)
+
+    const controlPoints = buildWireControlPoints(from, to)
+    const { line } = buildWireLine(controlPoints, color)
+    line.userData.connId = connId
+    this.scene.add(line)
+
+    // Bend handle sphere (shown on hover)
+    const handleMat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      emissive: 0x444444,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+    })
+    const handleSphere = new THREE.Mesh(
+      new THREE.SphereGeometry(HANDLE_RADIUS, 10, 10),
+      handleMat
+    )
+    handleSphere.position.copy(controlPoints[1])
+    handleSphere.userData.isWireHandle = true
+    handleSphere.userData.connId       = connId
+    this.scene.add(handleSphere)
+
+    this.wires.set(connId, {
+      line, handleSphere, controlPoints,
+      fromSphere,
+      toSphere,
+      color,
+      handleDragged: false,
+      handleOffset:  null,
+    })
+  }
+
+  /**
+   * Make the 3D wires mirror electronicsStore.connections — the single wiring
+   * state. Wires created in Pick a Pin / the Workbench appear in 3D, removed or
+   * re-pointed ones update, colours follow the shared role/override colour.
+   * Called by App whenever the connection list (or the set of parts) changes.
+   */
+  syncFromStore(connections) {
+    if (!this.scene) return
+    for (const [connId, w] of [...this.wires]) {
+      const c = connections[connId]
+      // Gone from the store, re-pointed, or a part was rebuilt/removed → drop the mesh.
+      if (!c || this.pinSpheres.get(c.fromPinId) !== w.fromSphere || this.pinSpheres.get(c.toPinId) !== w.toSphere) {
+        this._removeWireMesh(connId, { silent: true })
+      }
+    }
+    for (const [connId, c] of Object.entries(connections)) {
+      const color = new THREE.Color(wireStyle(connId, c).color).getHex()
+      const w = this.wires.get(connId)
+      if (w) {
+        if (w.color !== color) { w.color = color; w.line.material.color?.setHex(color) }
+        continue
+      }
+      const a = this.pinSpheres.get(c.fromPinId), b = this.pinSpheres.get(c.toPinId)
+      if (a && b) this._createWireMesh(connId, a, b, color)
+    }
   }
 
   _cancelDrag() {
@@ -381,7 +419,7 @@ class WireManager {
     this._refreshPins()   // drag ended → return pins to their reveal-state baseline
   }
 
-  _removeWireMesh(connId) {
+  _removeWireMesh(connId, { silent = false } = {}) {
     const w = this.wires.get(connId)
     if (!w) return
     this.scene.remove(w.line)
@@ -391,7 +429,7 @@ class WireManager {
     w.handleSphere.geometry.dispose()
     w.handleSphere.material.dispose()
     this.wires.delete(connId)
-    if (this.onWireRemoved) this.onWireRemoved(connId)
+    if (!silent && this.onWireRemoved) this.onWireRemoved(connId)
   }
 
   removeWire(connId) {

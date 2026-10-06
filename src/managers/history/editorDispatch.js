@@ -14,8 +14,8 @@ import { useRobotStore } from '../../stores/robotStore.js'
 const clone = (v) => JSON.parse(JSON.stringify(v))
 
 // ── Canonical document state ──────────────────────────────────────────────────
-// The same five slices the original undo system captured. Kept identical so the
-// snapshot bridge reproduces the previous behaviour exactly (minus the bugs).
+// The original undo slices plus wiring `connections`, so wiring edits made in
+// Pick a Pin, the Workbench or the 3D view are undoable like any other edit.
 // Fine-grained commands added later manage their own (incl. non-canonical) state.
 export function captureCanonical() {
   return clone({
@@ -25,6 +25,7 @@ export function captureCanonical() {
     patches:     useSurfaceStore.getState().patches,
     joints:      useJointStore.getState().joints,
     blueprints:  useRobotStore.getState().blueprints,
+    connections: useElectronicsStore.getState().connections,
   })
 }
 
@@ -36,6 +37,8 @@ export function restoreCanonical(state) {
   useSurfaceStore.getState().setPatches(state.patches ?? {})
   useJointStore.getState().setJoints(state.joints ?? {})
   useRobotStore.getState().setBlueprints(state.blueprints ?? {})
+  // Wires (added for undoable wiring). Older snapshots without it leave wires as-is.
+  if (state.connections) useElectronicsStore.getState().setConnections(state.connections)
 }
 
 // `_baseline` is the committed canonical state that the NEXT snapshot() will diff

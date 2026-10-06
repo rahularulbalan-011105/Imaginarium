@@ -22,6 +22,7 @@ import SurfaceAttachPrompt from './SurfaceAttachPrompt.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
 import ViewGizmo from './ViewGizmo.jsx'
 import ViewportToolbox from './ViewportToolbox.jsx'
+import { WORKSPACE_PANELS } from './shell/nav.js'
 import DrivePanel from './DrivePanel.jsx'
 import { useHistory } from '../hooks/useHistory.js'
 import { driveManager } from '../managers/DriveManager.js'
@@ -59,6 +60,7 @@ export default function Viewport() {
   const sliceToolActive   = useUiStore((s) => s.sliceToolActive)
   const extrudeState      = useUiStore((s) => s.extrudeState)
   const simActive         = useUiStore((s) => s.simActive)
+  const activePanel       = useUiStore((s) => s.activePanel)
   const patches           = useSurfaceStore((s) => s.patches)
   const selectedPatchIds  = useSurfaceStore((s) => s.selectedIds)
   const addPatch          = useSurfaceStore((s) => s.addPatch)
@@ -863,7 +865,7 @@ export default function Viewport() {
       <ViewportToolbox />
 
       {/* Interactive view cube + quick-view switcher (top-right corner) */}
-      {!simActive && <ViewGizmo />}
+      {!simActive && !WORKSPACE_PANELS.has(activePanel) && <ViewGizmo />}
 
       <DimensionOverlay />
       <SurfaceAttachPrompt />

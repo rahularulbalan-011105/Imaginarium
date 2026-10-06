@@ -246,17 +246,30 @@ function AppEditor() {
 
   // ── Wire callbacks ────────────────────────────────────────────────────────
   useEffect(() => {
+    wireManager.getConnections = () => useElectronicsStore.getState().connections
     wireManager.onWireCreated = (fromPinId, toPinId, connId) => {
       addWireConnection(fromPinId, toPinId, connId)
+      snapshot('wire')
     }
     wireManager.onWireRemoved = (connId) => {
       removeWireConnection(connId)
+      snapshot('wire')
     }
     return () => {
       wireManager.onWireCreated = null
       wireManager.onWireRemoved = null
     }
-  }, [addWireConnection, removeWireConnection])
+  }, [addWireConnection, removeWireConnection, snapshot])
+
+  // 3D wires mirror the single connection list (Pick a Pin / Workbench / 3D all
+  // edit electronicsStore.connections). Re-sync when wires or parts change — parts
+  // matter because a part's pins exist only once its model has loaded.
+  const connections = useElectronicsStore((s) => s.connections)
+  const partsKey = useSceneStore((s) => s.objects.length)
+  useEffect(() => {
+    const t = setTimeout(() => wireManager.syncFromStore(useElectronicsStore.getState().connections), 0)
+    return () => clearTimeout(t)
+  }, [connections, partsKey])
 
   // Reveal pin interaction points only when needed: every board's pins while the
   // Wiring panel is open, or just the selected board's pins otherwise. Keeps the GLB
