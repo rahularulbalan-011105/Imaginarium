@@ -18,14 +18,16 @@ const STARTER = {
   },
 }
 
-export default function BlocksPanel() {
+export default function BlocksPanel({ workspace = false }) {
   const hostRef    = useRef(null)
   const blocklyDiv = useRef(null)
   const wsRef      = useRef(null)
   const [code, setLocalCode] = useState('')
   const [error, setError]    = useState(null)
   const [diag, setDiag]      = useState(null)   // same compiler diagnostics as the Code editor
-  const [started, setStarted] = useState(false)   // gate Blockly init behind a click
+  // Gate Blockly init behind a click — except in the main workspace, where opening
+  // CODE → Block Coding is itself the deliberate action (Blockly is lazy-loaded).
+  const [started, setStarted] = useState(workspace)
   const [maximized, setMaximized] = useState(false)
 
   const setCode       = useElectronicsStore(s => s.setCode)
@@ -50,6 +52,9 @@ export default function BlocksPanel() {
     const ws = Blockly.inject(blocklyDiv.current, {
       toolbox: ARDUINO_TOOLBOX,
       trashcan: true,
+      // Blockly's default sounds load from blockly-demo.appspot.com, which the
+      // app's CSP (media-src 'self') blocks — a console error on every drag.
+      sounds: false,
       // Scrollbars OFF — pan by dragging empty canvas, zoom with wheel/controls.
       // (Their stale-track artifacts don't play well inside a resizable panel.)
       move: { scrollbars: false, drag: true, wheel: true },
@@ -164,16 +169,17 @@ export default function BlocksPanel() {
         : 'flex flex-col h-full min-h-0 bg-gray-950 overflow-hidden'
     }>
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
-        <span className="text-xs font-semibold text-gray-300">🧩 Blocks</span>
+        <span className="text-xs font-semibold text-gray-300">🧩 Block Coding</span>
+        {workspace && <span className="text-[10px] text-gray-500">Blocks write the C++ sketch — use “Use in C++” or Run</span>}
         {started && (
           <>
-            <button
+            {!workspace && <button
               onClick={() => setMaximized(m => !m)}
               title={maximized ? 'Restore to panel' : 'Maximize editor'}
               className="ml-1 text-[11px] text-gray-400 hover:text-slate-900 px-1.5 py-0.5 rounded border border-gray-700/50 hover:border-gray-500 transition-colors leading-none"
             >
               {maximized ? '🗗 Restore' : '🗖 Maximize'}
-            </button>
+            </button>}
             <button
               onClick={resetBlocks}
               title="Clear all blocks back to a clean start"
@@ -222,9 +228,9 @@ export default function BlocksPanel() {
           </button>
         )}
         <button onClick={sendToEditor}
-          title="Copy the generated C++ into the Code tab"
+          title="Put the generated C++ into C++ Coding (replaces the sketch there)"
           className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-medium transition-colors">
-          {'</>'} To Code
+          {'</>'} Use in C++
         </button>
       </div>
 

@@ -20,7 +20,6 @@ import SettingsPanel from '../SettingsPanel.jsx'
 
 // Heavy, rarely-first-used panels load on demand (Blockly alone is ~1 MB) — so
 // opening CAD never pulls Blockly or the physics panel.
-const BlocksPanel  = lazy(() => import('../BlocksPanel.jsx'))
 const PhysicsPanel = lazy(() => import('../PhysicsPanel.jsx'))
 const PanelFallback = () => <div className="p-4 text-xs" style={{ color: 'rgb(var(--g-500))' }}>Loading…</div>
 
@@ -92,9 +91,9 @@ function Body({ panel }) {
       )
 
     case 'blocks':
-      return <PanelErrorBoundary label="Blocks"><Suspense fallback={<PanelFallback />}><BlocksPanel /></Suspense></PanelErrorBoundary>
+      return <CodeSide kind="blocks" />
     case 'code':
-      return <CodeSide />
+      return <CodeSide kind="code" />
 
     case 'simhome':
       return (
@@ -115,15 +114,16 @@ function Body({ panel }) {
   }
 }
 
-// The C++ editor itself fills the main workspace; the side panel holds its layout controls.
-function CodeSide() {
+// Block Coding and the C++ editor fill the main workspace; the side panel holds
+// the explanation + layout switch (full editor, or split with the 3D view).
+function CodeSide({ kind }) {
   const codeLayout = useUiStore((s) => s.codeLayout)
   const setCodeLayout = useUiStore((s) => s.setCodeLayout)
   return (
     <div className="p-3 flex flex-col gap-3">
-      <Placeholder icon="code" title="C++ Coding">
-        The Arduino editor is open in the main workspace. Block Coding writes into this same sketch.
-      </Placeholder>
+      {kind === 'code'
+        ? <Placeholder icon="code" title="C++ Coding">The Arduino editor is open in the main workspace. Block Coding writes into this same sketch.</Placeholder>
+        : <Placeholder icon="puzzle" title="Block Coding">Snap blocks together in the main workspace. They generate Arduino C++ — <b>Use in C++</b> puts it into C++ Coding, <b>Run Blocks</b> runs it.</Placeholder>}
       <SubToggle label="Editor layout" value={codeLayout}
         options={[{ id: 'full', label: 'Full editor' }, { id: 'split', label: 'Split with 3D' }]}
         onChange={setCodeLayout} />

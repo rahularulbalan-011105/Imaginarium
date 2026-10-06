@@ -49,4 +49,4 @@ export function defaultPanelOf(parent) {
 }
 
 /** Panels that take over the centre workspace instead of living in the side panel. */
-export const WORKSPACE_PANELS = new Set(['code', 'workbench'])
+export const WORKSPACE_PANELS = new Set(['code', 'blocks', 'workbench'])

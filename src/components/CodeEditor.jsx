@@ -310,7 +310,7 @@ export default function CodeEditor({ full = false }) {
   const hasServoAngles = Object.keys(simulation.servoAngles ?? {}).length > 0
 
   return (
-    <div className="flex flex-col h-full bg-slate-950">
+    <div className={`flex flex-col h-full ${full ? '' : 'bg-slate-950'}`} style={full ? { background: 'rgb(var(--g-900))' } : undefined}>
 
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
@@ -361,7 +361,7 @@ export default function CodeEditor({ full = false }) {
         {full && (
           <div ref={gutterRef} aria-hidden="true"
             className="code-text shrink-0 overflow-hidden select-none text-right font-mono py-3 pl-3 pr-2 leading-relaxed text-[13px]"
-            style={{ fontFamily: "'Fira Code', 'Consolas', monospace", color: 'rgb(var(--g-500))', background: 'rgb(var(--g-800) / 0.5)', minWidth: 44 }}>
+            style={{ fontFamily: "'Fira Code', 'Consolas', monospace", color: '#64748b', background: '#0b1222', minWidth: 44 }}>
             {Array.from({ length: Math.max(1, code.split('\n').length) }, (_, i) => <div key={i}>{i + 1}</div>)}
           </div>
         )}
