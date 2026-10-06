@@ -24,14 +24,13 @@ export default function MechanicalLibrary() {
     <div className="flex flex-col h-full overflow-y-auto p-2">
       <div className="text-[9px] text-orange-500 uppercase tracking-wider mb-1.5 font-semibold px-1">Mechanical</div>
       <div className="flex flex-col gap-1">
-        {PARTS.map(({ type, label, icon, desc }) => (
+        {PARTS.map(({ type, label, desc }) => (
           <button
             key={type}
             onClick={() => addPart(type)}
             title={label}
             className="group flex items-center gap-2.5 w-full px-2 py-2 rounded-lg bg-gray-800/70 border border-transparent hover:border-orange-500/40 hover:bg-orange-500/10 transition-all duration-150 text-left"
           >
-            <span className="text-lg leading-none shrink-0">{icon}</span>
             <span className="min-w-0 flex-1">
               <span className="block text-[12px] font-medium leading-tight truncate" style={{ color: 'rgb(var(--g-200))' }}>{label}</span>
               <span className="block text-[10px] leading-tight truncate" style={{ color: 'rgb(var(--g-400))' }}>{desc}</span>

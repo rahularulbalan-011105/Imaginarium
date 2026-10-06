@@ -5,6 +5,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { TransformControls } from 'three/addons/controls/TransformControls.js'
 import { objectManager } from './ObjectManager.js'
 import { wireManager } from './WireManager.js'
+import { setOutlineResolution } from '../utils/selectionOutline.js'
 // Subscribed only to wake the renderer when the scene changes (see requestRender).
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -50,6 +51,7 @@ class SceneManager {
     const preQ = resolveQuality(perf.profile, classify(preCaps), perf.overrides)
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: preQ.antialias, powerPreference: 'high-performance' })
     this.renderer.setSize(width, height)
+    setOutlineResolution(width, height)
     this.caps = readCapabilities(this.renderer.getContext())
     this.detectedProfile = classify(this.caps)
     this._antialias = preQ.antialias
@@ -231,6 +233,7 @@ class SceneManager {
     this.camera.aspect = width / height
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height)
+    setOutlineResolution(width, height)
     this.requestRender()
   }
 

@@ -81,7 +81,7 @@ export default function ElectronicsLibrary() {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto p-2">
-      <div className="text-[9px] text-green-500 uppercase tracking-wider mb-1.5 font-semibold px-1">Electronics</div>
+      <div className="text-[9px] text-orange-500 uppercase tracking-wider mb-1.5 font-semibold px-1">Electronics</div>
       <div className="space-y-1">
         {CATEGORIES.map((cat) => {
           const open = !!openCats[cat.key]
@@ -91,7 +91,6 @@ export default function ElectronicsLibrary() {
                 onClick={() => toggleCat(cat.key)}
                 className="w-full flex items-center gap-2 px-2.5 py-2 hover:bg-gray-700/40 transition-colors"
               >
-                <span className="text-sm">{cat.icon}</span>
                 <span className="text-[12px] font-semibold" style={{ color: 'rgb(var(--g-200))' }}>{cat.label}</span>
                 <span className="text-[10px]" style={{ color: 'rgb(var(--g-500))' }}>({cat.items.length})</span>
                 <span className="ml-auto text-[10px]" style={{ color: 'rgb(var(--g-500))' }}>{open ? '▾' : '▸'}</span>
@@ -100,7 +99,7 @@ export default function ElectronicsLibrary() {
                 <div className="px-1.5 pb-1.5">
                   {cat.blurb && <div className="text-[9px] mb-1 px-1" style={{ color: 'rgb(var(--g-500))' }}>{cat.blurb}</div>}
                   <div className="flex flex-col gap-1">
-                    {cat.items.map(({ type, label, icon, desc, purpose, usage }) => (
+                    {cat.items.map(({ type, label, desc, purpose, usage }) => (
                       <button
                         key={type}
                         data-tour={`elec-${type}`}
@@ -110,7 +109,6 @@ export default function ElectronicsLibrary() {
                         title={`${label}\n${purpose}\nCommonly used for: ${usage}`}
                         className="group flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg bg-gray-800/70 border border-transparent hover:border-green-500/40 hover:bg-green-500/10 transition-all duration-150 text-left"
                       >
-                        <span className="text-lg leading-none shrink-0">{icon}</span>
                         <span className="min-w-0 flex-1">
                           <span className="block text-[12px] font-medium leading-tight truncate" style={{ color: 'rgb(var(--g-200))' }}>{label}</span>
                           <span className="block text-[10px] leading-tight truncate" style={{ color: 'rgb(var(--g-400))' }}>{desc}</span>
@@ -134,7 +132,6 @@ export default function ElectronicsLibrary() {
                 className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-gray-800/40 transition-colors"
                 title={cat.note}
               >
-                <span className="text-sm opacity-50">{cat.icon}</span>
                 <span className="text-[11px] font-medium text-gray-500">{cat.label}</span>
                 <span className="text-[9px] text-gray-600">(0)</span>
                 <span className="ml-auto text-[8px] uppercase tracking-wider text-gray-600">soon</span>

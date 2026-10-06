@@ -5,6 +5,7 @@ import { createArduinoGroup, createSuboGroup, createMotorGroup, createMotorBOGro
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
+import { createOutline } from '../utils/selectionOutline.js'
 
 // Live geometry registry — holds imported model geometries by object ID.
 // Bypasses the toJSON/parse round-trip which can silently produce empty geometries.
@@ -75,6 +76,28 @@ class ObjectManager {
 
   init(scene) {
     this.scene = scene
+    // Selection outlines live in their own overlay group, NOT inside the objects:
+    // they're fat-line meshes (isMesh), so as children they'd leak into every
+    // "collect this object's meshes" pass (Boolean, STL export, slice, recolour…).
+    this._outlineLayer = new THREE.Group()
+    this._outlineLayer.name = 'selection-outlines'
+    scene.add(this._outlineLayer)
+    // Each render, place every outline on its source mesh (world matrices are
+    // already up to date here) and hide it if that mesh isn't visible on screen.
+    const prev = scene.onBeforeRender
+    scene.onBeforeRender = (...args) => { prev?.apply(scene, args); this._syncOutlines() }
+  }
+
+  _syncOutlines() {
+    const layer = this._outlineLayer
+    if (!layer || layer.children.length === 0) return
+    for (const ls of layer.children) {
+      const m = ls.userData.source
+      let shown = !!m, n = m
+      while (n && shown) { if (!n.visible) shown = false; if (!n.parent && n !== this.scene) shown = false; n = n.parent }
+      ls.visible = shown
+      if (shown) ls.matrixWorld.copy(m.matrixWorld)
+    }
   }
 
   // ── Create ────────────────────────────────────────────────────────────────
@@ -885,28 +908,34 @@ class ObjectManager {
   // Add/replace/remove the edge-outline overlay on an object (color=null removes).
   _setOutline(obj, color) {
     const old = obj.userData._outlines
-    if (old) for (const ls of old) { ls.parent?.remove(ls); ls.geometry.dispose(); ls.material.dispose() }
+    if (old) for (const ls of old) { ls.removeFromParent(); ls.geometry.dispose(); ls.material.dispose() }
     obj.userData._outlines = null
     obj.userData._outlineColor = color || null
     if (!color) return
 
     const meshes = []
-    obj.traverse(child => {
-      if (child.isMesh && child.geometry?.isBufferGeometry &&
-          !child.userData.isPin && !child.userData.isPinLabel && !child.userData.isSelectionOutline) {
-        meshes.push(child)
+    const walk = (node) => {
+      // Stop at other parts riding inside this one (a wheel on a motor's rotor):
+      // selecting the motor outlines the motor, not everything mounted on it.
+      if (node !== obj && node.userData.id && this.objects.get(node.userData.id) === node) return
+      if (node.isMesh && node.geometry?.isBufferGeometry &&
+          !node.userData.isPin && !node.userData.isPinLabel && !node.userData.isSelectionOutline) {
+        meshes.push(node)
       }
-    })
+      for (const c of node.children) walk(c)
+    }
+    walk(obj)
     const outlines = []
     for (const m of meshes) {
-      const edges = new THREE.EdgesGeometry(m.geometry, 20)   // 20° crease threshold
-      const ls = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({
-        color, transparent: true, opacity: 0.95, depthTest: false,
-      }))
+      const ls = createOutline(m.geometry, color, 20)   // 20° crease threshold, 3 px wide
+      if (!ls) continue             // too dense to outline legibly
       ls.userData.isSelectionOutline = true
       ls.renderOrder = 999          // draw over the surface
       ls.raycast = () => {}         // never intercept clicks
-      m.add(ls)                     // child of the mesh → follows its transform
+      ls.matrixAutoUpdate = false   // placed on its source mesh by _syncOutlines
+      ls.frustumCulled = false
+      ls.userData.source = m
+      this._outlineLayer.add(ls)
       outlines.push(ls)
     }
     obj.userData._outlines = outlines
@@ -999,6 +1028,8 @@ class ObjectManager {
     if (this.attachedObjects.has(id)) {
       this.attachedObjects.delete(id)
     }
+
+    this._setOutline(o, null)   // outlines sit in the overlay layer, not under `o`
 
     // removeFromParent works whether parent is the scene or a rotorGroup
     o.removeFromParent()
