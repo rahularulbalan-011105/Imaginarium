@@ -146,22 +146,22 @@ export default function PhysicsPanel() {
         <Field label="Gravity" hint="m/s² (Earth −9.81)">
           <Sel value={ps.environment} width={92}
             options={[{ value: 'earth', label: 'Earth' }, { value: 'moon', label: 'Moon' }, { value: 'mars', label: 'Mars' }, { value: 'zero_g', label: 'Zero-G' }, { value: 'custom', label: 'Custom' }]}
-            onChange={(v) => v === 'custom' ? ps.setCustomGravity(gravity) : ps.setEnvironment(v)} />
-          <Num value={+gravity.toFixed(3)} step={0.1} onCommit={(v) => ps.setCustomGravity(v ?? -9.81)} width={60} />
+            onChange={(v) => { v === 'custom' ? ps.setCustomGravity(gravity) : ps.setEnvironment(v); recordSnapshot('Physics: gravity') }} />
+          <Num value={+gravity.toFixed(3)} step={0.1} onCommit={(v) => { ps.setCustomGravity(v ?? -9.81); recordSnapshot('Physics: gravity') }} width={60} />
         </Field>
         <Field label="Physics rate" hint="Fixed timestep, independent of the render frame rate. Servos on light links need ≥ 240 Hz.">
           <Sel value={String(Math.round(1 / world.timestep))} width={92}
             options={['120', '240', '480', '960'].map(v => ({ value: v, label: `${v} Hz` }))}
-            onChange={(v) => ps.setWorldPhysics({ timestep: 1 / Number(v) })} />
+            onChange={(v) => { ps.setWorldPhysics({ timestep: 1 / Number(v) }); recordSnapshot('Physics: rate') }} />
         </Field>
         <Field label="Solver iterations" hint="World-wide; robots add their own extra iterations.">
-          <Num value={world.solverIterations} step={1} min={1} max={64} onCommit={(v) => ps.setWorldPhysics({ solverIterations: v ?? 8 })} />
+          <Num value={world.solverIterations} step={1} min={1} max={64} onCommit={(v) => { ps.setWorldPhysics({ solverIterations: v ?? 8 }); recordSnapshot('Physics: solver') }} />
         </Field>
         <Field label="Terrain">
-          <Sel value={world.terrain.type} options={TERRAIN_TYPES} onChange={(v) => ps.setWorldPhysics({ terrain: { type: v } })} />
+          <Sel value={world.terrain.type} options={TERRAIN_TYPES} onChange={(v) => { ps.setWorldPhysics({ terrain: { type: v } }); recordSnapshot('Physics: terrain') }} />
         </Field>
         <Field label="Ground material">
-          <Sel value={world.terrain.material} options={Object.keys(MATERIALS)} onChange={(v) => ps.setWorldPhysics({ terrain: { material: v } })} />
+          <Sel value={world.terrain.material} options={Object.keys(MATERIALS)} onChange={(v) => { ps.setWorldPhysics({ terrain: { material: v } }); recordSnapshot('Physics: ground') }} />
         </Field>
         {simActive && <div className="text-[10px]" style={S.muted}>World changes apply on the next simulation start.</div>}
       </Section>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useUiStore } from '../stores/uiStore.js'
 import { physicsManager } from '../managers/physics/PhysicsManager.js'
 import { preparePhysics } from '../managers/DriveManager.js'
+import { recordSnapshot } from '../managers/history/editorDispatch.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import Icon from './ui/Icon.jsx'
 import { trackEvent } from '../utils/utmTracking.js'
@@ -82,7 +83,7 @@ export default function SimulationPanel() {
             return (
               <button
                 key={env.id}
-                onClick={() => setEnvironment(env.id)}
+                onClick={() => { setEnvironment(env.id); recordSnapshot('Environment') }}
                 className="flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-colors"
                 style={active
                   ? { background: 'rgb(var(--a-600))', color: '#fff' }

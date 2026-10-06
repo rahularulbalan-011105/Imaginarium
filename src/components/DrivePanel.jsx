@@ -4,6 +4,7 @@ import { objectManager } from '../managers/ObjectManager.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useElectronicsStore, SENSOR_TYPES } from '../stores/electronicsStore.js'
+import { recordSnapshot } from '../managers/history/editorDispatch.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import { driveManager } from '../managers/DriveManager.js'
 import { ENVIRONMENTS } from '../managers/physics/EnvironmentConfig.js'
@@ -185,7 +186,7 @@ export default function DrivePanel() {
           <span className="text-gray-500">Environment</span>
           <select
             value={environment}
-            onChange={e => setEnvironment(e.target.value)}
+            onChange={e => { setEnvironment(e.target.value); recordSnapshot('Environment') }}
             className="bg-gray-800 text-gray-200 border border-gray-700/60 rounded px-1.5 py-0.5 text-[10px] focus:outline-none cursor-pointer"
           >
             {Object.entries(ENVIRONMENTS).map(([key, env]) => (

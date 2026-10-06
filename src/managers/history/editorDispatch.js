@@ -2,6 +2,7 @@ import { history } from './HistoryManager.js'
 import { SnapshotCommand } from './Command.js'
 import { useSceneStore } from '../../stores/sceneStore.js'
 import { useElectronicsStore } from '../../stores/electronicsStore.js'
+import { usePhysicsStore } from '../../stores/physicsStore.js'
 import { useRigidStore } from '../../stores/rigidStore.js'
 import { useSurfaceStore } from '../../stores/surfaceStore.js'
 import { useJointStore } from '../../stores/jointStore.js'
@@ -14,8 +15,9 @@ import { useRobotStore } from '../../stores/robotStore.js'
 const clone = (v) => JSON.parse(JSON.stringify(v))
 
 // ── Canonical document state ──────────────────────────────────────────────────
-// The original undo slices plus wiring `connections`, so wiring edits made in
-// Pick a Pin, the Workbench or the 3D view are undoable like any other edit.
+// The original undo slices plus wiring `connections` and the physics world
+// settings, so wiring (Pick a Pin / Workbench / 3D) and physics configuration
+// are undoable like any other edit.
 // Fine-grained commands added later manage their own (incl. non-canonical) state.
 export function captureCanonical() {
   return clone({
@@ -26,6 +28,7 @@ export function captureCanonical() {
     joints:      useJointStore.getState().joints,
     blueprints:  useRobotStore.getState().blueprints,
     connections: useElectronicsStore.getState().connections,
+    physics:     usePhysicsStore.getState().serializePhysics(),   // world: gravity, rate, terrain
   })
 }
 
@@ -39,6 +42,7 @@ export function restoreCanonical(state) {
   useRobotStore.getState().setBlueprints(state.blueprints ?? {})
   // Wires (added for undoable wiring). Older snapshots without it leave wires as-is.
   if (state.connections) useElectronicsStore.getState().setConnections(state.connections)
+  if (state.physics) usePhysicsStore.getState().loadPhysics({ physics: state.physics })
 }
 
 // `_baseline` is the committed canonical state that the NEXT snapshot() will diff
