@@ -50,7 +50,25 @@ export const useUiStore = create((set, get) => ({
   // { sourceObjectId, extrudeObjectId, faceCenterWorld:{x,y,z}, faceNormalWorld:{x,y,z} }
   extrudeState: null,
 
-  setActivePanel: (panel) => set({ activePanel: panel }),
+  // Opening any panel also opens the context panel (it can be closed from its header).
+  setActivePanel: (panel) => set({ activePanel: panel, panelOpen: true }),
+  panelOpen: true,
+  setPanelOpen: (v) => set({ panelOpen: v }),
+
+  // Floating Quick Tools: position (px from the viewport's top-left) + minimized.
+  // Session-scoped: survives panel switches and reloads in the same tab.
+  quickTools: (() => {
+    try { return { x: 12, y: 12, minimized: false, ...JSON.parse(sessionStorage.getItem('constructa.quickTools') || '{}') } }
+    catch { return { x: 12, y: 12, minimized: false } }
+  })(),
+  setQuickTools: (patch) => {
+    const quickTools = { ...get().quickTools, ...patch }
+    try { sessionStorage.setItem('constructa.quickTools', JSON.stringify(quickTools)) } catch { /* private mode */ }
+    set({ quickTools })
+  },
+  // C++ editor workspace: 'full' covers the 3D view, 'split' keeps it visible beside the code.
+  codeLayout: 'full',
+  setCodeLayout: (v) => set({ codeLayout: v }),
   setSidebarCollapsed: (value) => set({ sidebarCollapsed: value }),
   setStatusMessage: (msg) => set({ statusMessage: msg }),
   setTransformMode: (mode) => set({ transformMode: mode }),

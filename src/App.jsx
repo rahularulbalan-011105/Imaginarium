@@ -1,22 +1,12 @@
-import { useEffect, useRef, useState, useCallback, lazy, Suspense } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 
-// Heavy, rarely-first-used panels load on demand (Blockly alone is ~1 MB).
-const BlocksPanel  = lazy(() => import('./components/BlocksPanel.jsx'))
-const PhysicsPanel = lazy(() => import('./components/PhysicsPanel.jsx'))
-const PanelFallback = () => <div className="p-4 text-xs" style={{ color: 'rgb(var(--g-500))' }}>Loading…</div>
 import Header from './components/Header.jsx'
 import Viewport from './components/Viewport.jsx'
-import PropertiesPanel from './components/PropertiesPanel.jsx'
-import ObjectList from './components/ObjectList.jsx'
 import StatusBar from './components/StatusBar.jsx'
-import BooleanPanel, { isBooleanCandidate } from './components/BooleanPanel.jsx'
-import CodeEditor from './components/CodeEditor.jsx'
-import PanelErrorBoundary from './components/PanelErrorBoundary.jsx'
-import AssetLibrary from './components/AssetLibrary.jsx'
-import ElectronicsLibrary from './components/ElectronicsLibrary.jsx'
-import MechanicalLibrary from './components/MechanicalLibrary.jsx'
-import JointPanel from './components/JointPanel.jsx'
-import WiringPanel from './components/WiringPanel.jsx'
+import { isBooleanCandidate } from './components/BooleanPanel.jsx'
+import NavRail from './components/shell/NavRail.jsx'
+import ContextPanel from './components/shell/ContextPanel.jsx'
+import CenterWorkspace from './components/shell/CenterWorkspace.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
 import ConstructaLogo from './components/ConstructaLogo.jsx'
 import EmailCapture from './components/EmailCapture.jsx'
@@ -26,12 +16,7 @@ import CloudSaveBar from './components/CloudSaveBar.jsx'
 import { initCloudSync } from './managers/CloudProjectManager.js'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
-import PanelHint from './components/onboarding/PanelHint.jsx'
-import RobotPanel from './components/RobotPanel.jsx'
 import OverlayBridge from './components/OverlayBridge.jsx'
-import SimulationPanel from './components/SimulationPanel.jsx'
-import SettingsPanel from './components/SettingsPanel.jsx'
-import Icon from './components/ui/Icon.jsx'
 import { useSceneStore } from './stores/sceneStore.js'
 import { useUiStore } from './stores/uiStore.js'
 import { useElectronicsStore } from './stores/electronicsStore.js'
@@ -97,8 +82,8 @@ function BootOverlay({ onDone }) {
 function ResizeHandle({ onMouseDown }) {
   return (
     <div
-      className="shrink-0 w-1 cursor-col-resize hover:bg-indigo-500/40 active:bg-indigo-500/60 transition-colors"
-      style={{ background: 'rgba(40,44,58,0.8)' }}
+      role="separator" aria-orientation="vertical" aria-label="Resize panel"
+      className="shrink-0 w-1.5 my-6 rounded-full cursor-col-resize transition-colors hover:bg-indigo-500/40 active:bg-indigo-500/60"
       onMouseDown={onMouseDown}
     />
   )
@@ -117,6 +102,7 @@ function AppEditor() {
   const setTransformMode = useUiStore((s) => s.setTransformMode)
   const activePanel = useUiStore((s) => s.activePanel)
   const setActivePanel = useUiStore((s) => s.setActivePanel)
+  const panelOpen = useUiStore((s) => s.panelOpen)
   const simActive = useUiStore((s) => s.simActive)
   const snapTranslate = useUiStore((s) => s.snapTranslate)
   const snapRotateDeg = useUiStore((s) => s.snapRotateDeg)
@@ -130,12 +116,12 @@ function AppEditor() {
   // ── Resizable right workspace ─────────────────────────────────────────────
   // The left sidebar is gone (its tools moved into the floating viewport
   // toolbox); only the right workspace (icon rail + section) is resizable now.
-  const [rightWidth, setRightWidth] = useState(300)
+  const [rightWidth, setRightWidth] = useState(() => (typeof window !== 'undefined' && window.innerWidth >= 1800 ? 360 : 312))
   const rightResizing = useRef(false)
 
   useEffect(() => {
     const onMove = (e) => {
-      if (rightResizing.current) setRightWidth(Math.max(224, Math.min(560, window.innerWidth - e.clientX)))
+      if (rightResizing.current) setRightWidth(Math.max(260, Math.min(560, window.innerWidth - e.clientX - 72)))
     }
     const onUp = () => {
       rightResizing.current = false
@@ -488,83 +474,6 @@ function AppEditor() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [selectedId, snapshot, undo, redo, addObject, insertObject, deleteSelected, duplicateObject, toggleGrid, toggleAxes, setTransformMode])
 
-  // ── Right workspace — grouped icon rail + one full-height section ─────────
-  // Replaces the old horizontal tab strip. Each rail button carries the same
-  // `tab-<id>` anchor the tutorials look for. Two brand-new sections group work
-  // that used to be scattered: Simulation (entry/controls) and Settings.
-  const RAIL = [
-    { group: 'Design', items: [
-      { id: 'properties', icon: 'sliders', label: 'Props' },
-      { id: 'objects',    icon: 'layers',  label: 'Objects' },
-      { id: 'library',    icon: 'package', label: 'Library' },
-    ] },
-    { group: 'Create', items: [
-      { id: 'electronics', icon: 'cpu',  label: 'Elec' },
-      { id: 'mechanical',  icon: 'bolt', label: 'Mech' },
-    ] },
-    { group: 'Build', items: [
-      { id: 'wiring', icon: 'zap',   label: 'Wiring' },
-      { id: 'joints', icon: 'link',  label: 'Joints' },
-      { id: 'robot',  icon: 'robot', label: 'Robot' },
-    ] },
-    { group: 'Program', items: [
-      { id: 'blocks', icon: 'puzzle', label: 'Blocks' },
-      { id: 'code',   icon: 'code',   label: 'Code' },
-    ] },
-    { group: 'Run', items: [
-      { id: 'sim',     icon: 'play',    label: 'Sim' },
-      { id: 'physics', icon: 'physics', label: 'Physics' },
-    ] },
-    { group: 'Setup', items: [
-      { id: 'settings', icon: 'gear', label: 'Settings' },
-    ] },
-  ]
-
-  // Guard: never show the Boolean panel after the two-object pair is broken.
-  const currentPanel = (activePanel === 'boolean' && !bothBoolean) ? 'properties' : activePanel
-
-  const renderPanelBody = (panel) => {
-    switch (panel) {
-      case 'boolean':  return <BooleanPanel selectedId={selectedId} secondaryId={secondaryId} />
-      case 'objects':  return <ObjectList />
-      case 'wiring':   return <WiringPanel />
-      case 'joints':   return <JointPanel />
-      case 'robot':    return <RobotPanel />
-      case 'blocks':   return <PanelErrorBoundary label="Blocks"><Suspense fallback={<PanelFallback />}><BlocksPanel /></Suspense></PanelErrorBoundary>
-      case 'library':  return <AssetLibrary />
-      case 'electronics': return <ElectronicsLibrary />
-      case 'mechanical':  return <MechanicalLibrary />
-      case 'sim':      return <PanelErrorBoundary label="Simulation"><SimulationPanel /></PanelErrorBoundary>
-      case 'physics':  return <PanelErrorBoundary label="Physics"><Suspense fallback={<PanelFallback />}><PhysicsPanel /></Suspense></PanelErrorBoundary>
-      case 'settings': return <SettingsPanel />
-      case 'code':     return <CodeEditor />
-      case 'properties':
-      default:         return <PropertiesPanel />
-    }
-  }
-
-  const railButton = ({ id, icon, label, isBool }) => {
-    const active = currentPanel === id
-    return (
-      <button
-        key={id}
-        data-tour={`tab-${id}`}
-        onClick={() => setActivePanel(id)}
-        title={label === 'Sim' ? 'Simulation' : label === 'Props' ? 'Properties' : label}
-        className="relative w-full flex flex-col items-center justify-center gap-0.5 py-2 rounded-xl transition-all duration-200"
-        style={active
-          ? { background: isBool ? 'rgb(168 85 247 / 0.9)' : 'rgb(var(--a-600))', color: '#fff' }
-          : { background: 'transparent', color: 'rgb(var(--g-400))' }}
-        onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgb(var(--a-600) / 0.14)' }}
-        onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent' }}
-      >
-        {active && <span className="absolute left-0.5 top-2 bottom-2 w-0.5 rounded-full" style={{ background: '#fff' }} />}
-        <Icon name={icon} size={18} />
-        <span className="text-[8px] font-medium leading-none">{label}</span>
-      </button>
-    )
-  }
-
   const startRightResize = (e) => {
     e.preventDefault()
     rightResizing.current = true
@@ -575,39 +484,18 @@ function AppEditor() {
   return (
     <div className="flex flex-col h-screen bg-gray-950 text-slate-800 overflow-hidden">
       <Header />
-      <div className="flex flex-1 min-h-0">
-        {/* Viewport is now the primary surface — tools float inside it. */}
-        <Viewport />
-
-        <ResizeHandle onMouseDown={startRightResize} />
-
-        {/* Right workspace — one full-height section + a grouped icon rail. */}
-        <div data-tour="panel" className="flex shrink-0 bg-gray-900 min-h-0" style={{ width: rightWidth }}>
-          {/* Active section body */}
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <PanelHint panelId={currentPanel} />
-              {renderPanelBody(currentPanel)}
-            </div>
-          </div>
-
-          {/* Grouped icon rail */}
-          <nav className="shrink-0 w-14 flex flex-col items-stretch gap-0.5 py-2 px-1.5 overflow-y-auto border-l"
-            style={{ borderColor: 'rgb(var(--g-700) / 0.6)', background: 'rgb(var(--g-950) / 0.55)' }}>
-            {bothBoolean && (
-              <>
-                {railButton({ id: 'boolean', icon: 'boolean', label: 'Boolean', isBool: true })}
-                <div className="h-px my-1 mx-2 rounded" style={{ background: 'rgb(var(--g-700))' }} />
-              </>
-            )}
-            {RAIL.map((sec, i) => (
-              <div key={sec.group}>
-                {i > 0 && <div className="h-px my-1 mx-2 rounded" style={{ background: 'rgb(var(--g-700) / 0.6)' }} />}
-                {sec.items.map((it) => railButton(it))}
-              </div>
-            ))}
-          </nav>
+      <div className="flex flex-1 min-h-0" style={{ background: 'rgb(var(--g-950))' }}>
+        {/* Centre: the 3D viewport (Quick Tools float inside it). Code / Workbench
+            take over this area as an overlay — the viewport stays mounted. */}
+        <div className="relative flex-1 min-w-0 flex">
+          <Viewport />
+          <CenterWorkspace />
         </div>
+
+        {/* Right: context panel (level 2/3) beside the permanent nav rail (level 1). */}
+        {panelOpen && <ResizeHandle onMouseDown={startRightResize} />}
+        {panelOpen && <ContextPanel width={rightWidth} />}
+        <NavRail />
       </div>
       <StatusBar />
 

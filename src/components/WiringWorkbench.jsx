@@ -30,7 +30,7 @@ function portColor(pin) {
 
 const CARD_W = 158, HEADER_H = 30, ROW_H = 22, PAD = 8
 
-export default function WiringWorkbench({ onClose }) {
+export default function WiringWorkbench({ onClose, embedded = false }) {
   const objects       = useSceneStore(s => s.objects)
   const connections   = useElectronicsStore(s => s.connections)
   const addWire       = useElectronicsStore(s => s.addWireConnection)
@@ -104,7 +104,7 @@ export default function WiringWorkbench({ onClose }) {
   const connList = Object.entries(connections)
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col" style={{ background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(2px)' }}>
+    <div className={`${embedded ? 'absolute' : 'fixed z-50'} inset-0 flex flex-col`} style={embedded ? undefined : { background: 'rgba(15,23,42,0.55)', backdropFilter: 'blur(2px)' }}>
       {/* Toolbar */}
       <div className="flex items-center gap-3 px-4 h-11 shrink-0 bg-gray-900 border-b border-amber-700/40">
         <span className="text-sm font-semibold text-white">🔌 Wiring Workbench</span>

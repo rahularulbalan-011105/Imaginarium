@@ -5,11 +5,12 @@
 // (src/styles/globals.css) which Tailwind consumes via the gray/indigo ramps.
 // This module owns nothing but the *selected theme name* and its persistence.
 //
-// Default theme: dark. Persisted to localStorage under `app-theme`.
+// Default theme: light (orange/white). Persisted to localStorage under
+// `app-theme.v2` — a new key so the UI redesign starts everyone on light once.
 // This file never imports a store, manager, or any app logic.
 // ──────────────────────────────────────────────────────────────────────────
 
-const KEY = 'app-theme'
+const KEY = 'app-theme.v2'
 const VALID = ['dark', 'light']
 
 export function getTheme() {
@@ -17,13 +18,13 @@ export function getTheme() {
     const t = localStorage.getItem(KEY)
     if (VALID.includes(t)) return t
   } catch (_) { /* private mode / no storage */ }
-  return 'dark'
+  return 'light'
 }
 
 // Apply a theme to <html>. When `animate` is true, briefly enable a CSS
 // colour-only transition (~200ms) so the switch fades instead of flashing.
 export function applyTheme(theme, { animate = false } = {}) {
-  const t = VALID.includes(theme) ? theme : 'dark'
+  const t = VALID.includes(theme) ? theme : 'light'
   const root = document.documentElement
 
   if (animate) {

@@ -158,3 +158,40 @@ textarea.code-text::placeholder { color: #6b8f6b; }
               box-shadow 200ms ease,
               outline-color 200ms ease !important;
 }
+
+/* ── UI shell (nav rail · context panel · Quick Tools) ──────────────────────
+   Small shared primitives for the redesigned shell. Orange is reserved for
+   active / primary states; surfaces stay white/neutral. */
+.ui-nav-btn { transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
+.ui-nav-btn:not([aria-pressed='true']):hover { background: rgb(var(--a-600) / 0.10); color: rgb(var(--a-600)); }
+.ui-nav-btn:focus-visible, .ui-icon-btn:focus-visible, .ui-btn:focus-visible { outline: 2px solid rgb(var(--a-600)); outline-offset: 2px; }
+
+.ui-icon-btn { color: rgb(var(--g-400)); transition: background-color 150ms ease, color 150ms ease; }
+.ui-icon-btn:hover { background: rgb(var(--a-600) / 0.12); color: rgb(var(--a-600)); }
+
+.ui-btn {
+  padding: 6px 12px; border-radius: 10px; font-size: 11px; font-weight: 600;
+  background: rgb(var(--g-800)); color: rgb(var(--g-200));
+  border: 1px solid rgb(var(--g-700) / 0.6);
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+.ui-btn:hover { background: rgb(var(--a-600) / 0.10); color: rgb(var(--a-600)); border-color: rgb(var(--a-600) / 0.45); }
+.ui-btn-primary { background: rgb(var(--a-600)); color: #fff; border-color: rgb(var(--a-600)); }
+.ui-btn-primary:hover { background: rgb(var(--a-500)); color: #fff; }
+
+.ui-section-title {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgb(var(--a-600));
+}
+.ui-card {
+  border-radius: 14px; background: rgb(var(--g-900));
+  border: 1px solid rgb(var(--g-700) / 0.55);
+}
+
+.ui-context-panel { animation: ui-panel-in 160ms ease-out; }
+@keyframes ui-panel-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-context-panel { animation: none; }
+  .ui-nav-btn, .ui-icon-btn, .ui-btn { transition: none; }
+}

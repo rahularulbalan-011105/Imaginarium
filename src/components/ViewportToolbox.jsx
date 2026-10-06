@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, useRef, useEffect, useLayoutEffect, useCallback } from 'react'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -7,19 +7,18 @@ import Icon from './ui/Icon.jsx'
 import { GLASS, glassStyle } from './ui/surfaces.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ViewportToolbox — the compact, floating glass toolbox pinned to the viewport's
-// top-left corner. Like Blender's transform toolbar / Fusion's viewport controls,
-// it now holds ONLY the tools used constantly while modeling:
+// ViewportToolbox — "Quick Tools": a floating, draggable, minimizable overlay on
+// the 3D viewport (never a layout column — the canvas is not resized). It holds
+// ONLY the tools used constantly while modeling:
 //
 //   Move · Rotate · Scale
 //   Surface · Extrude · Slice
-//   Snap-Move · Snap-Rotate · Grid · Axes
-//   Bed · Grid Size
+//   Snap-Move · Snap-Rotate · Guides · Grid · Axes
 //
-// Object / electronics / mechanical CREATION lives in the right workspace
-// (Library, Electronics, Mechanical sections) — this toolbox never creates
-// objects. PRESENTATION ONLY: every control calls the same existing store
-// action it always did. `mode-*` tutorial anchors stay here (transform tools).
+// The 3D-print build plate lives in Settings. Position + minimized state are in
+// uiStore.quickTools (session-scoped). Dragging starts only from the header, and
+// the box is clamped inside the viewport — re-clamped when the viewport resizes.
+// PRESENTATION ONLY: every control calls the same store action it always did.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const TRANSFORM_MODES = [
@@ -30,8 +29,8 @@ const TRANSFORM_MODES = [
 
 const TRANSLATE_STEPS = [0, 0.5, 1, 2]
 const ROTATE_STEPS    = [0, 15, 45, 90]
-const BED_SIZES       = [180, 220, 256, 300]
 const cycle = (arr, cur) => arr[(arr.indexOf(cur) + 1) % arr.length] ?? arr[0]
+const EDGE = 8   // min gap kept between the box and the viewport edge
 
 // A single equal-size tool tile — consistent size / radius / spacing, with a
 // clear hover tint and a solid accent active state.
@@ -40,6 +39,8 @@ function Tile({ icon, label, onClick, title, active, dataTour, badge, corner }) 
     <button
       onClick={onClick}
       title={title}
+      aria-label={title}
+      aria-pressed={!!active}
       data-tour={dataTour}
       className="relative flex flex-col items-center justify-center gap-0.5 h-12 rounded-xl transition-all duration-200 hover:-translate-y-px active:translate-y-0"
       style={active
@@ -75,12 +76,10 @@ function ViewportToolbox() {
   const setSnapTranslate  = useUiStore((s) => s.setSnapTranslate)
   const snapRotateDeg     = useUiStore((s) => s.snapRotateDeg)
   const setSnapRotateDeg  = useUiStore((s) => s.setSnapRotateDeg)
-  const printBedVisible   = useUiStore((s) => s.printBedVisible)
-  const setPrintBedVisible= useUiStore((s) => s.setPrintBedVisible)
-  const printBedSizeMm    = useUiStore((s) => s.printBedSizeMm)
-  const setPrintBedSizeMm = useUiStore((s) => s.setPrintBedSizeMm)
   const smartGuides       = useUiStore((s) => s.smartGuides)
   const setSmartGuides    = useUiStore((s) => s.setSmartGuides)
+  const quick             = useUiStore((s) => s.quickTools)
+  const setQuickTools     = useUiStore((s) => s.setQuickTools)
   const patchCount        = Object.keys(useSurfaceStore((s) => s.patches)).length
 
   const handleSurfaceTool = () => {
@@ -97,18 +96,100 @@ function ViewportToolbox() {
     setSliceTool(!sliceToolActive)
   }
 
+  // ── Drag (header only) + keep inside the viewport ─────────────────────────
+  const boxRef = useRef(null)
+  const drag = useRef(null)
+  const clamp = useCallback((x, y) => {
+    const box = boxRef.current, host = box?.parentElement
+    if (!box || !host) return { x, y }
+    const maxX = Math.max(EDGE, host.clientWidth - box.offsetWidth - EDGE)
+    const maxY = Math.max(EDGE, host.clientHeight - box.offsetHeight - EDGE)
+    return { x: Math.round(Math.min(Math.max(EDGE, x), maxX)), y: Math.round(Math.min(Math.max(EDGE, y), maxY)) }
+  }, [])
+
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return
+    // Controls inside the header (minimize) never start a drag.
+    if (e.target.closest('button, input, select, textarea, [role="slider"]')) return
+    e.preventDefault()   // no text selection while dragging
+    drag.current = { dx: e.clientX - quick.x, dy: e.clientY - quick.y, id: e.pointerId, last: null }
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  const onPointerMove = (e) => {
+    const d = drag.current
+    if (!d || d.id !== e.pointerId) return
+    const p = clamp(e.clientX - d.dx, e.clientY - d.dy)
+    const box = boxRef.current
+    if (box) { box.style.left = p.x + 'px'; box.style.top = p.y + 'px' }   // no React render per move
+    d.last = p
+  }
+  const endDrag = (e) => {
+    const d = drag.current
+    if (!d) return
+    drag.current = null
+    try { e.currentTarget.releasePointerCapture(d.id) } catch { /* already released */ }
+    if (d.last) setQuickTools(d.last)
+  }
+  // Keyboard nudge on the focused header (accessibility): arrows; Shift = bigger step.
+  const onHeaderKey = (e) => {
+    const step = e.shiftKey ? 40 : 10
+    const dir = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key]
+    if (!dir) return
+    e.preventDefault(); e.stopPropagation()   // don't nudge the selected 3D object
+    setQuickTools(clamp(quick.x + dir[0], quick.y + dir[1]))
+  }
+
+  // Re-clamp when the box grows (restored from minimized) or the viewport shrinks
+  // (window resize, context panel opening), so it can never end up off-screen.
+  useLayoutEffect(() => {
+    const p = clamp(quick.x, quick.y)
+    if (p.x !== quick.x || p.y !== quick.y) setQuickTools(p)
+  }, [quick.minimized]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const host = boxRef.current?.parentElement
+    if (!host || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(() => {
+      const q = useUiStore.getState().quickTools
+      const p = clamp(q.x, q.y)
+      if (p.x !== q.x || p.y !== q.y) setQuickTools(p)
+    })
+    ro.observe(host)
+    return () => ro.disconnect()
+  }, [clamp, setQuickTools])
+
+  const minimized = quick.minimized
   return (
     <div
+      ref={boxRef}
       data-tour="toolbar"
-      className={`absolute top-3 left-3 z-20 w-[176px] flex flex-col pointer-events-auto ${GLASS}`}
-      style={{ ...glassStyle, maxHeight: 'calc(100% - 24px)' }}
+      role="toolbar"
+      aria-label="Quick Tools"
+      className={`absolute z-20 flex flex-col pointer-events-auto ${GLASS}`}
+      style={{ ...glassStyle, left: quick.x, top: quick.y, width: minimized ? 'auto' : 186, maxHeight: `calc(100% - ${EDGE * 2}px)` }}
     >
-      <div className="flex items-center gap-1.5 px-3 pt-2.5 pb-1 shrink-0">
-        <Icon name="move" size={13} style={{ color: 'rgb(var(--a-500))' }} />
-        <span className="text-[11px] font-bold tracking-wide" style={{ color: 'rgb(var(--g-200))' }}>Tools</span>
+      <div
+        className="flex items-center gap-1.5 pl-2 pr-1.5 py-1.5 shrink-0 cursor-grab active:cursor-grabbing select-none touch-none rounded-2xl"
+        onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={endDrag} onPointerCancel={endDrag}
+        tabIndex={0} onKeyDown={onHeaderKey}
+        title="Drag to move · arrow keys nudge"
+        aria-label="Quick Tools header — drag to move"
+      >
+        <Icon name="grip" size={12} style={{ color: 'rgb(var(--g-500))' }} />
+        <Icon name="wrench" size={13} style={{ color: 'rgb(var(--a-600))' }} />
+        <span className="text-[11px] font-bold tracking-wide whitespace-nowrap mr-auto" style={{ color: 'rgb(var(--g-200))' }}>Quick Tools</span>
+        <button
+          onClick={() => setQuickTools({ minimized: !minimized })}
+          title={minimized ? 'Expand Quick Tools' : 'Minimize Quick Tools'}
+          aria-label={minimized ? 'Expand Quick Tools' : 'Minimize Quick Tools'}
+          aria-expanded={!minimized}
+          className="ml-2 w-6 h-6 rounded-lg flex items-center justify-center ui-icon-btn"
+        >
+          <Icon name={minimized ? 'plus' : 'minus'} size={13} />
+        </button>
       </div>
 
-      <div className="px-2 pb-2.5 pt-1 flex flex-col">
+      {/* Hidden — not unmounted — when minimized: position and state are kept. */}
+      <div className="px-2 pb-2.5 pt-0.5 flex-col" style={{ display: minimized ? 'none' : 'flex' }}>
         {/* ── Transform ─────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-1">
           {TRANSFORM_MODES.map(({ mode, label, icon, key, desc }) => (
@@ -142,26 +223,16 @@ function ViewportToolbox() {
 
         {/* ── Snap + View + Smart Guides ────────────────────────────────────── */}
         <div className="grid grid-cols-3 gap-1">
-          <Tile icon="magnet" label={snapTranslate > 0 ? `${snapTranslate}u` : 'Move'} active={snapTranslate > 0}
+          <Tile icon="magnet" label={snapTranslate > 0 ? `${snapTranslate}u` : 'Snap'} active={snapTranslate > 0}
             onClick={() => setSnapTranslate(cycle(TRANSLATE_STEPS, snapTranslate))}
             title="Move snap step (click to cycle: Off / 0.5 / 1 / 2 units)" />
-          <Tile icon="rotate" label={snapRotateDeg > 0 ? `${snapRotateDeg}°` : 'Rot'} active={snapRotateDeg > 0}
+          <Tile icon="rotate" label={snapRotateDeg > 0 ? `${snapRotateDeg}°` : 'Rot snap'} active={snapRotateDeg > 0}
             onClick={() => setSnapRotateDeg(cycle(ROTATE_STEPS, snapRotateDeg))}
             title="Rotation snap (click to cycle: Off / 15° / 45° / 90°)" />
           <Tile icon="guides" label="Guides" active={smartGuides} onClick={() => setSmartGuides(!smartGuides)}
             title={smartGuides ? 'Smart alignment guides: ON — click to turn off' : 'Smart alignment guides: OFF — click to turn on'} />
           <Tile icon="grid" label="Grid" active={gridVisible} onClick={toggleGrid} title="Toggle Grid [G]" />
           <Tile icon="axes" label="Axes" active={axesVisible} onClick={toggleAxes} title="Toggle Axes [A]" />
-        </div>
-
-        <Divider />
-
-        {/* ── 3D-print build plate ──────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 gap-1">
-          <Tile icon="printer" label="Bed" active={printBedVisible} onClick={() => setPrintBedVisible(!printBedVisible)}
-            title={`Toggle the 3D-printer build plate (${printBedSizeMm} mm)`} />
-          <Tile icon="grid" label={`${printBedSizeMm}mm`} onClick={() => setPrintBedSizeMm(cycle(BED_SIZES, printBedSizeMm))}
-            title="Build-plate size (click to cycle: 180 / 220 / 256 / 300 mm)" />
         </div>
       </div>
     </div>

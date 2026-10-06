@@ -902,10 +902,10 @@ export default function Viewport() {
             <div className="text-5xl mb-3 opacity-70">🧊</div>
             <div className="text-base font-semibold text-[#1E293B]">Your scene is empty</div>
             <div className="text-sm text-[#64748B] mt-1.5 leading-relaxed">
-              Pick a shape from the <span className="text-indigo-600 font-medium">floating toolbox</span> (top-left) to begin —
+              Pick a shape from <span className="text-indigo-600 font-medium">CAD → Library</span> (right) to begin —
               or press keys <span className="font-mono text-[#475569]">1</span>–<span className="font-mono text-[#475569]">0</span>.
             </div>
-            <div className="text-xs text-[#94A3B8] mt-2">Need a hand? Tap the “?” in the top bar.</div>
+            <div className="text-xs text-[#94A3B8] mt-2">Need a hand? Open Learn in the top bar.</div>
           </div>
         </div>
       )}

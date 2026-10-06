@@ -17,6 +17,28 @@ import { saveJSONToFile, readJSONFile } from '../utils/export.js'
 import { buildProjectSnapshot } from '../utils/helpers.js'
 import HelpMenu from './onboarding/HelpMenu.jsx'
 import { getTheme, toggleTheme } from '../theme/theme.js'
+import Icon from './ui/Icon.jsx'
+import { useHistoryStore } from '../stores/historyStore.js'
+import { undo as historyUndo, redo as historyRedo } from '../managers/history/editorDispatch.js'
+
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '')
+function HistoryButton({ kind }) {
+  const stack = useHistoryStore((s) => s[kind])
+  const label = stack.length ? stack[kind === 'undo' ? stack.length - 1 : 0] : null
+  const keys = kind === 'undo' ? (isMac ? '⌘Z' : 'Ctrl+Z') : (isMac ? '⇧⌘Z' : 'Ctrl+Y')
+  const name = kind === 'undo' ? 'Undo' : 'Redo'
+  return (
+    <button
+      onClick={() => (kind === 'undo' ? historyUndo() : historyRedo())}
+      disabled={!label}
+      title={label ? `${name} ${label} (${keys})` : `Nothing to ${name.toLowerCase()} (${keys})`}
+      aria-label={name}
+      className="w-8 h-8 rounded-lg flex items-center justify-center ui-icon-btn disabled:opacity-35 disabled:pointer-events-none"
+    >
+      <Icon name={kind} size={16} />
+    </button>
+  )
+}
 import { useOverlay } from './ui/overlay.js'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -239,14 +261,10 @@ export default function Header() {
   return (
     <>
       <header data-tour="header" className="flex items-center gap-3 px-4 h-12 shrink-0 relative z-40"
-        style={{ background: 'linear-gradient(90deg,rgb(var(--g-950)) 0%,rgb(var(--g-900)) 50%,rgb(var(--g-950)) 100%)', borderBottom: '1px solid rgb(var(--a-600) / 0.18)' }}>
+        style={{ background: 'rgb(var(--g-900))', borderBottom: '1px solid rgb(var(--g-700) / 0.55)' }}>
         {/* Logo */}
         <div className="flex items-center gap-2 mr-2">
-          <span className="text-lg">🧊</span>
-          <span className="text-sm font-bold hidden sm:block"
-            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            3D Editor
-          </span>
+          <span className="text-[15px] font-black tracking-tight" style={{ color: 'rgb(var(--a-600))' }}>Constructa</span>
         </div>
 
         {/* Project name */}
@@ -257,6 +275,13 @@ export default function Header() {
           className="bg-transparent text-sm text-gray-200 px-1 py-0.5 focus:outline-none w-40 min-w-0"
           style={{ borderBottom: '1px solid rgb(var(--a-600) / 0.35)' }}
         />
+
+        {/* Global undo / redo — the one editor history (editorDispatch). Ctrl/Cmd+Z,
+            Ctrl/Cmd+Y and Shift+Ctrl/Cmd+Z keep working via App's key handler. */}
+        <div className="flex items-center gap-1 ml-1" role="group" aria-label="History">
+          <HistoryButton kind="undo" />
+          <HistoryButton kind="redo" />
+        </div>
 
         <div className="flex-1" />
 

@@ -78,9 +78,9 @@
       // is applied inline (not via an inline <style>) to avoid a Vite multi-page
       // html-inline-css-proxy build race with the second HTML entry.
       (function () {
-        var t = 'dark';
+        var t = 'light';
         try {
-          var s = localStorage.getItem('app-theme');
+          var s = localStorage.getItem('app-theme.v2');
           if (s === 'dark' || s === 'light') t = s;
         } catch (e) {}
         document.documentElement.dataset.theme = t;

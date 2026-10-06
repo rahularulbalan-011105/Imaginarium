@@ -192,7 +192,7 @@ void loop() {
   },
 ]
 
-export default function CodeEditor() {
+export default function CodeEditor({ full = false }) {
   const code           = useElectronicsStore((s) => s.code)
   const setCode        = useElectronicsStore((s) => s.setCode)
   const simulation     = useElectronicsStore((s) => s.simulation)
@@ -210,6 +210,7 @@ export default function CodeEditor() {
   const serialRef    = useRef(null)
   const templatesRef = useRef(null)
   const codeRef      = useRef(null)   // textarea, for jump-to-error
+  const gutterRef    = useRef(null)   // line numbers (full editor), scroll-synced to the textarea
 
   useEffect(() => {
     if (serialRef.current) serialRef.current.scrollTop = serialRef.current.scrollHeight
@@ -313,7 +314,8 @@ export default function CodeEditor() {
 
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
-        <span className="text-xs font-semibold text-gray-300">Arduino Code</span>
+        <span className="text-xs font-semibold text-gray-300">{full ? 'C++ Coding' : 'Arduino Code'}</span>
+        {full && <span className="text-[10px] text-gray-500">Arduino sketch · Block Coding edits the same code</span>}
 
         {/* Templates dropdown */}
         <div className="relative ml-1" ref={templatesRef}>
@@ -354,15 +356,27 @@ export default function CodeEditor() {
         </div>
       )}
 
-      {/* Code textarea */}
-      <textarea
-        ref={codeRef}
-        value={code}
-        onChange={e => { setCode(e.target.value); if (diag) setDiag(null) }}
-        spellCheck={false}
-        className="code-text flex-1 bg-slate-950 text-green-300 font-mono text-xs p-3 resize-none focus:outline-none border-0 leading-relaxed min-h-0"
-        style={{ fontFamily: "'Fira Code', 'Consolas', monospace", tabSize: 2 }}
-      />
+      {/* Code textarea (+ line-number gutter in the full editor) */}
+      <div className="flex flex-1 min-h-0">
+        {full && (
+          <div ref={gutterRef} aria-hidden="true"
+            className="code-text shrink-0 overflow-hidden select-none text-right font-mono py-3 pl-3 pr-2 leading-relaxed text-[13px]"
+            style={{ fontFamily: "'Fira Code', 'Consolas', monospace", color: 'rgb(var(--g-500))', background: 'rgb(var(--g-800) / 0.5)', minWidth: 44 }}>
+            {Array.from({ length: Math.max(1, code.split('\n').length) }, (_, i) => <div key={i}>{i + 1}</div>)}
+          </div>
+        )}
+        <textarea
+          ref={codeRef}
+          value={code}
+          aria-label="Arduino C++ code"
+          onChange={e => { setCode(e.target.value); if (diag) setDiag(null) }}
+          onScroll={full ? (e) => { if (gutterRef.current) gutterRef.current.scrollTop = e.currentTarget.scrollTop } : undefined}
+          spellCheck={false}
+          wrap={full ? 'off' : undefined}
+          className={`code-text flex-1 bg-slate-950 text-green-300 font-mono p-3 resize-none focus:outline-none border-0 leading-relaxed min-h-0 ${full ? 'text-[13px]' : 'text-xs'}`}
+          style={{ fontFamily: "'Fira Code', 'Consolas', monospace", tabSize: 2 }}
+        />
+      </div>
 
       {/* Run/Stop controls */}
       <div data-tour="code-run" className="flex gap-2 px-3 py-2 border-t border-gray-700/50 shrink-0">
