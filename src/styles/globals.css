@@ -195,3 +195,20 @@ textarea.code-text::placeholder { color: #6b8f6b; }
   .ui-context-panel { animation: none; }
   .ui-nav-btn, .ui-icon-btn, .ui-btn { transition: none; }
 }
+.ui-btn-danger { color: #dc2626; }
+.ui-btn-danger:hover { background: rgb(220 38 38 / 0.08); color: #b91c1c; border-color: rgb(220 38 38 / 0.4); }
+
+/* Library cards — light, rounded, cheap (inline SVG glyphs, no 3D previews). */
+.ui-lib-card {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 12px 4px 9px; border-radius: 14px;
+  background: rgb(var(--g-900)); border: 1px solid rgb(var(--g-700) / 0.55);
+  color: rgb(var(--g-300));
+  transition: border-color 150ms ease, box-shadow 150ms ease, color 150ms ease, transform 150ms ease;
+}
+.ui-lib-card:hover { border-color: rgb(var(--a-600) / 0.6); color: rgb(var(--a-600)); box-shadow: 0 4px 14px rgb(var(--a-600) / 0.12); transform: translateY(-1px); }
+.ui-lib-card:focus-visible { outline: 2px solid rgb(var(--a-600)); outline-offset: 2px; }
+.ui-lib-glyph { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgb(var(--g-800)); }
+.ui-lib-card:hover .ui-lib-glyph { background: rgb(var(--a-600) / 0.10); }
+.ui-lib-label { font-size: 10px; font-weight: 600; line-height: 1.1; color: rgb(var(--g-300)); text-align: center; }
+@media (prefers-reduced-motion: reduce) { .ui-lib-card { transition: none; } .ui-lib-card:hover { transform: none; } }

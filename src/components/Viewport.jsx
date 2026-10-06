@@ -52,7 +52,6 @@ export default function Viewport() {
   const transformMode = useUiStore((s) => s.transformMode)
 
   const attachments   = useElectronicsStore((s) => s.attachments)
-  const attachToMotor = useElectronicsStore((s) => s.attachToMotor)
   const detachFromMotor = useElectronicsStore((s) => s.detachFromMotor)
 
   const surfaceToolActive = useUiStore((s) => s.surfaceToolActive)
@@ -78,7 +77,6 @@ export default function Viewport() {
 
   const { snapshot } = useHistory()
 
-  const [attachPrompt, setAttachPrompt] = useState(null) // { objectId, motorId, motorName }
   const [pickMode, setPickMode] = useState(null)         // objectId being picked, or null
   const patchDrawingRef = useRef(false)                   // true while drawing a new patch
 
@@ -262,18 +260,8 @@ export default function Viewport() {
       // a bare objects-array was pushed and undoing a drag wiped the whole scene.
       recordSnapshot('transform')
 
-      // Offer to attach to a nearby motor shaft (no state mutation here).
-      if (objectId && movedObj) {
-        const isElectronics = movedObj.type === 'motor' || movedObj.type === 'motor_bo' || movedObj.type === 'motor_dc' || movedObj.type === 'arduino' || movedObj.type === 'subo' || movedObj.type === 'led'
-        const alreadyAttached = objectManager.attachedObjects.has(objectId)
-        if (!isElectronics && !alreadyAttached) {
-          const nearMotorId = objectManager.findNearbyMotorShaft(objectId)
-          if (nearMotorId) {
-            const motor = useSceneStore.getState().objects.find(o => o.id === nearMotorId)
-            setAttachPrompt({ objectId, motorId: nearMotorId, motorName: motor?.name ?? 'Motor' })
-          }
-        }
-      }
+      // Attaching to a motor shaft is an intentional action now (CAD → Design →
+      // Attach); a drag no longer pops up an attach / keep-separate prompt.
     }
 
     const ro = new ResizeObserver(() => {
@@ -450,17 +438,6 @@ export default function Viewport() {
     sceneManager.setTransformMode(mode)
   }, [transformMode, selectedId, objects])
 
-  const handleAttachConfirm = useCallback(() => {
-    if (!attachPrompt) return
-    const { objectId, motorId } = attachPrompt
-    // Snap to shaft tip (x=3.0) so the object always lands at the shaft end,
-    // regardless of where in the scene it was positioned before dragging.
-    const success = objectManager.attachMeshToRotor(objectId, motorId, null)
-    if (success) attachToMotor(objectId, motorId)
-    setAttachPrompt(null)
-  }, [attachPrompt, attachToMotor])
-
-  const handleAttachCancel = useCallback(() => setAttachPrompt(null), [])
 
   const [wireDragging, setWireDragging] = useState(false)
 
@@ -816,36 +793,6 @@ export default function Viewport() {
             >
               ✕ Cancel
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Shaft attach prompt */}
-      {attachPrompt && (
-        <div className="absolute inset-0 flex items-center justify-center" style={{ pointerEvents: 'none' }}>
-          <div className="bg-gray-900 border border-green-500/70 rounded-xl shadow-2xl p-5 w-72 pointer-events-auto">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-green-400 text-xl">⚙</span>
-              <span className="text-white font-semibold text-sm">Attach to Motor Shaft?</span>
-            </div>
-            <p className="text-gray-300 text-xs mb-4 leading-relaxed">
-              This object is near <span className="text-green-300 font-medium">{attachPrompt.motorName}</span>'s
-              shaft. Attach it so it spins with the motor when the simulation runs?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={handleAttachConfirm}
-                className="flex-1 py-2 bg-green-700 hover:bg-green-600 text-white text-xs font-medium rounded transition-colors"
-              >
-                ✓ Attach
-              </button>
-              <button
-                onClick={handleAttachCancel}
-                className="flex-1 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs rounded transition-colors"
-              >
-                ✗ Keep Separate
-              </button>
-            </div>
           </div>
         </div>
       )}

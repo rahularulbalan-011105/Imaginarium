@@ -1,3 +1,7 @@
+import Icon, { ICON_NAMES } from './ui/Icon.jsx'
+
+// Library card glyph per shape type (inline SVG from the shared icon set).
+const GLYPH = { box: 'cube' }
 import { useRef, useState } from 'react'
 import { v4 as uuidv4 } from 'uuid'
 import { useSceneStore } from '../stores/sceneStore.js'
@@ -180,7 +184,7 @@ export default function AssetLibrary() {
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* ── Import drop zone ─────────────────────────────────────────────── */}
-      <div className="px-2 pt-3">
+      <div className="px-3 pt-3">
         <div
           className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors select-none ${
             dropOver
@@ -217,17 +221,17 @@ export default function AssetLibrary() {
           <div className={`text-[9px] uppercase tracking-wider mb-1.5 font-semibold ${LABEL_COLORS[group.color]}`}>
             {group.label}
           </div>
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-3 gap-1.5">
             {group.items.map(({ type, label, icon }) => (
               <button
                 key={type}
                 data-tour={`shape-${type}`}
                 onClick={() => addShape(type)}
                 title={label}
-                className="flex flex-col items-center gap-0.5 py-2 rounded bg-gray-800 hover:bg-indigo-900/30 hover:text-indigo-100 transition-colors"
+                className="ui-lib-card"
               >
-                <span className="text-base leading-none">{icon}</span>
-                <span className="text-[8px] text-gray-500 leading-none">{label}</span>
+                <span className="ui-lib-glyph">{ICON_NAMES.includes(GLYPH[type] ?? type) ? <Icon name={GLYPH[type] ?? type} size={22} /> : <span className="text-lg leading-none">{icon}</span>}</span>
+                <span className="ui-lib-label">{label}</span>
               </button>
             ))}
           </div>
@@ -235,26 +239,26 @@ export default function AssetLibrary() {
       ))}
 
       {/* ── Models (built-in GLB) ────────────────────────────────────────── */}
-      <div className="px-2 pt-3">
+      <div className="px-3 pt-3">
         <div className="text-[9px] text-cyan-600 uppercase tracking-wider mb-1.5 font-semibold">Models</div>
-        <div className="grid grid-cols-4 gap-1">
+        <div className="grid grid-cols-3 gap-1.5">
           {MODELS.map(({ key, label, icon, color }) => (
             <button
               key={key}
               onClick={() => addModel(key, label, color)}
               onPointerEnter={() => loadModel(key)}
               title={label}
-              className="flex flex-col items-center gap-0.5 py-2 rounded bg-gray-800 hover:bg-cyan-900/30 hover:text-cyan-100 transition-colors"
+              className="ui-lib-card"
             >
-              <span className="text-base leading-none">{icon}</span>
-              <span className="text-[8px] text-gray-500 leading-none">{label}</span>
+              <span className="ui-lib-glyph"><span className="text-lg leading-none">{icon}</span></span>
+              <span className="ui-lib-label">{label}</span>
             </button>
           ))}
         </div>
       </div>
 
       {/* ── My Assets ────────────────────────────────────────────────────── */}
-      <div className="px-2 pt-3 pb-4">
+      <div className="px-3 pt-3 pb-4">
         <div className="text-[9px] text-indigo-500 uppercase tracking-wider mb-1.5 font-semibold">My Assets</div>
         {assets.length === 0 ? (
           <div className="text-[10px] text-gray-600 text-center py-4 leading-relaxed">

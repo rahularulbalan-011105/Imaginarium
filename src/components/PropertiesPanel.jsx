@@ -14,6 +14,9 @@ import DimensionEditorPanel from './DimensionEditorPanel.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
 import FilletPanel from './FilletPanel.jsx'
 import { loadCSG } from '../utils/csgLib.js'
+import { useUiStore } from '../stores/uiStore.js'
+import Icon from './ui/Icon.jsx'
+import Placeholder from './ui/Placeholder.jsx'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
   const handleChange = (axis) => (e) => {
@@ -143,6 +146,45 @@ function SurfacePatchPanel({ patches, canAttach, onAttach, onRemove, onUpdatePat
   )
 }
 
+// A titled block of the Design panel (ATTACH above EDIT, same panel — no tree).
+function DesignSection({ title, icon, children }) {
+  return (
+    <section className="rounded-2xl p-3" style={{ background: 'rgb(var(--g-950) / 0.6)', border: '1px solid rgb(var(--g-700) / 0.45)' }}>
+      <div className="flex items-center gap-1.5 mb-2.5">
+        <span style={{ color: 'rgb(var(--a-600))' }}><Icon name={icon} size={13} /></span>
+        <span className="ui-section-title">{title}</span>
+      </div>
+      {children}
+    </section>
+  )
+}
+
+// Parent → child at a glance. The selected object is outlined in orange; the
+// arrow always points from the part that holds to the part that is held.
+function RelationCard({ kind, parent, child, self }) {
+  const box = (role, name) => {
+    const mine = self === role
+    return (
+      <div className="rounded-lg px-2.5 py-1.5" style={mine
+        ? { background: 'rgb(var(--a-600) / 0.12)', border: '1.5px solid rgb(var(--a-600))' }
+        : { background: 'rgb(var(--g-800))', border: '1.5px solid rgb(var(--g-700) / 0.6)' }}>
+        <div className="text-[9px] font-bold uppercase tracking-wider" style={{ color: mine ? 'rgb(var(--a-600))' : 'rgb(var(--g-500))' }}>
+          {role === 'parent' ? 'Parent' : 'Child'}{mine ? ' · this object' : ''}
+        </div>
+        <div className="text-xs font-semibold truncate" style={{ color: 'rgb(var(--g-100))' }}>{name}</div>
+      </div>
+    )
+  }
+  return (
+    <div className="mb-2">
+      <div className="text-[9px] font-semibold uppercase tracking-wider mb-1" style={{ color: 'rgb(var(--g-400))' }}>{kind}</div>
+      {box('parent', parent)}
+      <div className="flex justify-center py-0.5 text-sm leading-none" style={{ color: 'rgb(var(--a-600))' }} aria-hidden="true">↓</div>
+      {box('child', child)}
+    </div>
+  )
+}
+
 export default function PropertiesPanel() {
   const selectedId      = useSceneStore((s) => s.selectedId)
   const secondaryId     = useSceneStore((s) => s.secondaryId)
@@ -158,6 +200,7 @@ export default function PropertiesPanel() {
   const deUnionMember   = useSceneStore((s) => s.deUnionMember)
   const deUnionAll      = useSceneStore((s) => s.deUnionAll)
   const [showDeunion, setShowDeunion] = useState(false)
+  const surfaceToolActive = useUiStore((s) => s.surfaceToolActive)
   const { snapshot } = useHistory()
 
   const attachments     = useElectronicsStore((s) => s.attachments)
@@ -367,10 +410,7 @@ export default function PropertiesPanel() {
   // ── Surface patch panel (shown whenever patches are selected, regardless of object) ──
   if (!obj && selectedPatches.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-full p-4 text-center">
-        <div className="text-4xl mb-3 opacity-30">⚙</div>
-        <div className="text-sm text-gray-500">Select an object to edit its properties</div>
-      </div>
+      <Placeholder icon="sliders" title="Design">Select an object to modify or attach operations.</Placeholder>
     )
   }
 
@@ -387,7 +427,17 @@ export default function PropertiesPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-1 p-3 overflow-y-auto">
+    <div className="flex flex-col gap-3 p-3">
+      {/* ════════ ATTACH ════════ */}
+      <DesignSection title="Attach" icon="link">
+        <div className="mb-3 flex flex-col gap-1.5">
+          <button
+            onClick={() => { const ui = useUiStore.getState(); if (!ui.surfaceToolActive) { ui.setExtrudeTool(false); ui.setSliceTool(false) } ui.setSurfaceTool(!ui.surfaceToolActive) }}
+            className={`ui-btn w-full ${surfaceToolActive ? 'ui-btn-primary' : ''}`}
+            title="Surface attach — click a face on each of two objects, then Align & Bond">
+            {surfaceToolActive ? '✓ Surface attach on — click a face on each object' : '⊕ Surface attach'}
+          </button>
+        </div>
       {/* Surface patch panel — shown when patches are selected */}
       {selectedPatches.length > 0 && (
         <div className="mb-2 border border-cyan-700/40 rounded overflow-hidden">
@@ -402,24 +452,10 @@ export default function PropertiesPanel() {
         </div>
       )}
 
-      {/* Name */}
-      <div className="mb-3">
-        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Name</div>
-        <input
-          type="text"
-          value={obj.name}
-          onChange={(e) => update({ name: e.target.value })}
-          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-slate-800 px-2 py-1.5 focus:outline-none focus:border-indigo-500"
-        />
-      </div>
-
       {/* Attachment badge — shown when this object is riding a motor's rotor */}
       {attachedMotor && (
-        <div className="mb-3 p-2.5 rounded bg-green-900/30 border border-green-700/40">
-          <div className="text-[10px] text-green-400 uppercase tracking-wider font-semibold mb-1">
-            Attached to {shaftLabel(attachedMotor)}
-          </div>
-          <div className="text-xs text-green-700 truncate mb-2">{attachedMotor.name}</div>
+        <div className="mb-3 p-2.5 rounded-xl ui-card">
+          <RelationCard kind={shaftLabel(attachedMotor)} parent={attachedMotor.name} child={obj.name} self="child" />
 
           {/* Shaft position — quick snap presets */}
           <div className="mb-2">
@@ -468,7 +504,7 @@ export default function PropertiesPanel() {
 
           <button
             onClick={handleDetach}
-            className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-700 hover:text-slate-900 text-xs rounded transition-colors"
+            className="ui-btn ui-btn-danger w-full"
           >
             Detach from {shaftLabel(attachedMotor)}
           </button>
@@ -482,14 +518,11 @@ export default function PropertiesPanel() {
         const role     = bond.parentId === obj.id ? 'parent' : 'child'
         const canRotate = !!(bond.contactLocalNormal && bond.contactLocalCenter)
         return (
-          <div key={bond.id} className="mb-3 p-2.5 rounded bg-cyan-900/30 border border-cyan-700/40">
-            <div className="text-[10px] text-cyan-400 uppercase tracking-wider font-semibold mb-1 flex items-center gap-1">
-              <span>🔗</span> Surface Bond
-              <span className="text-[8px] text-gray-500 normal-case ml-auto">{role}</span>
-            </div>
-            <div className="text-xs text-cyan-700 truncate mb-2">
-              {otherObj?.name ?? '(deleted)'}
-            </div>
+          <div key={bond.id} className="mb-3 p-2.5 rounded-xl ui-card">
+            <RelationCard kind="Surface bond"
+              parent={role === 'parent' ? obj.name : (otherObj?.name ?? '(deleted)')}
+              child={role === 'child' ? obj.name : (otherObj?.name ?? '(deleted)')}
+              self={role} />
 
             {/* Fine position — X/Y/Z world-space inputs for the bond child */}
             {role === 'child' && (
@@ -532,7 +565,7 @@ export default function PropertiesPanel() {
                     <button
                       key={deg}
                       onClick={() => handleRotate90OnSurface(bond, deg)}
-                      className="flex-1 py-1.5 bg-indigo-900/50 hover:bg-indigo-700/60 border border-indigo-700/50 text-indigo-700 hover:text-slate-900 text-[10px] font-medium rounded transition-colors"
+                      className="ui-btn flex-1 !px-1"
                     >
                       {label}
                     </button>
@@ -543,7 +576,7 @@ export default function PropertiesPanel() {
 
             <button
               onClick={() => { removeBond(bond.id); snapshot() }}
-              className="w-full py-1.5 bg-red-900/40 hover:bg-red-700/60 border border-red-700/50 text-red-700 hover:text-slate-900 text-xs rounded transition-colors"
+              className="ui-btn ui-btn-danger w-full"
             >
               Detach Bond
             </button>
@@ -551,82 +584,9 @@ export default function PropertiesPanel() {
         )
       })}
 
-      {/* Transform — hidden while attached (position is managed by Three.js parenting) */}
-      {!attachedMotor && (
-        <>
-          <Vec3Input
-            label="Position"
-            value={obj.position}
-            onBlurSnapshot={snapshot}
-            onChange={(v) => update({ position: v })}
-          />
-          <Vec3Input
-            label="Rotation (°)"
-            value={rotDeg}
-            step={1}
-            onBlurSnapshot={snapshot}
-            onChange={(v) =>
-              update({
-                rotation: { x: degToRad(v.x), y: degToRad(v.y), z: degToRad(v.z) },
-              })
-            }
-          />
-          <div className="-mt-1 mb-3">
-            <button
-              onClick={() => {
-                const snapped = snapRotationToAxes(obj.rotation)
-                update({ rotation: snapped })
-                const mesh = objectManager.getMesh(obj.id)
-                if (mesh) mesh.rotation.set(snapped.x, snapped.y, snapped.z)
-                snapshot()
-              }}
-              title="Round each rotation axis to the nearest 0°/90°/180°/270° so the shape is perfectly grid-aligned"
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
-            >
-              <span>⊹</span>
-              <span>Snap to Axes</span>
-            </button>
-          </div>
-          {!isElectronics && (
-            <Vec3Input
-              label="Scale"
-              value={obj.scale}
-              onBlurSnapshot={snapshot}
-              onChange={(v) => update({ scale: v })}
-              step={0.1}
-            />
-          )}
-          {/* Electronics don't get the free XYZ scale gizmo (it would skew pins),
-              but a UNIFORM size control lets you resize a BO motor / board / sensor
-              by typing a value or dragging. Applies scale.x=y=z evenly. */}
-          {isElectronics && (
-            <div className="mb-1">
-              <label className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Size</label>
-              <div className="flex items-center gap-2 mt-1">
-                <input
-                  type="range" min="0.3" max="3" step="0.05"
-                  value={obj.scale?.x ?? 1}
-                  onChange={(e) => { const v = parseFloat(e.target.value); update({ scale: { x: v, y: v, z: v } }) }}
-                  onMouseUp={snapshot}
-                  className="flex-1 accent-orange-500"
-                />
-                <input
-                  type="number" min="0.1" max="5" step="0.1"
-                  value={+(obj.scale?.x ?? 1).toFixed(2)}
-                  onChange={(e) => { const v = Math.max(0.1, parseFloat(e.target.value) || 1); update({ scale: { x: v, y: v, z: v } }) }}
-                  onBlur={snapshot}
-                  className="w-16 bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-xs text-right"
-                />
-              </div>
-              <div className="text-[10px] text-gray-500 mt-1">Uniform size — type a value or drag to resize this component.</div>
-            </div>
-          )}
-        </>
-      )}
-
       {/* Attachment Point — pick a specific spot on the prop surface */}
       {isAttachable && !attachedMotor && (
-        <div className="mb-3 border border-orange-700/40 rounded p-2">
+        <div className="mb-3 ui-card p-2.5">
           <div className="text-[10px] text-orange-400 uppercase tracking-wider font-semibold mb-1">
             ◎ Attachment Point
           </div>
@@ -653,7 +613,7 @@ export default function PropertiesPanel() {
               <button
                 data-tour="pick-attach"
                 onClick={() => attachPointEvents.dispatchEvent(new CustomEvent('startPick', { detail: { id: selectedId } }))}
-                className="w-full py-1.5 text-[10px] text-white bg-orange-700 hover:bg-orange-600 rounded font-medium transition-colors"
+                className="ui-btn ui-btn-primary w-full"
               >
                 ◎ Pick Attachment Point
               </button>
@@ -674,7 +634,7 @@ export default function PropertiesPanel() {
           </div>
           <button
             onClick={() => handleAttachToMotor(secondaryShaft.id)}
-            className="w-full py-2 bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-medium rounded transition-colors"
+            className="ui-btn ui-btn-primary w-full"
           >
             ✓ Attach to {secondaryShaft.name}
           </button>
@@ -739,7 +699,7 @@ export default function PropertiesPanel() {
             <button
               onClick={() => handleAttachToMotor(shaftTargets[0].id)}
               data-tour="attach-motor"
-              className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-700 hover:text-slate-900 text-xs rounded transition-colors"
+              className="ui-btn ui-btn-primary w-full"
             >
               ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
             </button>
@@ -749,7 +709,7 @@ export default function PropertiesPanel() {
                 <button
                   key={m.id}
                   onClick={() => handleAttachToMotor(m.id)}
-                  className="w-full py-1.5 bg-indigo-900/20 hover:bg-indigo-700/40 border border-indigo-700/40 text-indigo-700 hover:text-slate-900 text-xs rounded transition-colors"
+                  className="ui-btn ui-btn-primary w-full"
                 >
                   ⚙ Attach to {m.name} ({shaftLabel(m)})
                 </button>
@@ -788,6 +748,96 @@ export default function PropertiesPanel() {
               Shaft: <span className="font-mono">{currentShaftName}</span>
             </div>
           )}
+        </div>
+      )}
+
+        {isElectronics && !attachedMotor && myBonds.length === 0 && (
+          <div className="text-[10px] text-gray-500 mb-2">Bond this part to a body with Surface attach. Shaft attachment is for props (wheels, arms) on a motor or servo.</div>
+        )}
+      </DesignSection>
+
+      {/* ════════ EDIT ════════ */}
+      <DesignSection title="Edit" icon="sliders">
+      {/* Name */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Name</div>
+        <input
+          type="text"
+          value={obj.name}
+          onChange={(e) => update({ name: e.target.value })}
+          className="w-full bg-gray-800 border border-gray-600/50 rounded text-sm text-slate-800 px-2 py-1.5 focus:outline-none focus:border-indigo-500"
+        />
+      </div>
+
+      {/* Transform — hidden while attached (position is managed by Three.js parenting) */}
+      {!attachedMotor && (
+        <>
+          <Vec3Input
+            label="Position"
+            value={obj.position}
+            onBlurSnapshot={snapshot}
+            onChange={(v) => update({ position: v })}
+          />
+          <Vec3Input
+            label="Rotation (°)"
+            value={rotDeg}
+            step={1}
+            onBlurSnapshot={snapshot}
+            onChange={(v) =>
+              update({
+                rotation: { x: degToRad(v.x), y: degToRad(v.y), z: degToRad(v.z) },
+              })
+            }
+          />
+          <div className="-mt-1 mb-3">
+            <button
+              onClick={() => {
+                const snapped = snapRotationToAxes(obj.rotation)
+                update({ rotation: snapped })
+                const mesh = objectManager.getMesh(obj.id)
+                if (mesh) mesh.rotation.set(snapped.x, snapped.y, snapped.z)
+                snapshot()
+              }}
+              title="Round each rotation axis to the nearest 0°/90°/180°/270° so the shape is perfectly grid-aligned"
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+            >
+              <span>⊹</span>
+              <span>Snap to Axes</span>
+            </button>
+          </div>
+          {/* Electronics don't get the free XYZ scale gizmo (it would skew pins),
+              but a UNIFORM size control lets you resize a BO motor / board / sensor
+              by typing a value or dragging. Applies scale.x=y=z evenly. */}
+          {isElectronics && (
+            <div className="mb-1">
+              <label className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">Size</label>
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="range" min="0.3" max="3" step="0.05"
+                  value={obj.scale?.x ?? 1}
+                  onChange={(e) => { const v = parseFloat(e.target.value); update({ scale: { x: v, y: v, z: v } }) }}
+                  onMouseUp={snapshot}
+                  className="flex-1 accent-orange-500"
+                />
+                <input
+                  type="number" min="0.1" max="5" step="0.1"
+                  value={+(obj.scale?.x ?? 1).toFixed(2)}
+                  onChange={(e) => { const v = Math.max(0.1, parseFloat(e.target.value) || 1); update({ scale: { x: v, y: v, z: v } }) }}
+                  onBlur={snapshot}
+                  className="w-16 bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-xs text-right"
+                />
+              </div>
+              <div className="text-[10px] text-gray-500 mt-1">Uniform size — type a value or drag to resize this component.</div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Dimensions (editable W/H/D with one-sided scaling) ──────────────── */}
+      {!isElectronics && (
+        <div className="mb-3">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1.5">Dimensions</div>
+          <DimensionEditorPanel obj={obj} />
         </div>
       )}
 
@@ -1175,14 +1225,6 @@ export default function PropertiesPanel() {
         </div>
       )}
 
-      {/* ── Dimensions (editable W/H/D with one-sided scaling) ──────────────── */}
-      {!isElectronics && (
-        <div className="mb-3">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1.5">Dimensions</div>
-          <DimensionEditorPanel obj={obj} />
-        </div>
-      )}
-
       {/* ── Face Extrude ──────────────────────────────────────────────────────── */}
       {!isElectronics && (
         <details className="mb-3 group">
@@ -1208,9 +1250,6 @@ export default function PropertiesPanel() {
           </div>
         </details>
       )}
-
-      {/* ── Inspect (measure / mass / size) ───────────────────────────────────── */}
-      <InspectSection obj={obj} secondaryObj={objects.find(o => o.id === secondaryId) ?? null} />
 
       {/* ── Text shape content ────────────────────────────────────────────────── */}
       {obj.type === 'text' && <TextShapeEditor obj={obj} update={update} snapshot={snapshot} />}
@@ -1308,6 +1347,9 @@ export default function PropertiesPanel() {
         </button>
       </div>
 
+      {/* ── Inspect (measure / mass / size) ───────────────────────────────────── */}
+      <InspectSection obj={obj} secondaryObj={objects.find(o => o.id === secondaryId) ?? null} />
+
       <div className="border-t border-gray-700/50 pt-3 flex gap-2">
         <button
           onClick={handleDuplicate}
@@ -1323,6 +1365,7 @@ export default function PropertiesPanel() {
         </button>
       </div>
       {!isElectronics && <SaveAssetButton obj={obj} />}
+      </DesignSection>
     </div>
   )
 }
