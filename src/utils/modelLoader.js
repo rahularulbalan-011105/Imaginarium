@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js'
 import { STLLoader } from 'three-stdlib'
 
 const loader = new GLTFLoader()
@@ -117,7 +118,15 @@ export function preloadDone() { return _done }
 export function cloneModel(name) {
   const src = _cache[name]
   if (!src) return null
-  const clone = src.clone(true)
+  // Skinned models (the rocket pod GLB) need their skeleton cloned as well: a
+  // plain clone keeps binding to the cached source's bones, so the copy renders
+  // where the source is instead of following its own object.
+  if (src.userData._hasSkin === undefined) {
+    let s = false
+    src.traverse(c => { if (c.isSkinnedMesh) s = true })
+    src.userData._hasSkin = s
+  }
+  const clone = src.userData._hasSkin ? cloneSkinned(src) : src.clone(true)
   clone.traverse(c => { if (c.isMesh && c.material) c.material = c.material.clone() })
   return clone
 }

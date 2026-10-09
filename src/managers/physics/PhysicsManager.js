@@ -10,6 +10,13 @@ async function getRapier() {
   return R
 }
 
+// Collision groups ((memberships << 16) | filter). Everything defaults to "all";
+// combat robots are group 0, loose combat debris is group 1. Debris ignores
+// robots, and raycast() ignores debris.
+const ROBOT_GROUPS  = (0x0001 << 16) | 0xFFFF
+const DEBRIS_GROUPS = (0x0002 << 16) | 0xFFFE
+const QUERY_GROUPS  = 0xFFFFFFFD            // all memberships, filter = all but debris
+
 class PhysicsManager {
   constructor() {
     this.world   = null
@@ -166,11 +173,39 @@ class PhysicsManager {
       .setFriction(0.9)
       .setRestitution(0.25)
       .setActiveEvents(R.ActiveEvents.COLLISION_EVENTS)
+      .setCollisionGroups(ROBOT_GROUPS)
     // Set real robot mass (class-based) so heavy robots physically shove light ones.
     if (Number.isFinite(mass) && mass > 0) col.setMass(mass)
     this.world.createCollider(col, body)
     this._bodies.set(id, body)
     this._idByHandle.set(body.handle, id)
+    return body
+  }
+
+  /**
+   * A loose combat part (a component torn off a robot): a free dynamic box that
+   * tumbles, lands on the floor and is stopped by the arena walls. It never
+   * collides with robots and is invisible to raycast() — wreckage must not block
+   * driving, shots, AI line of sight or the chase camera.
+   */
+  createDebrisBody(id, position, halfExtents, mass = 0.35) {
+    if (!this.ready) return null
+    this.removeBody(id)
+    const R    = this._R
+    const desc = R.RigidBodyDesc.dynamic()
+      .setTranslation(position.x, position.y, position.z)
+      .setLinearDamping(0.2)
+      .setAngularDamping(1.2)
+      .setCcdEnabled(true)
+    const body = this.world.createRigidBody(desc)
+    const col  = R.ColliderDesc
+      .cuboid(Math.max(0.05, halfExtents.x), Math.max(0.05, halfExtents.y), Math.max(0.05, halfExtents.z))
+      .setFriction(0.8)
+      .setRestitution(0.3)
+      .setMass(mass)
+      .setCollisionGroups(DEBRIS_GROUPS)
+    this.world.createCollider(col, body)
+    this._bodies.set(id, body)
     return body
   }
 
@@ -195,7 +230,7 @@ class PhysicsManager {
     const R   = this._R
     const ray = new R.Ray(origin, dir)
     const excl = excludeId != null ? this._bodies.get(excludeId) : null
-    const hit = this.world.castRay(ray, maxToi, true, undefined, undefined, undefined, excl || undefined)
+    const hit = this.world.castRay(ray, maxToi, true, undefined, QUERY_GROUPS, undefined, excl || undefined)
     if (!hit) return null
     const collider = hit.collider
     const rb = collider?.parent?.() ?? collider?.parent

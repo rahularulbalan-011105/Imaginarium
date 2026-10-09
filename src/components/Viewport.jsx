@@ -5,12 +5,15 @@ import { objectManager } from '../managers/ObjectManager.js'
 import { alignmentManager } from '../managers/AlignmentManager.js'
 import { wireManager } from '../managers/WireManager.js'
 import { patchManager } from '../managers/PatchManager.js'
+import { surfaceMountManager, isSurfaceMountable, PART_DRAG_MIME } from '../managers/SurfaceMountManager.js'
 import { recordSnapshot } from '../managers/history/editorDispatch.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
+import { useGameStore } from '../stores/gameStore.js'
+import { useCombatStore } from '../stores/combatStore.js'
 import { vec3FromObject } from '../utils/helpers.js'
 import { attachPointEvents } from './PropertiesPanel.jsx'
 import { jointPickEvents } from './JointPanel.jsx'
@@ -21,6 +24,7 @@ import SurfaceAttachPrompt from './SurfaceAttachPrompt.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
 import ViewGizmo from './ViewGizmo.jsx'
 import ViewportToolbox from './ViewportToolbox.jsx'
+import CombatHUD from './combat/CombatHUD.jsx'
 import DrivePanel from './DrivePanel.jsx'
 import { useHistory } from '../hooks/useHistory.js'
 import { driveManager } from '../managers/DriveManager.js'
@@ -55,6 +59,7 @@ export default function Viewport() {
   const sliceToolActive   = useUiStore((s) => s.sliceToolActive)
   const extrudeState      = useUiStore((s) => s.extrudeState)
   const simActive         = useUiStore((s) => s.simActive)
+  const arenaActive       = useCombatStore((s) => s.arenaActive)   // Battle arena owns the viewport chrome
   const patches           = useSurfaceStore((s) => s.patches)
   const selectedPatchIds  = useSurfaceStore((s) => s.selectedIds)
   const addPatch          = useSurfaceStore((s) => s.addPatch)
@@ -75,7 +80,14 @@ export default function Viewport() {
 
   const [attachPrompt, setAttachPrompt] = useState(null) // { objectId, motorId, motorName }
   const [pickMode, setPickMode] = useState(null)         // objectId being picked, or null
+  const pickModeRef = useRef(null)
+  pickModeRef.current = pickMode
   const patchDrawingRef = useRef(false)                   // true while drawing a new patch
+
+  // Surface-mount drag (library drag-in or re-mounting a selected weapon).
+  const [mountStatus, setMountStatus] = useState(null)   // { status, ok, text } | null
+  const mountDragRef = useRef(null)                       // { id, x, y, started } while pressed
+  const suppressClickRef = useRef(false)                  // swallow the click after a mount drag
 
   // Feature-pick joint mode: { picks: [feat, ...] }  (null = inactive)
   const [jointPick, setJointPick] = useState(null)
@@ -168,7 +180,7 @@ export default function Viewport() {
       // Propagate rigid bonds — when moving the parent, drag the child with it.
       // Do NOT reverse-propagate when a bond-child is dragged directly; its
       // relativeMatrix is updated in onDraggingChanged after the drag ends.
-      // Rigid bonds move as ONE welded unit — grabbing either part moves both.
+      // Moving: rigid bonds move as ONE welded unit — grabbing either part moves both.
       const allBonds = useRigidStore.getState().getBonds()
 
       // Forward: dragging a parent drags its children (and their children).
@@ -178,8 +190,12 @@ export default function Viewport() {
         if (result) updateObject(bond.childId, result)
       }
 
-      // Reverse: dragging a child drags its parent up the chain, so the whole
+      // Reverse: MOVING a child drags its parent up the chain, so the whole
       // bonded group follows. parentWorld = childWorld · relativeMatrix⁻¹.
+      // Rotate / scale edit only the selected part's own transform (a weapon
+      // turns on its mount, the chassis stays put); its bond is re-synced when
+      // the drag ends.
+      if (tc.mode !== 'translate') return
       mesh.updateMatrixWorld(true)
       let curId = id
       let curWorld = mesh.matrixWorld.clone()
@@ -225,6 +241,11 @@ export default function Viewport() {
 
       // Drag released — fade the guides out.
       alignmentManager.endDrag()
+      // The browser fires `click` right after this release; without this it
+      // re-selects whatever is under the cursor (often the chassis behind a
+      // just-rotated weapon, or nothing → deselect).
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
 
       // ── Drag just ended → commit ONE undo step for the whole move/rotate/scale ──
       const tc = sceneManager.transformControls
@@ -243,6 +264,8 @@ export default function Viewport() {
             break
           }
         }
+        // A rescaled host would leave its surface-mounted parts floating/sunk.
+        if (tc?.mode === 'scale') surfaceMountManager.reseatMountsOn(objectId)
       }
 
       // One canonical history entry for the entire drag. Captures the full document
@@ -275,6 +298,85 @@ export default function Viewport() {
     // By firing first (capture=true) and disabling orbit before OrbitControls
     // sees the event, we prevent the camera from spinning during wire drags.
     const canvas = canvasRef.current
+    surfaceMountManager.onStatus = setMountStatus
+
+    // ── Re-mount gesture: press on the SELECTED mountable part and drag ──────
+    // Only a selected part is grabbed (dragging anything else still orbits), and
+    // only after a few pixels of movement, so a plain click still just selects.
+    const endMountDrag = () => {
+      mountDragRef.current = null
+      window.removeEventListener('mousemove', onMountMove)
+      window.removeEventListener('mouseup', onMountUp)
+      if (sceneManager.orbitControls) sceneManager.orbitControls.enabled = true
+    }
+    const onMountMove = (e) => {
+      const d = mountDragRef.current
+      if (!d || d.cancelled) return
+      if (!d.started) {
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) return
+        d.started = surfaceMountManager.begin({ objectId: d.id, bounds: canvas.getBoundingClientRect() })
+        if (!d.started) { endMountDrag(); return }
+      }
+      surfaceMountManager.update(e.clientX, e.clientY)
+    }
+    const onMountUp = () => {
+      const d = mountDragRef.current
+      if (d?.started) {
+        if (!d.cancelled) surfaceMountManager.commit()
+        // The browser fires `click` right after this mouseup — don't let it
+        // re-select whatever is under the cursor.
+        suppressClickRef.current = true
+        setTimeout(() => { suppressClickRef.current = false }, 0)
+      }
+      endMountDrag()
+    }
+    // Esc cancels the preview; the press stays claimed until release so the
+    // release click doesn't re-select and the camera doesn't jump. Capture
+    // phase + stopPropagation: this Esc must not also run the global
+    // "Esc = deselect" shortcut.
+    const onMountKey = (e) => {
+      const d = mountDragRef.current
+      if (e.key === 'Escape' && d?.started && !d.cancelled) {
+        surfaceMountManager.cancel()
+        d.cancelled = true
+        e.stopPropagation()
+      }
+    }
+    window.addEventListener('keydown', onMountKey, { capture: true })
+
+    const tryBeginMountDrag = (e, bounds) => {
+      if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return false
+      if (surfaceToolRef.current || extrudeToolRef.current || jointPickRef.current || pickModeRef.current) return false
+      const ui = useUiStore.getState()
+      if (ui.simActive || ui.sliceToolActive) return false
+      if (useGameStore.getState().battleActive || useCombatStore.getState().arenaActive) return false
+      const tc = sceneManager.transformControls
+      // Gizmo handles win — except the translate gizmo's centre (free-move)
+      // handle, which covers a small part's body: for a mountable part, grabbing
+      // the body means "re-mount it", not "drag the whole welded robot".
+      if (tc?.dragging) return false
+      if (tc?.axis && !(tc.axis === 'XYZ' && tc.mode === 'translate')) return false
+      const selId = useSceneStore.getState().selectedId
+      const selObj = selId && useSceneStore.getState().objects.find(o => o.id === selId)
+      if (!selObj || !isSurfaceMountable(selObj.type)) return false
+      if (useElectronicsStore.getState().attachments[selId]) return false
+      if (sceneManager.pickObject(e, bounds)?.userData.id !== selId) return false
+      mountDragRef.current = { id: selId, x: e.clientX, y: e.clientY, started: false }
+      if (sceneManager.orbitControls) sceneManager.orbitControls.enabled = false
+      window.addEventListener('mousemove', onMountMove)
+      window.addEventListener('mouseup', onMountUp)
+      return true
+    }
+    // Capture phase on the canvas runs before the gizmo's and orbit's own
+    // pointerdown listeners, so a claimed press never reaches them.
+    const capturePointerDown = (e) => {
+      if (!initialized.current || e.pointerType === 'touch') return
+      const bounds = canvas.getBoundingClientRect()
+      if (wireManager.isInteractiveAt(e, bounds)) return
+      if (tryBeginMountDrag(e, bounds)) e.stopImmediatePropagation()
+    }
+    canvas.addEventListener('pointerdown', capturePointerDown, { capture: true })
+
     const captureDown = (e) => {
       if (!initialized.current) return
       const bounds = canvas.getBoundingClientRect()
@@ -295,6 +397,11 @@ export default function Viewport() {
       ro.disconnect()
       canvas.removeEventListener('mousedown', captureDown, { capture: true })
       canvas.removeEventListener('mousemove', captureMove, { capture: true })
+      window.removeEventListener('keydown', onMountKey, { capture: true })
+      canvas.removeEventListener('pointerdown', capturePointerDown, { capture: true })
+      endMountDrag()
+      surfaceMountManager.cancel()
+      surfaceMountManager.onStatus = null
       alignmentManager.dispose()
       sceneManager.dispose()
       initialized.current = false
@@ -518,8 +625,29 @@ export default function Viewport() {
   const insertObject = useSceneStore((s) => s.insertObject)
   const [dropHighlight, setDropHighlight] = useState(false)
 
+  // Library part being dragged in (vs. a file from the OS).
+  const isPartDrag = (e) => Array.from(e.dataTransfer?.types ?? []).includes(PART_DRAG_MIME)
+
+  const handleViewportDragOver = useCallback((e) => {
+    e.preventDefault()
+    if (!isPartDrag(e)) { setDropHighlight(true); return }
+    e.dataTransfer.dropEffect = 'copy'
+    if (!surfaceMountManager.isActive && surfaceMountManager.pendingType) {
+      surfaceMountManager.begin({ type: surfaceMountManager.pendingType, bounds: canvasRef.current.getBoundingClientRect() })
+    }
+    surfaceMountManager.update(e.clientX, e.clientY)
+  }, [])
+
+  const handleViewportDragLeave = useCallback((e) => {
+    if (!isPartDrag(e)) { setDropHighlight(false); return }
+    // dragleave also fires when crossing into child overlays — only hide the
+    // preview when the pointer really left the viewport.
+    if (!containerRef.current?.contains(e.relatedTarget)) surfaceMountManager.hide()
+  }, [])
+
   const handleViewportDrop = useCallback(async (e) => {
     e.preventDefault()
+    if (isPartDrag(e)) { surfaceMountManager.commit(); return }
     setDropHighlight(false)
     const files = Array.from(e.dataTransfer.files)
     for (const file of files) {
@@ -551,6 +679,7 @@ export default function Viewport() {
   const handleClick = useCallback(
     (e) => {
       if (!initialized.current || dragging.current) return
+      if (suppressClickRef.current) { suppressClickRef.current = false; return }
       if (wireManager.isDragging) return
       const bounds = canvasRef.current.getBoundingClientRect()
 
@@ -683,8 +812,8 @@ export default function Viewport() {
       ref={containerRef}
       data-tour="viewport"
       className="relative flex-1 overflow-hidden bg-white"
-      onDragOver={(e) => { e.preventDefault(); setDropHighlight(true) }}
-      onDragLeave={() => setDropHighlight(false)}
+      onDragOver={handleViewportDragOver}
+      onDragLeave={handleViewportDragLeave}
       onDrop={handleViewportDrop}
     >
       {dropHighlight && (
@@ -799,15 +928,26 @@ export default function Viewport() {
         </div>
       )}
 
+      {/* Surface-mount drag status */}
+      {mountStatus && (
+        <div className={`absolute top-3 left-1/2 -translate-x-1/2 z-10 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md border ${
+          mountStatus.ok ? 'bg-cyan-700/90 border-cyan-400' : 'bg-red-700/90 border-red-400'
+        }`}>
+          {mountStatus.text}
+        </div>
+      )}
+
       {/* Shift+click hint when one object is selected */}
-      {selectedId && !secondaryId && !wireDragging && (
+      {selectedId && !secondaryId && !wireDragging && !mountStatus && !arenaActive && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-indigo-600/90 border border-indigo-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
-          Shift+click another object to enable Boolean operations
+          {isSurfaceMountable(objects.find(o => o.id === selectedId)?.type)
+            ? 'Drag it onto any robot surface to mount it there'
+            : 'Shift+click another object to enable Boolean operations'}
         </div>
       )}
 
       {/* Boolean ops active indicator */}
-      {hasBothSelected && (
+      {hasBothSelected && !arenaActive && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-purple-700/90 border border-purple-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
           2 objects selected — use the Boolean panel on the right
         </div>
@@ -849,22 +989,26 @@ export default function Viewport() {
       {/* Floating glass toolbox (top-left) — replaces the old docked left sidebar.
           Always mounted so the Simulate/Stop control (and its tutorial anchor)
           stays reachable during simulation. */}
-      <ViewportToolbox />
+      {!arenaActive && <ViewportToolbox />}
 
       {/* Interactive view cube + quick-view switcher (top-right corner) */}
-      {!simActive && <ViewGizmo />}
+      {!simActive && !arenaActive && <ViewGizmo />}
 
-      <DimensionOverlay />
+      {!arenaActive && <DimensionOverlay />}
       <SurfaceAttachPrompt />
       <ExtrudePanel />
 
       {simActive && <DrivePanel />}
 
-      {!simActive && (
+      {!simActive && !arenaActive && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-[#64748B] pointer-events-none select-none bg-white/60 px-2 py-0.5 rounded-full">
           Click to select · Shift+click 2nd object for booleans · Scroll to zoom · Middle-drag to orbit
         </div>
       )}
+
+      {/* BattleBot Arena HUD — lives INSIDE the viewport so it never covers the
+          header, the right panel or the status bar. */}
+      <CombatHUD />
     </div>
   )
 }

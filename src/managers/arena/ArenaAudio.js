@@ -6,8 +6,10 @@
 // the seam is a simple event→generator registry, so swapping in real samples
 // later is a one-line change per event (replace the generator with a buffer play).
 //
-// Events: fire_primary, fire_secondary, explosion, hit, armor_impact,
-//         overheat, destruction, move (looping servo hum).
+// Events: fire_primary, fire_secondary, fire_shotgun, fire_rocket, melee_swing,
+//         impact_light / impact_pellet / impact_heavy, sizzle, armor_impact,
+//         armor_break, part_break, zap, clank, explosion, overheat, destruction,
+//         move (looping servo hum).
 // The AudioContext is created lazily and resumed on the first user gesture
 // (the arena launch button click), per browser autoplay policy.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -94,14 +96,15 @@ class ArenaAudio {
     osc.start(t); osc.stop(t + dur + 0.02)
   }
 
-  _noise({ dur, gain = 0.3, lp = 4000, delay = 0 }) {
+  // `hp` (optional) switches the filter to a highpass at that frequency (hiss/crack).
+  _noise({ dur, gain = 0.3, lp = 4000, hp = 0, delay = 0 }) {
     const ctx = this._ctx, t = ctx.currentTime + delay
     const n = Math.floor(ctx.sampleRate * dur)
     const buf = ctx.createBuffer(1, n, ctx.sampleRate)
     const d = buf.getChannelData(0)
     for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n)
     const src = ctx.createBufferSource(); src.buffer = buf
-    const filt = ctx.createBiquadFilter(); filt.type = 'lowpass'; filt.frequency.value = lp
+    const filt = ctx.createBiquadFilter(); filt.type = hp ? 'highpass' : 'lowpass'; filt.frequency.value = hp || lp
     const g = ctx.createGain(); g.gain.value = gain
     src.connect(filt).connect(g).connect(this._master)
     src.start(t)
@@ -117,6 +120,20 @@ const GENERATORS = {
   explosion:      (a) => { a._noise({ dur: 0.5, gain: 0.5, lp: 1800 }); a._tone({ type: 'sine', f0: 90, f1: 30, dur: 0.5, gain: 0.35 }) },
   destruction:    (a) => { a._noise({ dur: 0.8, gain: 0.6, lp: 1400 }); a._tone({ type: 'sine', f0: 120, f1: 25, dur: 0.8, gain: 0.4 }); a._tone({ type: 'sawtooth', f0: 200, f1: 40, dur: 0.6, gain: 0.2, delay: 0.05 }) },
   overheat:       (a) => { a._tone({ type: 'sine', f0: 660, f1: 990, dur: 0.18, gain: 0.18 }); a._tone({ type: 'sine', f0: 660, f1: 990, dur: 0.18, gain: 0.18, delay: 0.22 }) },
+  // Weapon reports.
+  fire_shotgun:   (a) => { a._noise({ dur: 0.2, gain: 0.34, lp: 1300 }); a._tone({ type: 'sine', f0: 130, f1: 45, dur: 0.18, gain: 0.28 }) },
+  fire_rocket:    (a) => { a._noise({ dur: 0.34, gain: 0.2, hp: 900 }); a._tone({ type: 'sawtooth', f0: 110, f1: 220, dur: 0.3, gain: 0.12 }) },
+  melee_swing:    (a) => { a._noise({ dur: 0.13, gain: 0.16, hp: 1400 }); a._tone({ type: 'sine', f0: 210, f1: 90, dur: 0.12, gain: 0.14 }) },
+  // Impacts, by weight (opts.level 1–3 scales loudness a little).
+  impact_light:   (a, o) => { const g = 0.1 + 0.03 * (o.level || 2); a._tone({ type: 'triangle', f0: 1500 + Math.random() * 500, f1: 600, dur: 0.035, gain: g }); a._noise({ dur: 0.025, gain: g * 0.6, hp: 2500 }) },
+  impact_pellet:  (a) => { a._noise({ dur: 0.07, gain: 0.2, lp: 3200 }); a._tone({ type: 'triangle', f0: 1100, f1: 500, dur: 0.05, gain: 0.1 }) },
+  impact_heavy:   (a) => { a._tone({ type: 'sine', f0: 150, f1: 48, dur: 0.2, gain: 0.34 }); a._tone({ type: 'square', f0: 310, f1: 140, dur: 0.09, gain: 0.13 }); a._noise({ dur: 0.1, gain: 0.2, lp: 1500 }) },
+  sizzle:         (a) => { a._noise({ dur: 0.16, gain: 0.07, hp: 3200 }) },
+  // Things breaking.
+  armor_break:    (a) => { a._noise({ dur: 0.16, gain: 0.26, hp: 1800 }); a._tone({ type: 'square', f0: 520, f1: 190, dur: 0.14, gain: 0.16 }); a._tone({ type: 'triangle', f0: 1900, f1: 900, dur: 0.1, gain: 0.1, delay: 0.03 }) },
+  part_break:     (a) => { a._noise({ dur: 0.07, gain: 0.34, hp: 1200 }); a._tone({ type: 'square', f0: 420, f1: 110, dur: 0.18, gain: 0.2 }); a._tone({ type: 'sine', f0: 170, f1: 55, dur: 0.22, gain: 0.26, delay: 0.02 }) },
+  zap:            (a) => { a._tone({ type: 'sawtooth', f0: 2200, f1: 380, dur: 0.06, gain: 0.07 }); a._noise({ dur: 0.05, gain: 0.06, hp: 4000 }) },
+  clank:          (a) => { a._tone({ type: 'triangle', f0: 760, f1: 330, dur: 0.09, gain: 0.15 }); a._tone({ type: 'square', f0: 190, f1: 120, dur: 0.06, gain: 0.08 }) },
 }
 
 export const arenaAudio = new ArenaAudio()

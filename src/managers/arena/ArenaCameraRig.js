@@ -18,6 +18,8 @@ import { smoothDampScalar, smoothDampVec3, smoothDampAngle, makeVec3DampState, e
 
 const UP = new THREE.Vector3(0, 1, 0)
 const FWD = new THREE.Vector3(0, 0, 1)
+const _heading = new THREE.Vector3()
+const _ahead = new THREE.Vector3()
 
 export class ArenaCameraRig {
   constructor() {
@@ -86,16 +88,18 @@ export class ArenaCameraRig {
   }
 
   // Ideal camera position for a given follow point + rig yaw + arm length.
+  // `yaw` is a heading (atan2(fwd.x, fwd.z), i.e. the direction the robot drives);
+  // the arm extends to the OPPOSITE side so the camera sits behind that heading.
   _desiredCamPos(follow, yaw, p, arm, out = new THREE.Vector3()) {
     const pitch = THREE.MathUtils.degToRad(p.pitchDeg)
     // Direction FROM follow point back to camera, in the rig's yaw frame.
     const horiz = Math.cos(pitch)
-    const back = new THREE.Vector3(Math.sin(yaw) * horiz, Math.sin(pitch), Math.cos(yaw) * horiz)
+    const back = new THREE.Vector3(-Math.sin(yaw) * horiz, Math.sin(pitch), -Math.cos(yaw) * horiz)
     out.copy(follow).addScaledVector(back, arm)
     out.y += p.height
     // Lateral shoulder offset (right of the view direction).
     if (p.sideOffset) {
-      const right = new THREE.Vector3().crossVectors(back, UP).normalize()
+      const right = new THREE.Vector3().crossVectors(UP, back).normalize()
       out.addScaledVector(right, p.sideOffset)
     }
     return out
@@ -123,11 +127,12 @@ export class ArenaCameraRig {
     // Smooth the follow target (critically damped).
     smoothDampVec3(this._follow, followTarget, this._followState, p.armSmooth, dt, this._follow)
 
-    // Rig yaw: orbit → mouse; followYaw → robot heading (smoothed); else world-fixed.
+    // Rig yaw: orbit → mouse; followYaw → robot heading (smoothed); else world-fixed
+    // (π = camera on the +Z side, looking toward -Z, the fixed "north-up" view).
     let targetYaw
     if (p.orbit) targetYaw = this._orbitYaw
     else if (p.followYaw) targetYaw = robotYaw
-    else targetYaw = 0
+    else targetYaw = Math.PI
     this._yaw = smoothDampAngle(this._yaw, targetYaw, this._yawState, p.orbit ? 0.05 : 0.16, dt)
 
     // Speed-scaled arm + FOV ("sprint" widens view, pulls back a little).
@@ -165,7 +170,7 @@ export class ArenaCameraRig {
       this._bobT = (this._bobT || 0) + dt * (8 + speed * 0.6)
       const vBob = Math.sin(this._bobT) * 0.06 * speedK
       const hBob = Math.cos(this._bobT * 0.7) * 0.045 * speedK
-      const rx = Math.cos(this._yaw), rz = -Math.sin(this._yaw)   // screen-right on XZ
+      const rx = -Math.cos(this._yaw), rz = Math.sin(this._yaw)   // screen-right on XZ
       this._camera.position.y += vBob
       this._camera.position.x += rx * hBob
       this._camera.position.z += rz * hBob
@@ -173,8 +178,17 @@ export class ArenaCameraRig {
 
     // Look target = robot centre, raised so the robot sits in the LOWER-MIDDLE of
     // frame, plus a velocity look-ahead so the camera anticipates movement.
+    // The look-ahead never points backward: reversing would otherwise aim the chase
+    // camera back at its own foreground (the floor between camera and robot).
     const lookAt = new THREE.Vector3(P.x, P.y + 2.0, P.z)
-    if (p.lookAhead > 0 && speed > 0.5) lookAt.addScaledVector(new THREE.Vector3(vel.x, 0, vel.z).normalize(), Math.min(speed, 14) * p.lookAhead)
+    if (p.lookAhead > 0 && speed > 0.5) {
+      _heading.set(fwd.x, 0, fwd.z).normalize()
+      _ahead.set(vel.x, 0, vel.z)
+      const along = _ahead.dot(_heading)
+      if (along < 0) _ahead.addScaledVector(_heading, -along)
+      const aheadSpeed = _ahead.length()
+      if (aheadSpeed > 0.5) lookAt.addScaledVector(_ahead.divideScalar(aheadSpeed), Math.min(aheadSpeed, 14) * p.lookAhead)
+    }
     smoothDampVec3(this._look, lookAt, this._lookState, 0.14, dt, this._look)
 
     // FOV ease.
@@ -191,7 +205,7 @@ export class ArenaCameraRig {
   _desiredCamPosOrbit(follow, arm, p, out = new THREE.Vector3()) {
     const pitch = this._orbitPitch
     const horiz = Math.cos(pitch)
-    const back = new THREE.Vector3(Math.sin(this._orbitYaw) * horiz, Math.sin(pitch), Math.cos(this._orbitYaw) * horiz)
+    const back = new THREE.Vector3(-Math.sin(this._orbitYaw) * horiz, Math.sin(pitch), -Math.cos(this._orbitYaw) * horiz)
     out.copy(follow).addScaledVector(back, arm)
     out.y += p.height * 0.4
     return out

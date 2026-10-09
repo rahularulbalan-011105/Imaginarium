@@ -9,6 +9,7 @@ import { useGearStore } from '../stores/gearStore.js'
 import { useAssetStore } from '../stores/assetStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { objectManager } from '../managers/ObjectManager.js'
+import { surfaceMountManager } from '../managers/SurfaceMountManager.js'
 import { r3, radToDeg, degToRad, snapRotationToAxes } from '../utils/helpers.js'
 import DimensionEditorPanel from './DimensionEditorPanel.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
@@ -310,6 +311,15 @@ export default function PropertiesPanel() {
             const relMat = objectManager.computeChildRelativeMatrix(childBond.parentId, pos, rot)
             if (relMat) updateBond(childBond.id, { relativeMatrix: relMat })
           }
+        }
+      }
+      // Rescaling a host: re-seat its surface-mounted parts flush (the mesh is
+      // synced from the store later, so apply the new scale to it first).
+      if (updates.scale) {
+        const mesh = objectManager.getMesh(selectedId)
+        if (mesh) {
+          mesh.scale.set(updates.scale.x, updates.scale.y, updates.scale.z)
+          surfaceMountManager.reseatMountsOn(selectedId)
         }
       }
     },

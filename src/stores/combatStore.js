@@ -30,6 +30,8 @@ export function makeActor({ id, name, team = 0, armorMax = 100, coreMax = 100, h
   }
 }
 
+let noticeSeq = 0
+
 export const useCombatStore = create((set) => ({
   arenaActive: false,
   status: 'idle',      // idle | loading | fighting | over
@@ -42,6 +44,12 @@ export const useCombatStore = create((set) => ({
   enemyId: null,
   hitMarkerAt: 0,      // ms timestamp of the player's last landed hit (crosshair marker)
   cameraMode: 'default',
+  // Match lifecycle (pushed by CombatManager; the HUD only reads).
+  paused: false,
+  elapsed: 0,          // whole seconds of fighting (updated once a second, not per frame)
+  difficulty: 'normal',
+  result: null,        // { outcome: 'victory'|'defeat'|'draw', winnerName, elapsed, stats: { [id]: { hits, dealt, taken, partsLost } } }
+  notices: [],         // [{ id, text, at }] — short combat callouts (component lost, …), capped
 
   setArena: (v) => set({ arenaActive: v }),
 
@@ -58,8 +66,11 @@ export const useCombatStore = create((set) => ({
   // Generic HUD push (status/message/winner), mirroring gameStore.sync.
   sync: (partial) => set(partial),
 
+  notify: (text) => set((s) => ({ notices: [...s.notices.slice(-3), { id: ++noticeSeq, text, at: performance.now() }] })),
+
   reset: () => set({
     arenaActive: false, status: 'idle', message: '', winnerTeam: null, actors: {},
     playerId: null, enemyId: null, hitMarkerAt: 0, cameraMode: 'default',
+    paused: false, elapsed: 0, result: null, notices: [],
   }),
 }))

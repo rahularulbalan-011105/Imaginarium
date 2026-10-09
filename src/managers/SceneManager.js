@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { TransformControls } from 'three/addons/controls/TransformControls.js'
 import { objectManager } from './ObjectManager.js'
 import { wireManager } from './WireManager.js'
+import { raycastFirst } from '../utils/surfaceRaycast.js'
 // Subscribed only to wake the renderer when the scene changes (see requestRender).
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
@@ -368,6 +369,71 @@ class SceneManager {
     }
 
     return { point: localPoint, normal: localNormal }
+  }
+
+  // Visible, pickable meshes of the given scene objects (default: all of them).
+  // Raycaster ignores `visible`, so hidden pins/markers must be filtered here.
+  surfaceCandidates(roots = objectManager.getAllMeshes()) {
+    const out = []
+    for (const root of roots) {
+      if (root.userData.isWire) continue
+      root.traverseVisible(c => {
+        if (!c.isMesh || !c.geometry) return
+        const u = c.userData
+        if (u.isPatchMesh || u.isPinSphere || u.isPinLabel || u.isAttachMarker || u.isArena) return
+        out.push(c)
+      })
+    }
+    return out
+  }
+
+  // Surface under the cursor, for placing parts ON geometry. Like
+  // pickSurfacePoint but scene-wide and in WORLD space: returns the nearest hit's
+  // root id, point and a unit normal facing the viewer. The normal is the smooth
+  // (vertex-interpolated) one when it agrees with the flat face normal, else the
+  // face normal — curved parts glide, hard-edged GLBs with odd smoothing stay flat.
+  // `candidates` = a cached surfaceCandidates() list (hot path during drags).
+  pickSurfaceHit(event, canvasBounds, candidates = null) {
+    if (!this.camera) return null
+    const raycaster = new THREE.Raycaster()
+    raycaster.setFromCamera(new THREE.Vector2(
+      ((event.clientX - canvasBounds.left) / canvasBounds.width) * 2 - 1,
+      -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1
+    ), this.camera)
+    const hit = raycastFirst(raycaster, candidates ?? this.surfaceCandidates(), h => !!objectManager.resolveId(h.object))
+    if (!hit) return { ray: raycaster.ray.clone() }
+
+    const obj = hit.object
+    const nm = new THREE.Matrix3().getNormalMatrix(obj.matrixWorld)
+    const faceNormal = hit.face.normal.clone().applyMatrix3(nm).normalize()
+    let normal = faceNormal.clone()
+    const na = obj.geometry.attributes.normal
+    if (na && !obj.isSkinnedMesh) {           // skinned: attributes are bind-pose
+      const pa = obj.geometry.attributes.position
+      const { a, b, c } = hit.face
+      const local = obj.worldToLocal(hit.point.clone())
+      const smooth = THREE.Triangle.getInterpolation(
+        local,
+        new THREE.Vector3().fromBufferAttribute(pa, a),
+        new THREE.Vector3().fromBufferAttribute(pa, b),
+        new THREE.Vector3().fromBufferAttribute(pa, c),
+        new THREE.Vector3().fromBufferAttribute(na, a),
+        new THREE.Vector3().fromBufferAttribute(na, b),
+        new THREE.Vector3().fromBufferAttribute(na, c),
+        new THREE.Vector3(),
+      )
+      if (smooth && smooth.lengthSq() > 1e-8) {
+        smooth.applyMatrix3(nm).normalize()
+        if (smooth.dot(faceNormal) > Math.cos(THREE.MathUtils.degToRad(35))) normal = smooth
+      }
+    }
+    // Double-sided / inverted geometry: always report the side facing the camera.
+    if (faceNormal.dot(raycaster.ray.direction) > 0) { faceNormal.negate(); normal.negate() }
+    return {
+      rootId: objectManager.resolveId(obj), object: obj,
+      point: hit.point.clone(), normal, faceNormal, distance: hit.distance,
+      ray: raycaster.ray.clone(),
+    }
   }
 
   // Raycast and classify the clicked spot as a corner / edge / face of the hit

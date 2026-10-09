@@ -25,7 +25,7 @@ const UP = new THREE.Vector3(0, 1, 0)
 
 class WeaponManager {
   constructor() {
-    this._weapons = {}       // robotId -> { primary: inst|null, secondary: inst|null }
+    this._weapons = {}       // robotId -> { all: inst[], primaries: inst[], secondary: inst|null, primary: inst|null }
     this._getRobot = null    // (id) -> { id, bodyId, radius, stats }
     this._getActor = null    // (id) -> runtime actor
     this._onFire = null      // (robotId, def) -> void  (audio / recoil shake)
@@ -47,20 +47,63 @@ class WeaponManager {
     return { def, weaponMesh, ammo: def.magSize, cooldown: 0, reloading: false, reloadEndsAt: 0, recoilGrow: 0, flameMesh: null }
   }
 
-  // Equip a robot with a PRIMARY (its built weapon → LMB) and a SECONDARY
-  // (a second built weapon if any, else the built-in Melee Strike → RMB). Slots
-  // are generic so future weapons plug straight in with no per-type code.
-  equip(robotId, { primaryKey, primaryMesh = null, secondaryKey = null, secondaryMesh = null }) {
-    const primary = primaryKey ? getWeapon(primaryKey) : null
-    const secondary = getWeapon(secondaryKey || 'melee')
-    this._weapons[robotId] = {
-      primary: primary ? this._makeInst(primary, primaryMesh) : null,
-      secondary: secondary ? this._makeInst(secondary, secondaryMesh) : null,
+  // Equip a robot with EVERY weapon part mounted on it — one runtime instance
+  // per part (own ammo / cooldown / reload / recoil / flame cone / muzzle). The
+  // two attack buttons each drive a GROUP:
+  //   LMB (primary)   → every mounted weapon except the one on RMB
+  //   RMB (secondary) → the shortest-range mounted weapon when there are two or
+  //                     more, else the built-in Melee Strike
+  // So one weapon = LMB + melee; two = LMB/RMB (as before); three or more = the
+  // extras join LMB instead of sitting inert. `primary` / `secondary` stay the
+  // heads of the groups for the AI, HUD and crosshair.
+  //   weapons: [{ key, mesh }] in any order (duplicates of a type are fine).
+  equip(robotId, weapons = []) {
+    const all = []
+    for (const w of weapons) {
+      const def = w?.key ? getWeapon(w.key) : null
+      if (!def) continue
+      if (w.mesh && all.some(i => i.weaponMesh === w.mesh)) continue   // never register one part twice
+      all.push(this._makeInst(def, w.mesh || null))
     }
-    console.log('[Combat] armed', robotId, '→ primary:', primary?.name || 'none', '· secondary:', secondary?.name || 'none')
+    const slots = { all, primaries: [], secondary: null, primary: null }
+    this._weapons[robotId] = slots
+    this._regroup(slots)
+    console.log('[Combat] armed', robotId, '→', all.length ? all.map(i => `${i.def.name}${i.weaponMesh ? ' @' + String(i.weaponMesh.userData?.id || '').slice(0, 8) : ''}`).join(', ') : 'no weapon',
+      '· LMB:', slots.primaries.map(i => i.def.name).join(' + ') || 'none', '· RMB:', slots.secondary?.def.name || 'none')
+  }
+
+  // Split `slots.all` into the LMB group + the RMB weapon (rule above). Keeps
+  // live instances — regrouping after a loss never resets ammo or cooldowns.
+  _regroup(slots) {
+    const ranged = [...slots.all].sort((a, b) => (b.def.range || 0) - (a.def.range || 0))
+    if (ranged.length >= 2) {
+      slots.secondary = ranged[ranged.length - 1]
+      slots.primaries = ranged.slice(0, -1)
+    } else {
+      slots.primaries = ranged
+      if (!slots.secondary || slots.secondary.weaponMesh) slots.secondary = this._makeInst(getWeapon('melee'))
+    }
+    slots.primary = slots.primaries[0] || null
   }
 
   weaponsFor(id) { return this._weapons[id] || null }
+
+  // A weapon part was physically torn off its robot (RobotDamageView): that
+  // instance is gone for real; the others keep their state and are regrouped
+  // (a lost RMB weapon falls back to melee; a lost LMB weapon leaves the group).
+  dropWeapon(robotId, mesh) {
+    const slots = this._weapons[robotId]
+    if (!slots || !mesh) return false
+    const i = slots.all.findIndex(inst => inst.weaponMesh === mesh)
+    if (i < 0) return false
+    const inst = slots.all[i]
+    if (inst.flameMesh) inst.flameMesh.visible = false
+    slots.all.splice(i, 1)
+    if (slots.secondary === inst) slots.secondary = null
+    this._regroup(slots)
+    console.log('[Combat] weapon lost', robotId, '→', inst.def.name, '· LMB now:', slots.primaries.map(x => x.def.name).join(' + ') || 'none', '· RMB:', slots.secondary?.def.name || 'none')
+    return true
+  }
 
   // ── Per-frame ───────────────────────────────────────────────────────────────
   step(dt, now, fireInputs) {
@@ -68,7 +111,7 @@ class WeaponManager {
       const robot = this._getRobot(id)
       const actor = this._getActor(id)
       if (!robot || !actor || actor.state === 'destroyed') {
-        if (slots.primary?.flameMesh) slots.primary.flameMesh.visible = false
+        for (const inst of slots.all) if (inst.flameMesh) inst.flameMesh.visible = false
         if (slots.secondary?.flameMesh) slots.secondary.flameMesh.visible = false
         continue
       }
@@ -76,13 +119,15 @@ class WeaponManager {
       const fi = fireInputs[id]
       const wantPrimary = typeof fi === 'boolean' ? fi : !!fi?.primary
       const wantSecondary = typeof fi === 'boolean' ? false : !!fi?.secondary
-      if (slots.primary) this._stepSlot(id, robot, actor, slots.primary, wantPrimary, dt, now)
+      for (const inst of slots.primaries) this._stepSlot(id, robot, actor, inst, wantPrimary, dt, now)
       if (slots.secondary) this._stepSlot(id, robot, actor, slots.secondary, wantSecondary, dt, now)
 
-      // Mirror weapon state to the HUD (primary is the headline; secondary shown small).
+      // Mirror weapon state to the HUD (the LMB group's head is the headline,
+      // with the group size; the RMB weapon shown small).
       const p = slots.primary, s = slots.secondary
       useCombatStore.getState().patchActor(id, {
-        weaponName: p?.def.name ?? null, ammo: p ? Math.ceil(p.ammo) : 0, magSize: p?.def.magSize ?? 0, reloading: !!p?.reloading,
+        weaponName: p ? (slots.primaries.length > 1 ? `${p.def.name} +${slots.primaries.length - 1}` : p.def.name) : null,
+        ammo: p ? Math.ceil(p.ammo) : 0, magSize: p?.def.magSize ?? 0, reloading: !!p?.reloading,
         secondaryName: s?.def.name ?? null, secondaryReady: s ? (!s.reloading && s.cooldown <= 0) : false,
       })
     }
@@ -97,15 +142,16 @@ class WeaponManager {
     else if (inst.flameMesh) inst.flameMesh.visible = false
   }
 
-  _fire(robot, actor, inst, now) {
+  // The exact ray a slot fires along: robot facing (local +Z), from the mounted
+  // weapon's position (else the chassis nose). Shared by _fire and the HUD
+  // crosshair, so what the player sees is what the shot does.
+  aimRay(robot, inst, body = physicsManager.getBody(robot.bodyId)) {
+    if (!body) return null
     const def = inst.def
-    const body = physicsManager.getBody(robot.bodyId)
-    if (!body) return
     const P = body.translation()
     const rot = body.rotation()
     const Q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
     const forward = FWD.clone().applyQuaternion(Q)   // aim = robot facing
-    // Muzzle originates at the attached weapon object (if any), else the chassis.
     let muzzle
     if (inst.weaponMesh) {
       muzzle = inst.weaponMesh.getWorldPosition(new THREE.Vector3()).addScaledVector(forward, 0.6)
@@ -114,10 +160,18 @@ class WeaponManager {
         .addScaledVector(forward, (robot.radius || 1) + 0.4)
         .addScaledVector(UP, def.muzzleY || 1.2)
     }
+    return { muzzle, forward, range: def.range, def }
+  }
+
+  _fire(robot, actor, inst, now) {
+    const def = inst.def
+    const body = physicsManager.getBody(robot.bodyId)
+    if (!body) return
+    const { muzzle, forward } = this.aimRay(robot, inst, body)
     const mass = body.mass() || 1
 
     if (!this._firedOnce) { this._firedOnce = true; console.log('[Combat] first shot fired:', def.name) }
-    if (this._onFire) this._onFire(robot.id, def)
+    if (this._onFire) this._onFire(robot.id, def, inst.weaponMesh)
     this._muzzleFlash(muzzle)
     if (def.strategy === 'ray')          this._fireRay(robot, actor, inst, muzzle, forward, now)
     else if (def.strategy === 'rocket')  this._fireRocket(robot, inst, muzzle, forward)
@@ -140,7 +194,7 @@ class WeaponManager {
       const hit = physicsManager.raycast(muzzle, dir, def.range, robot.id)
       let end
       if (hit && hit.id != null && hit.id !== robot.id) {
-        this._hitTarget(robot, hit.id, def, dir, now)
+        this._hitTarget(robot, hit.id, def, dir, now, hit.point)
         end = hit.point
       } else {
         end = { x: muzzle.x + dir.x * def.range, y: muzzle.y + dir.y * def.range, z: muzzle.z + dir.z * def.range }
@@ -160,18 +214,21 @@ class WeaponManager {
     for (let k = 0; k < (def.pellets || 3); k++) {
       const dir = perturb(forward, def.spreadDeg)
       const hit = physicsManager.raycast(muzzle, dir, def.range, robot.id)
-      if (hit && hit.id != null && hit.id !== robot.id) this._hitTarget(robot, hit.id, def, dir, now)
+      if (hit && hit.id != null && hit.id !== robot.id) this._hitTarget(robot, hit.id, def, dir, now, hit.point)
     }
     this._flameVFX(inst, muzzle, forward)
   }
 
-  _hitTarget(robot, targetId, def, dir, now) {
+  // `point` = where the ray met the target's collision body; with `dir` it lets
+  // the host localize the hit on the robot's real geometry (presentation only).
+  _hitTarget(robot, targetId, def, dir, now, point = null) {
     const target = this._getActor(targetId)
     if (!target || target.state === 'destroyed') return
     const crit = !!def.crit && target.armor <= 0
     damageManager.apply({
       targetId, sourceId: robot.id, damageType: def.strategy === 'flame' ? 'burn' : 'core',
       amounts: { ...def.damage }, crit, critMul: def.critMul,
+      weaponKey: def.key, hitPoint: point, hitDir: { x: dir.x, y: dir.y, z: dir.z },
     })
     for (const e of def.statusEffects || []) statusEffectSystem.add(target, e, now)
     if (def.knockback) {
@@ -194,7 +251,7 @@ class WeaponManager {
       f.t += dt
       const k = f.t / 0.09
       if (k >= 1) { f.mesh.visible = false; this._flashPool.push(f.mesh); this._flashes.splice(i, 1) }
-      else { f.mesh.scale.setScalar(1 + k * 2); f.mesh.material.opacity = 1 - k }
+      else { f.mesh.scale.setScalar(1 + k * 1.2); f.mesh.material.opacity = 1 - k }
     }
   }
 
@@ -202,8 +259,8 @@ class WeaponManager {
     let m = this._flashPool.pop()
     if (!m) {
       m = new THREE.Mesh(
-        new THREE.SphereGeometry(0.5, 8, 6),
-        new THREE.MeshBasicMaterial({ color: 0xffddaa, transparent: true, opacity: 1, depthWrite: false }),
+        new THREE.SphereGeometry(0.3, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffddaa, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending }),
       )
       m.userData.isArena = true
       this._scene.add(m)
@@ -249,8 +306,8 @@ class WeaponManager {
     for (const slots of Object.values(this._weapons)) {
       // No mounted mesh to remove — the weapon is a scene object restored by
       // CombatManager. Only the flame VFX cone needs disposal (per slot).
-      for (const inst of [slots.primary, slots.secondary]) {
-        if (inst?.flameMesh) { inst.flameMesh.geometry.dispose(); inst.flameMesh.material.dispose(); inst.flameMesh.removeFromParent() }
+      for (const inst of [...slots.all, slots.secondary]) {
+        if (inst?.flameMesh) { inst.flameMesh.geometry.dispose(); inst.flameMesh.material.dispose(); inst.flameMesh.removeFromParent(); inst.flameMesh = null }
       }
     }
     for (const t of this._tracers) t.line.removeFromParent()

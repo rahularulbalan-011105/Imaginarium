@@ -32,7 +32,9 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
   //  • the live world position (so attachment-unaware loaders still place it),
   //  • the EXACT local transform inside the motor's rotor (`attach`), which is
   //    the ground truth used to restore the attachment perfectly on import.
-  const objects = sceneState.objects.map(obj => {
+  // Arena-only parts (the stock AI opponent) are never part of the design.
+  const transientIds = new Set(sceneState.objects.filter(o => o.transient).map(o => o.id))
+  const objects = sceneState.objects.filter(o => !o.transient).map(obj => {
     if (!attachments[obj.id]) return obj
     const wp = objectManager.getWorldPos(obj.id)
     const lt = objectManager.getAttachedLocalTransform(obj.id)
@@ -59,7 +61,7 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
       attachments: electronicsState.attachments,
     } : undefined,
     surface: { patches: surfaceState.patches },
-    rigid:   { bonds:   rigidState.bonds   },
+    rigid:   { bonds:   transientIds.size ? Object.fromEntries(Object.entries(rigidState.bonds).filter(([, b]) => !transientIds.has(b.parentId) && !transientIds.has(b.childId))) : rigidState.bonds },
     joints:  { joints:  jointState.joints  },
     robots:  { blueprints: robotState.blueprints },
   }

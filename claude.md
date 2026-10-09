@@ -116,7 +116,7 @@ toolsapp/
     │   ├── CompilerOutput.jsx      # Arduino-IDE-style compiler report panel (errors/warnings/success + snippet+caret + clickable jump)
     │   ├── SimulationPanel.jsx     # Start/Stop sim (simulate anchor), environment, battle entry
     │   ├── DrivePanel.jsx          # In-viewport sim HUD (wheeled + legged drive controls, serial log)
-    │   ├── BattlePanel.jsx         # Robo-Sumo HUD + setup (local/online) + Physics-Arena launch (You vs AI)
+    │   ├── BattlePanel.jsx         # BattleBot Arena setup (robot pick / Import JSON / readiness / opponent+difficulty / Enter) + in-match pause·restart·exit; Robo-Sumo kept as a collapsible classic mode
     │   ├── SettingsPanel.jsx       # Theme, grid/axes, snap, print bed
     │   ├── PanelErrorBoundary.jsx  # Wraps each panel so a crash can't kill the editor
     │   ├── WelcomeOverlay.jsx      # First-run card (Teach me / Tour / Explore)
@@ -124,7 +124,7 @@ toolsapp/
     │   ├── ConstructaLogo.jsx      # Brand wordmark (img w/ text fallback), BASE_URL-aware
     │   ├── DiscordGate.jsx         # "Join beta community" card (post-load, localStorage-gated) → UTM popup_action
     │   ├── combat/
-    │   │   └── CombatHUD.jsx       # Third-person PvP HUD: player L / enemy R cards, crosshair, hit marker, ability bar, camera legend
+    │   │   └── CombatHUD.jsx       # Arena HUD INSIDE the viewport: YOU/ENEMY cards, match clock, crosshair on the real aim ray (imperative), weapon slots, callouts, Pause + Result (Rematch) sheets
     │   ├── ui/
     │   │   ├── Icon.jsx            # ~45-glyph inline-SVG icon set (currentColor) — the only iconography source
     │   │   ├── surfaces.js         # GLASS glassmorphism tokens + icon-button styles
@@ -142,7 +142,7 @@ toolsapp/
     │   ├── jointStore.js           # Mechanical joints (type/axis/limits/motor)
     │   ├── assetStore.js           # User-saved assets (localStorage)
     │   ├── gameStore.js            # Robo-Sumo + remappable controls (P1/P2 keys + fire + front)
-    │   ├── combatStore.js          # Physics-Arena actors (armor/core/heat/stability/team/state) + player/enemy ids + camera mode
+    │   ├── combatStore.js          # Arena actors (armor/core/heat/stability/team/state) + player/enemy ids, camera mode, paused/elapsed/difficulty/result/notices
     │   ├── gearStore.js            # Gear mesh pairings (meshPairs)
     │   ├── robotStore.js           # Robot blueprint / module state
     │   └── historyStore.js         # Reactive mirror of undo/redo stacks
@@ -162,7 +162,8 @@ toolsapp/
     │   ├── BattleManager.js        # Robo-Sumo sim (arcade 2D disc physics, HP, ring-out) + WebRTC netcode
     │   ├── NetworkManager.js       # WebRTC P2P transport (PeerJS) for online battles
     │   ├── CombatManager.js        # Physics-Arena orchestrator: 1 Rapier body/robot, player-vs-AI, drive, ram damage, camera+effects+audio wiring, chassis lean
-    │   ├── WeaponManager.js        # Per-robot weapons — primary+secondary SLOTS (ray/rocket/flame), reload/heat, mounts GLB, VFX, onFire hook
+    │   ├── WeaponManager.js        # Per-robot weapons — ONE instance per mounted weapon part (own ammo/cooldown/reload/muzzle), grouped per button: LMB = all but the shortest-range, RMB = shortest-range (else melee); aimRay() shared by fire + crosshair; dropWeapon() regroups
+    │   ├── SurfaceMountManager.js  # Drag-to-mount parts (weapons) flush on any robot surface; re-mount gesture; reseatMountsOn() keeps hand-set rotations
     │   ├── arena/                  # ── Third-person PvP layer (arena-only) ──
     │   │   ├── ArenaCameraManager.js   # Camera lifecycle, F1–F4 mode keys, F3 orbit mouse, owns CameraShake; snapshots+restores editor camera
     │   │   ├── ArenaCameraRig.js       # Spring-arm chase: smoothed follow → arm → collision raycast → SmoothDamp → look target + drive bob
@@ -191,6 +192,8 @@ toolsapp/
     │
     ├── combat/                     # ── Combat framework (physics-independent logic) ──────────
     │   ├── CombatStats.js          # Robot class (light/medium/heavy) + stat block from real mass (HP/mobility/resist)
+    │   ├── arenaReadiness.js       # assessRobot / assessMatch — ready | warn | invalid + issues (gates the Enter button; pure read)
+    │   ├── stockOpponent.js        # Built-in AI opponent made of ordinary scene parts flagged transient:'arena' (excluded from save/export, removed on stop)
     │   ├── DamageManager.js        # THE single damage funnel (armor→core, crit, stability/heat, friendly-fire hook)
     │   ├── StabilitySystem.js      # Stability meter → stumble/stagger
     │   ├── HeatSystem.js           # Heat meter → overheat (hysteresis)
@@ -371,9 +374,12 @@ A Rapier-based, modular combat engine (distinct from the arcade Sumo). Launched 
 - **Player controller** — WASD move (mouse never rotates), **LMB primary / RMB secondary**. **`ArenaAIController`** — easy, beatable AI emitting the same input shape (seek→face→fire, ~70% accuracy, 400–600 ms reaction, strafe/back-off/unstick).
 - **Camera** (arena-only; snapshots + restores the shared editor camera): `ArenaCameraManager` (lifecycle, F1–F4 modes, F3 orbit mouse, owns `CameraShake`) → `ArenaCameraRig` (smoothed follow → spring arm → wall-collision raycast → SmoothDamp position → look target + velocity look-ahead + speed-scaled distance/FOV + engine drive-bob; level horizon). Modes: Default / F1 Shoulder / F2 Tactical / F3 Orbit / F4 Top-Down (300 ms blends). All critically damped (`smoothing.js`), frame-rate independent.
 - **Feedback** — `CombatEffectsManager` fans damage/fire/detonate to `HitEffects` (sparks/smoke/debris/hit-flash/armor-shards/destroyed fire), `DamageNumbers` (DOM overlay, aggregated), `ArenaAudio` (WebAudio placeholder sounds), `CameraShake`. Subtle **chassis lean/sway/suspension** on robots (visual-only, physics untouched).
-- **HUD** (`CombatHUD`) — player L / enemy R (armor/HP/stability/heat + weapon/ammo), crosshair + hit marker, ability bar, camera-mode legend, overheat vignette, Exit.
+- **HUD** (`CombatHUD`, rendered inside the Viewport container so it never covers the header/panel/status bar) — YOU/ENEMY cards (armor/HP/stability/heat + weapon READY/RELOADING/ammo), match clock + AI difficulty, **crosshair on the real aim point** (`CombatManager.aim`: `WeaponManager.aimRay` → same physics raycast as the shot → projected with this frame's camera; positioned imperatively, no React per frame; labels TARGET / OUT OF RANGE / COOLING / RELOADING; hit marker only from the damage pipeline), weapon slots (LMB/RMB readiness), callouts (part lost), Pause sheet (Resume/Restart/Exit) and Result sheet (VICTORY/DEFEAT/DRAW, hits/damage/parts-lost per side, Rematch / Back to Editor).
+- **Match lifecycle** — `startArena(ids, { difficulty, stock })`; `restart()` (same config, everything fresh); `togglePause()` (Esc or HUD: physics/AI/weapons/clock frozen, held input released); input is also released on window blur / tab hide and when the match ends; `stop()` restores every mesh + the camera, removes the stock opponent and leaves the saved design byte-identical (no-op store writes are skipped).
+- **Entry (`BattlePanel`)** — pick a robot or **Import JSON** (same files Robot Builder exports; dispatches `constructa:load-project` → the Header loader), readiness card from `arenaReadiness.js` (parts / weapons / class+mass / LMB+RMB / issues; `invalid` disables Enter, `warn` doesn't), opponent = another scene robot or the **stock bot** (`stockOpponent.js`, `transient:'arena'` parts — `buildProjectSnapshot` filters them), AI difficulty easy/normal/hard (`ArenaAIController` tiers, persisted in `localStorage['arena.difficulty']`).
+- **Damage presentation** (`RobotDamageView`) — per-part marks at the real hit point/normal (bullet/scorch/dent/soot/wear/torn/hot), worn patches, mount integrity HEALTHY→DAMAGED→WEAKENED→CRITICAL→FAILED; a part detaches **only** on FAILED and becomes a Rapier debris body with an impulse from that impact. Everything is cleared on stop/restart.
 
-**Stage status:** Done 1–4 (bodies+HP · damage+classes · stability/heat/status · weapons/projectiles/explosions) + PvP feel pass. Pending 5–8 (teams/co-op · AI archetypes/objectives/hazards · online netcode · polish).
+**Stage status:** Done 1–4 (bodies+HP · damage+classes · stability/heat/status · weapons/projectiles/explosions) + PvP feel pass + full match lifecycle (import → readiness → stock/scene opponent → fight → pause → result → rematch). Pending: teams/co-op · objectives/hazards · online netcode.
 
 ### Onboarding / Tutorial (UI-only, read-only)
 `onboarding/` store + `components/onboarding/`: WelcomeOverlay, GuidedCoach (27 state-detected steps), ProductTour (10), HelpMenu, KeyboardShortcutsModal, BeginnerGuideModal, PanelHint. Steps complete on **actual app state**, never DOM clicks. `data-tour` anchors drive spotlights — don't rename without updating `coachSteps.js`/`tourSteps.js`.
@@ -438,7 +444,7 @@ A Rapier-based, modular combat engine (distinct from the arcade Sumo). Launched 
 | `G`/`A` · `F` · `Shift+S` | Grid/Axes · Frame selection · Snap rotation to axes |
 | `↑↓←→` | Nudge (Shift = Y); drives legged robot during legged sim |
 | **Battle** | P1 WASD / P2 arrows (editor shortcuts blocked while active) |
-| **Arena** | **WASD** move · **LMB** primary · **RMB** secondary · **F1–F4** camera views |
+| **Arena** | **WASD** move (rebindable — P1 keys) · **LMB** primary · **RMB** secondary · **Esc** pause · **F1–F4** camera views |
 | `Space`/`Enter` | (legacy Arena fire keys) |
 | Mouse | Wheel zoom · Middle-drag orbit · Right-drag pan (edit mode) |
 
@@ -524,6 +530,9 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 - [x] **Expanded UTM visit analytics** (ref/country/device/returning/popup_action/session_duration) → Google-Sheet collector + dashboard; in-app **event funnel** (app_loaded/code_run/sim_started/…); soft email capture; **device split** (mobile → landing page); **custom domain** `constructa.atumx.in`
 - [x] **SUBO GLB calibration:** the official `subo.glb` is the visible board (never procedural). It is a MIXED-UNIT hierarchy — several `*PCB*` meshes span the full board (~6.45×6.8) while others are tiny sub-parts (down to ~0.3). `suboBoardBox()` (`electronicsFactory.js`) anchors pins + LED-matrix panel to the **largest** `/pcb/i` mesh (the real substrate) so they span the board instead of collapsing onto a sub-part. `MODEL_SCALE_TARGET.subo = 6.8` = Arduino, so both normalise to the same footprint; the board is laid flat (rests on the workplane)
 - [x] **Pin reveal system (hidden-until-needed):** pin spheres + label sprites are hidden by default (`WireManager.setReveal`) so every GLB board reads as real hardware, not a cloud of helpers. Pins appear only while the **Wiring** panel is open (all boards) or a board is **selected** (that board); individual pins still brighten on hover, and a live wire-drag reveals all pins as targets. `_raycastPins` only targets active pins. Applies uniformly to Arduino / SUBO / sensors
+- [x] **BattleBot Arena (match lifecycle):** arena-first Battle panel (robot pick / **Import JSON** / readiness assessment / **stock AI opponent** / difficulty), HUD confined to the viewport with a **true-aim crosshair**, match clock, **Esc pause**, focus-loss input release, **result screen + rematch**, transient-opponent cleanup; the editor hides its toolbox/view-cube/hints while the arena runs
+- [x] **Independent part transforms:** rotating/scaling a bonded part (weapon) with the gizmo or keyboard edits only that part and re-syncs its bond — the chassis no longer follows; the Move gizmo still carries the welded group; host rescale re-seats mounted parts without resetting hand-set rotations; click after a gizmo drag no longer re-selects what's under the cursor
+- [x] **Physical battle damage:** per-part impact marks at the real hit point/normal, progressive wear, **mount integrity states**, detachment only on mount failure, Rapier debris bodies for torn-off parts, callouts, full reset between matches
 - [x] **SUBO Arduino library** (`src/arduino/libraries/Subo/`) — official SUBO API (`SuboMatrixInit`, `setAllLED`, `playTone`, `drive_motors`, note constants, …) available in the code simulator
 
 ### Remaining / Future
@@ -552,11 +561,16 @@ GitHub Pages base path is in `vite.config.js`. COOP/COEP headers must be set for
 **White/invisible text after theme change** → 3D-canvas text uses fixed hex, not tokens; inputs force-darkened in `globals.css`.
 **`npm run dev` crashes `EBUSY … dist/…glb`** → a preview/build is holding `dist/`; stop it first.
 **Arena camera stuck / editor camera wrong after leaving Arena** → `ArenaCameraManager` restores it in `stop()`; the HUD Exit button always restores. OrbitControls is disabled during a match (except F3).
-**Arena: LMB/RMB do nothing / robot won't move** → player = robot[0] (first pick); WASD moves, A/D rotate (mouse doesn't); LMB needs a ⚔ weapon part (else no primary), RMB = built-in Melee. Click the viewport if focus was lost.
+**Arena: a mounted weapon never fires** → every weapon part is registered (`WeaponManager.equip(robotId, weapons[])`); LMB fires the whole primary group, RMB the shortest-range weapon. The console logs `[Combat] armed … · LMB: … · RMB: …` at match start — if a part is missing there, it isn't a `weapon_*` type bonded into that assembly.
+**Arena: LMB/RMB do nothing / robot won't move** → player = robot[0] (first pick); WASD moves, A/D rotate (mouse doesn't); LMB needs a ⚔ weapon part (else no primary), RMB = built-in Melee. Click the viewport if focus was lost. If the match is paused (Esc) nothing moves until Resume.
+**Arena: "Enter the Arena" disabled** → the readiness card lists the ✖ reason (no robot, same robot both sides, invalid transform/bond, duplicate ids). ⚠ warnings (no weapon = melee only) never block.
+**Arena: crosshair not where the shot lands** → the crosshair is `CombatManager.aim` (projected `WeaponManager.aimRay`); shots fire along the robot's facing from the mounted weapon, never along the camera. Camera modes F2/F4 look from elsewhere but the reticle still marks the true impact point.
+**Stock bot parts in the Objects list / a saved file** → they are `transient:'arena'`; `buildProjectSnapshot` drops them and `stop()` removes them — if they linger, the arena was torn down abnormally: open Battle → Exit.
+**Weapon snaps back after rotating it in the editor** → rotate/scale edit only the selected part (its bond is re-synced on release); the Move gizmo still drags the whole welded robot. `reseatMountsOn` keeps a hand-turned part's rotation.
 **Arena feels like a simulator / no hits or sound** → feedback is `CombatEffectsManager` (fed by `DamageManager.onApplied` + `WeaponManager.onFire` + `ExplosionSystem.onDetonate`); audio unlocks on first click; damage numbers are a DOM overlay.
 **Canvas not rendering** → check WebGL 2.0 and canvas dimensions > 0.
 
 ---
 
-**Last Updated:** 2026-07-14 · **Version:** 1.8.0
+**Last Updated:** 2026-10-08 · **Version:** 1.9.0
 Full robotics platform · SUBO board (largest-substrate pin anchoring) + **SUBO Arduino library** · Constructa branding + video loading screen · Robo-Sumo (local+online) · **Physics-Arena combat** Stages 1–4 + third-person **You-vs-AI PvP layer** (chase camera, easy AI, LMB/RMB weapons, hit VFX/damage numbers/audio, chassis lean) · **Arduino compiler diagnostics** · expanded UTM analytics + event funnel + email capture + mobile device-split · sensor render fix + electronics manual resize + **legged code-walk (`walk`/`turn`/`stopWalking`)** + robust drive grounding (ignores degenerate GLB bboxes) · custom domain `constructa.atumx.in`.

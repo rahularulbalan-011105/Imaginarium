@@ -10,6 +10,7 @@
 //   damageType,                              // 'collision'|'core'|'armor'|'stability'|'heat'|'explosion'|'burn'
 //   amounts: { armor?, core?, stability?, heat? },
 //   impulse?: {x,y,z}, hitPoint?: {x,y,z},   // physics response / VFX (applied by the host)
+//   hitDir?: {x,y,z}, weaponKey?: string,    // travel direction + weapon (host: localized impact presentation)
 //   crit?: bool, critMul?: number,           // bonus when core is exposed (armor==0)
 // }
 //

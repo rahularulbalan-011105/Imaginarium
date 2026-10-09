@@ -9,12 +9,14 @@ export const useRigidStore = create((set, get) => ({
 
   // contactLocalNormal / contactLocalCenter are patchA's normal and center
   // stored in the PARENT object's local space — needed for on-surface rotation.
-  addBond(parentId, childId, relativeMatrix, contactLocalNormal, contactLocalCenter) {
+  // meta (optional) is merged in as plain data, e.g. { attach: 'surface' } for a
+  // part snapped on by SurfaceMountManager. Bonds without it are patch bonds.
+  addBond(parentId, childId, relativeMatrix, contactLocalNormal, contactLocalCenter, meta) {
     const id = uuid()
     set(s => ({
       bonds: {
         ...s.bonds,
-        [id]: { id, parentId, childId, relativeMatrix, contactLocalNormal, contactLocalCenter },
+        [id]: { ...meta, id, parentId, childId, relativeMatrix, contactLocalNormal, contactLocalCenter },
       },
     }))
     return id

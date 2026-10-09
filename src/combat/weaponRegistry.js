@@ -18,6 +18,11 @@
 //   statusEffects: [{type,magnitude,durationMs,dps}]   // applied to the TARGET
 //   selfStatus:    [{type,magnitude,durationMs}]       // applied to the SHOOTER
 //   crit, critMul, muzzleY             // crit on exposed core / weapon mount height
+//   mount: { up, forward, base }       // editor surface-mount spec (SurfaceMountManager):
+//                                      //   up/forward = model-local axes ('+x'…'-z'); the
+//                                      //   weapon sits on its -up side, barrel along forward.
+//                                      //   base = fraction of the footprint that must rest
+//                                      //   on the surface (the rest, e.g. a barrel, may overhang).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const _registry = {}
@@ -39,6 +44,7 @@ export function weaponTypes() { return allWeapons().map(w => 'weapon_' + w.key) 
 // ── AUTO CANNON — sustained DPS, armor break, crit on exposed core ────────────
 registerWeapon({
   key: 'autocannon', name: 'Auto Cannon', class: 'sustained', model: 'weapon_autocannon',
+  mount: { up: '+y', forward: '+x', base: 0.5 },
   strategy: 'ray',
   damage: { armor: 5, core: 3, stability: 1, heat: 0 },
   range: 70, fireRateHz: 8, magSize: 45, reloadMs: 1600,
@@ -51,6 +57,7 @@ registerWeapon({
 // ── SHOTGUN — burst damage, high stability + armor break, strong knockback ────
 registerWeapon({
   key: 'shotgun', name: 'Shotgun', class: 'burst', model: 'weapon_shotgun',
+  mount: { up: '+y', forward: '+z', base: 0.5 },
   strategy: 'ray',
   damage: { armor: 6, core: 2, stability: 3, heat: 0 },   // per pellet
   range: 24, fireRateHz: 1.2, magSize: 6, reloadMs: 1800,
@@ -64,6 +71,7 @@ registerWeapon({
 // ── ROCKET POD — area damage, splash + explosion, self-damage, slow reload ────
 registerWeapon({
   key: 'rocket', name: 'Rocket Pod', class: 'area', model: 'weapon_rocket',
+  mount: { up: '+y', forward: '+x', base: 0.5 },
   strategy: 'rocket',
   damage: { armor: 20, core: 14, stability: 20, heat: 6 },   // explosion, at centre
   range: 90, fireRateHz: 2.5, magSize: 3, reloadMs: 3200,
@@ -91,6 +99,7 @@ registerWeapon({
 // ── FLAMETHROWER — area denial, burn, close range, slows self while firing ────
 registerWeapon({
   key: 'flame', name: 'Flamethrower', class: 'denial', model: 'weapon_flame',
+  mount: { up: '+y', forward: '+z', base: 0.5 },
   strategy: 'flame',
   damage: { armor: 1, core: 1, stability: 1, heat: 0 },      // per tick per target
   range: 15, fireRateHz: 14, magSize: 140, reloadMs: 2600,

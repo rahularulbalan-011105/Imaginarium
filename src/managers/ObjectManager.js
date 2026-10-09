@@ -197,6 +197,16 @@ class ObjectManager {
     return object3d
   }
 
+  isElectronicsType(type) { return ELECTRONICS.has(type) }
+
+  // Detached preview of a part (not registered, not in the scene), built by the
+  // same code path as the real object so a drag ghost matches it exactly.
+  // Returns null for types without a preview builder.
+  buildMountPreview(type) {
+    if (typeof type === 'string' && type.startsWith('weapon_')) return this._makeWeaponMesh({ id: null, type })
+    return null
+  }
+
   // Weapon part: a holder Group showing a barrel placeholder immediately, then
   // swapping in the real weapon GLB (lazy-loaded) once it arrives. The holder's
   // identity stays in this.objects so transforms / attachments are preserved.

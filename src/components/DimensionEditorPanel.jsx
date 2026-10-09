@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import * as THREE from 'three'
 import { objectManager } from '../managers/ObjectManager.js'
+import { surfaceMountManager } from '../managers/SurfaceMountManager.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 
@@ -83,6 +84,7 @@ export default function DimensionEditorPanel({ obj }) {
     if (mesh) {
       mesh.scale.set(newScale.x, newScale.y, newScale.z)
       mesh.position.set(newPosition.x, newPosition.y, newPosition.z)
+      surfaceMountManager.reseatMountsOn(obj.id)   // keep mounted parts flush
     }
     snapshot()
     setEditing(e => ({ ...e, [axis]: undefined }))

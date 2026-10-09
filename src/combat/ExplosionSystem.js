@@ -43,6 +43,7 @@ class ExplosionSystem {
       const dm = def.damage || {}
       damageManager.apply({
         targetId: r.id, sourceId: ownerId, damageType: 'explosion',
+        weaponKey: def.key, hitPoint: { x: pos.x, y: pos.y, z: pos.z },
         amounts: {
           armor: Math.round((dm.armor || 0) * falloff),
           core:  Math.round((dm.core || 0) * falloff),
@@ -78,9 +79,9 @@ class ExplosionSystem {
       f.t += dt
       const k = f.t / f.life
       if (k >= 1) { f.mesh.visible = false; this._pool.push(f.mesh); this._flashes.splice(i, 1); continue }
-      const s = f.radius * (0.4 + k * 0.9)
+      const s = f.radius * (0.05 + k * 0.1)
       f.mesh.scale.setScalar(s)
-      f.mesh.material.opacity = 0.85 * (1 - k)
+      f.mesh.material.opacity = 0.8 * (1 - k) * (1 - k)
     }
     if (this._shake > 0 && this._camera) {
       const m = this._shake
@@ -95,16 +96,16 @@ class ExplosionSystem {
     if (!mesh) {
       mesh = new THREE.Mesh(
         new THREE.SphereGeometry(1, 16, 12),
-        new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.85, depthWrite: false }),
+        new THREE.MeshBasicMaterial({ color: 0xffaa33, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }),
       )
       mesh.userData.isArena = true
       this._scene?.add(mesh)
     }
     mesh.position.set(pos.x, pos.y, pos.z)
-    mesh.scale.setScalar(radius * 0.4)
-    mesh.material.opacity = 0.85
+    mesh.scale.setScalar(radius * 0.05)
+    mesh.material.opacity = 0.8
     mesh.visible = true
-    this._flashes.push({ mesh, t: 0, life: 0.4, radius })
+    this._flashes.push({ mesh, t: 0, life: 0.16, radius })
   }
 
   clear() {

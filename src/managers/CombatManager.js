@@ -21,6 +21,7 @@ import { CombatEffectsManager } from './arena/CombatEffectsManager.js'
 import { ArenaAIController } from './arena/ArenaAIController.js'
 import { arenaAudio } from './arena/ArenaAudio.js'
 import { smoothDampScalar } from './arena/smoothing.js'
+import { spawnStockOpponent, removeStockOpponent } from '../combat/stockOpponent.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -71,22 +72,66 @@ class CombatManager {
     this._mouse = { primary: false, secondary: false }
     this._effects = new CombatEffectsManager()
     this._ai = new ArenaAIController()
+    this._config = null        // { ids, difficulty, stock } — what startArena was asked for (rematch)
+    this._stockIds = null      // transient stock-opponent part ids (removed on stop)
+    this._paused = false
+    this._startAt = 0
+    this._pausedFor = 0
+    this._stats = {}           // id -> { hits, dealt, taken, partsLost }
+    // HUD aim state, mutated per frame (the crosshair reads it imperatively —
+    // no React state per frame). Screen px of the player's real firing ray.
+    this.aim = { visible: false, x: 0, y: 0, onTarget: false, inRange: false, dist: 0, range: 0, ready: false, reloading: false, weapon: null, blocked: false }
   }
 
   get isActive() { return this._active }
+  get paused() { return this._paused }
+  get config() { return this._config }
 
   // ── Start a local arena match. Weapons come from the robots themselves (a
   // `weapon_*` part attached to the assembly) — no in-battle picker. ───────────
-  startArena(robotIds) {
-    const ids = (robotIds || []).filter(Boolean)
-    if (ids.length < 2) { console.warn('[Combat] need at least 2 robots'); return }
-    if (this._active || useCombatStore.getState().arenaActive) this.stop()   // no re-entry orphans
-    trackEvent('arena_started', { robots: ids.length })
-    useCombatStore.getState().sync({ arenaActive: true, status: 'loading', message: '', winnerTeam: null })
-    physicsManager.init().then(() => {
-      if (!useCombatStore.getState().arenaActive) return   // cancelled meanwhile
-      this._build(ids)
-    })
+  // opts.difficulty: 'easy' | 'normal' | 'hard' (AI tier). opts.stock: when the
+  // list holds only the player's robot, fight a built-in stock AI opponent.
+  startArena(robotIds, opts = {}) {
+    let ids = (robotIds || []).filter(Boolean)
+    const stock = !!opts.stock && ids.length === 1
+    if (ids.length < 2 && !stock) { console.warn('[Combat] need at least 2 robots'); return }
+    if (this._active || this._over || useCombatStore.getState().arenaActive) this.stop()   // no re-entry orphans
+    this._config = { ids: [...ids], difficulty: opts.difficulty || 'normal', stock }
+    trackEvent('arena_started', { robots: ids.length + (stock ? 1 : 0), difficulty: this._config.difficulty, stock })
+    useCombatStore.getState().sync({ arenaActive: true, status: 'loading', message: '', winnerTeam: null, difficulty: this._config.difficulty, result: null, paused: false, elapsed: 0, notices: [] })
+    const token = this._startToken = (this._startToken || 0) + 1
+    Promise.resolve()
+      .then(() => physicsManager.init())
+      .then(async () => {
+        if (stock) { const so = await spawnStockOpponent('brawler'); this._stockIds = so.ids; ids = [ids[0], so.rootId] }
+      })
+      .then(() => {
+        if (token !== this._startToken || !useCombatStore.getState().arenaActive) return   // cancelled meanwhile
+        this._build(ids)
+      })
+      .catch((e) => { console.error('[Combat] arena start failed:', e); this.stop() })
+  }
+
+  // Same robots, same difficulty, fresh everything (damage, loose parts, marks,
+  // timers, input). The user's design is restored by stop() first.
+  restart() {
+    const cfg = this._config
+    if (!cfg) return
+    this.stop()
+    this.startArena(cfg.ids, { difficulty: cfg.difficulty, stock: cfg.stock })
+  }
+
+  // Esc / HUD pause. Freezes the simulation (no input, AI, weapons, physics),
+  // releases held keys so nothing is "stuck" when play resumes.
+  togglePause(force) {
+    if (!this._active) return
+    const next = typeof force === 'boolean' ? force : !this._paused
+    if (next === this._paused) return
+    this._paused = next
+    this._releaseInput()
+    if (next) { this._pauseAt = performance.now(); arenaAudio.stopMove() }
+    else { this._pausedFor += performance.now() - this._pauseAt; this._last = performance.now() }
+    useCombatStore.getState().sync({ paused: next })
   }
 
   _build(ids) {
@@ -94,6 +139,9 @@ class CombatManager {
     // re-activating the focused button.
     if (typeof document !== 'undefined' && document.activeElement?.blur) document.activeElement.blur()
     this._saveOrig(ids.flatMap(id => assemblyMembers(id)))
+    // The editor's selection/gizmo would sit on a fighting part.
+    useSceneStore.getState().clearSelection()
+    sceneManager.detachTransform()
     this._buildArena()
 
     this._robots = []
@@ -120,7 +168,7 @@ class CombatManager {
     // (Any extra robots idle until multi-AI; the seam already supports N.)
     this._playerId = this._robots[0].id
     this._enemyId  = this._robots[1].id
-    for (const id in this._actors) this._actors[id]._prevArmor = this._actors[id].armor
+    for (const id in this._actors) { this._actors[id]._prevArmor = this._actors[id].armor; this._actors[id]._prevCore = this._actors[id].core }
     this._prevOverheat = {}
     this._lastCamMode = 'default'
 
@@ -136,8 +184,15 @@ class CombatManager {
         const pos = new THREE.Vector3()
         if (body) { const t = body.translation(); pos.set(t.x, t.y + 1, t.z) }
         const armorBreak = (a._prevArmor > 0 && a.armor <= 0)
+        // Match stats (result screen) — HP that actually came off (overkill
+        // past zero doesn't count).
+        const dealt = Math.max(0, (a._prevArmor ?? a.armor) - a.armor) + Math.max(0, (a._prevCore ?? a.core) - a.core)
         a._prevArmor = a.armor
+        a._prevCore = a.core
         this._effects.onHit(id, pos, result, evt, { armorBreak, isPlayerTarget: id === this._playerId })
+        const st = this._stats[id] || (this._stats[id] = { hits: 0, dealt: 0, taken: 0, partsLost: 0 })
+        st.taken += dealt
+        if (evt?.sourceId && evt.sourceId !== id && this._stats[evt.sourceId]) { this._stats[evt.sourceId].hits++; this._stats[evt.sourceId].dealt += dealt }
         // Hit marker when the PLAYER lands damage on someone else.
         if (evt?.sourceId === this._playerId && id !== this._playerId) {
           useCombatStore.getState().sync({ hitMarkerAt: performance.now() })
@@ -156,15 +211,14 @@ class CombatManager {
     weaponManager.configure({
       getRobot: (id) => this._robots.find(r => r.id === id),
       getActor: (id) => this._actors[id],
-      onFire: (id, def) => this._effects.onFire(id, def, id === this._playerId),
+      onFire: (id, def, mesh) => this._effects.onFire(id, def, id === this._playerId, mesh),
     })
     for (const r of this._robots) {
-      weaponManager.equip(r.id, {
-        primaryKey: r.primaryKey, primaryMesh: r.primaryMesh,
-        secondaryKey: r.secondaryKey, secondaryMesh: r.secondaryMesh,
-      })
+      weaponManager.equip(r.id, r.weapons)   // every mounted weapon part
     }
-    this._ai.configure()   // easy tier
+    this._ai.configure({ level: this._config?.difficulty || 'normal' })
+    this._stats = {}
+    for (const id in this._actors) this._stats[id] = { hits: 0, dealt: 0, taken: 0, partsLost: 0 }
 
     this._hideNonCombatants()
     this._bindKeys()
@@ -179,6 +233,8 @@ class CombatManager {
       scene: sceneManager.scene, camera: sceneManager.camera,
       canvas: sceneManager.renderer?.domElement, shake: arenaCameraManager.shake,
       getRobot: (id) => this._robots.find(r => r.id === id),
+      getActor: (id) => this._actors[id], playerId: this._playerId, robots: this._robots,
+      onDetach: (robotId, mesh) => this._onPartDetached(robotId, mesh),
     })
     arenaAudio.resume()
 
@@ -191,7 +247,27 @@ class CombatManager {
     })
 
     this._last = performance.now()
+    this._startAt = this._last
+    this._pausedFor = 0
+    this._paused = false
+    this._over = false
     this._active = true
+  }
+
+
+  // A part was physically torn off a robot (RobotDamageView → its own rigid body).
+  // It stops riding the chassis, and a lost weapon can no longer fire.
+  _onPartDetached(robotId, mesh) {
+    const r = this._robots.find(x => x.id === robotId)
+    if (!r) return
+    const i = r.movers.findIndex(mv => mv.mesh === mesh)
+    if (i >= 0) r.movers.splice(i, 1)
+    const wasWeapon = weaponManager.dropWeapon(robotId, mesh)
+    if (this._stats[robotId]) this._stats[robotId].partsLost++
+    const part = useSceneStore.getState().objects.find(o => o.id === mesh?.userData?.id)
+    const who = robotId === this._playerId ? 'You' : (this._actors[robotId]?.name || 'Enemy')
+    const what = part?.name ? part.name.replace(/_\d+$/, '').replace(/^Weapon_/, '').replace(/_/g, ' ') : 'a part'
+    useCombatStore.getState().notify(`${who} lost ${wasWeapon ? 'the ' : ''}${what}${wasWeapon ? ' — weapon offline' : ''}`)
   }
 
   // True if a world point is close to the player (for near-explosion shake).
@@ -225,11 +301,7 @@ class CombatManager {
       const t = byId.get(mid)?.type
       if (isWeaponType(t)) { const def = weaponForType(t); if (def) weapons.push({ def, mesh: m }) }
     }
-    // LMB primary = longest-range weapon; RMB secondary = a second (shortest-range)
-    // weapon if the robot carries one, else the built-in melee (assigned later).
-    weapons.sort((a, b) => (b.def.range || 0) - (a.def.range || 0))
-    const primary   = weapons[0] || null
-    const secondary = weapons.length > 1 ? weapons[weapons.length - 1] : null
+    // Every weapon part is handed to WeaponManager, which groups them per button.
     if (memberMeshes.length === 0) { memberMeshes.push(rootMesh); box.expandByObject(rootMesh) }
 
     const size   = box.getSize(new THREE.Vector3())
@@ -264,8 +336,7 @@ class CombatManager {
 
     const robot = {
       id: rootId, bodyId, movers, stats,
-      primaryKey: primary?.def.key ?? null, primaryMesh: primary?.mesh ?? null,
-      secondaryKey: secondary?.def.key ?? null, secondaryMesh: secondary?.mesh ?? null,
+      weapons: weapons.map(w => ({ key: w.def.key, mesh: w.mesh })),
       radius: Math.max(size.x, size.z) / 2, mass: body.mass(),
     }
     this._applyMesh(robot, body)
@@ -274,12 +345,15 @@ class CombatManager {
 
   // ── Per-frame simulation ────────────────────────────────────────────────────
   step() {
-    if (!this._active) return
+    if (!this._active) { if (this._over) this._stepAftermath(); return }
     const now = performance.now()
+    if (this._paused) { this._last = now; return }
     let dt = (now - this._last) / 1000
     this._last = now
     if (dt <= 0) return
     if (dt > 0.05) dt = 0.05
+    const elapsed = Math.floor((now - this._startAt - this._pausedFor) / 1000)
+    if (elapsed !== useCombatStore.getState().elapsed) useCombatStore.getState().sync({ elapsed })
 
     // 1. Compute this frame's input per robot: the player robot from WASD + mouse,
     // the enemy from the AI controller, any extras idle. Then drive.
@@ -342,8 +416,75 @@ class CombatManager {
     }
     const pb = physicsManager.getBody(this._playerId)
     if (pb) { const v = pb.linvel(); arenaAudio.move(Math.min(1, Math.hypot(v.x, v.z) / 14)) }
+    this._updateAim()
 
     this._checkWin()
+  }
+
+  // Where the player's primary (else secondary) would actually hit this frame:
+  // the same ray WeaponManager fires along, resolved by the same physics raycast,
+  // projected to the screen for the HUD crosshair.
+  _updateAim() {
+    const aim = this.aim
+    const r = this._playerRobot(), a = this._actors[this._playerId]
+    const slots = weaponManager.weaponsFor(this._playerId)
+    const inst = slots?.primary || slots?.secondary
+    const cam = sceneManager.camera, canvas = sceneManager.renderer?.domElement
+    if (!r || !a || !inst || !cam || !canvas || a.state === 'destroyed') { aim.visible = false; return }
+    const ray = weaponManager.aimRay(r, inst)
+    if (!ray) { aim.visible = false; return }
+    const hit = physicsManager.raycast(ray.muzzle, ray.forward, Math.max(ray.range, 60), this._playerId)
+    const dist = hit ? Math.hypot(hit.point.x - ray.muzzle.x, hit.point.y - ray.muzzle.y, hit.point.z - ray.muzzle.z) : Infinity
+    const target = hit && this._actors[hit.id] ? hit.id : null
+    const p = hit ? new THREE.Vector3(hit.point.x, hit.point.y, hit.point.z)
+                  : ray.muzzle.clone().addScaledVector(ray.forward, ray.range)
+    // The chase camera moved this frame; project with THIS frame's view (the
+    // renderer refreshes matrixWorldInverse only when it draws).
+    cam.updateMatrixWorld(true)
+    cam.matrixWorldInverse.copy(cam.matrixWorld).invert()
+    p.project(cam)
+    const rect = canvas.getBoundingClientRect()
+    aim.visible = p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2
+    aim.x = rect.left + (p.x + 1) / 2 * rect.width
+    aim.y = rect.top + (1 - p.y) / 2 * rect.height
+    aim.onTarget = !!target && target !== this._playerId
+    aim.inRange = aim.onTarget && dist <= ray.range
+    aim.blocked = !!hit && !target               // wall / loose part in the way
+    aim.dist = Number.isFinite(dist) ? dist : ray.range
+    aim.range = ray.range
+    aim.reloading = !!inst.reloading
+    aim.ready = !inst.reloading && inst.cooldown <= 0 && inst.ammo > 0 && !a.overheated
+    aim.weapon = inst.def.key
+  }
+
+  // The match is decided (combat is frozen: no input, weapons, damage or AI), but
+  // the world keeps moving so the destruction plays out: robots coast to a stop,
+  // loose parts fall and settle, smoke/sparks/camera keep running.
+  _stepAftermath() {
+    const now = performance.now()
+    let dt = (now - this._last) / 1000
+    this._last = now
+    if (dt <= 0) return
+    if (dt > 0.05) dt = 0.05
+    if (!this._aftermath) {
+      this._aftermath = true
+      projectileManager.clear()                                  // rockets still in flight can't change the result
+      for (const r of this._robots) {
+        const w = weaponManager.weaponsFor(r.id)
+        for (const inst of [...(w?.all || []), w?.secondary]) if (inst?.flameMesh) inst.flameMesh.visible = false
+      }
+      arenaAudio.stopMove()
+    }
+    physicsManager.step(dt)
+    physicsManager.drainContactEvents(() => {})
+    for (const r of this._robots) {
+      const body = physicsManager.getBody(r.bodyId)
+      if (body) { this._updateLean(r, body, dt); this._applyMesh(r, body) }
+    }
+    weaponManager.stepVFX(dt)
+    explosionSystem.step(dt)
+    arenaCameraManager.update(dt)
+    this._effects.step(dt)
   }
 
   _drive(body, r, input) {
@@ -400,13 +541,26 @@ class CombatManager {
     const sa = Math.hypot(va.x, va.z), sb = Math.hypot(vb.x, vb.z)
     const defender = sa >= sb ? idB : idA
     const aggressor = defender === idB ? idA : idB
+    // Contact direction + the point on each robot facing the other (for the host's
+    // localized impact presentation; does not affect the damage).
+    const pd = physicsManager.getBody(defender)?.translation(), pg = physicsManager.getBody(aggressor)?.translation()
+    let into = null, atDef = null, atAgg = null
+    if (pd && pg) {
+      const dx = pd.x - pg.x, dz = pd.z - pg.z, len = Math.hypot(dx, dz) || 1
+      into = { x: dx / len, y: 0, z: dz / len }
+      const rd = this._robots.find(r => r.id === defender)?.radius || 1.5, rg = this._robots.find(r => r.id === aggressor)?.radius || 1.5
+      atDef = { x: pd.x - into.x * rd, y: pd.y, z: pd.z - into.z * rd }
+      atAgg = { x: pg.x + into.x * rg, y: pg.y, z: pg.z + into.z * rg }
+    }
     damageManager.apply({
       targetId: defender, sourceId: aggressor, damageType: 'collision',
       amounts: { armor: dmg, stability: Math.round(dmg * 0.6), heat: Math.round(dmg * 0.5) },
+      hitPoint: atDef, hitDir: into,
     })
     damageManager.apply({
       targetId: aggressor, sourceId: defender, damageType: 'collision',
       amounts: { armor: Math.round(dmg * 0.3), stability: Math.round(dmg * 0.3), heat: Math.round(dmg * 0.35) },
+      hitPoint: atAgg, hitDir: into ? { x: -into.x, y: 0, z: -into.z } : null,
     })
   }
 
@@ -415,12 +569,21 @@ class CombatManager {
     if (alive.length <= 1 && this._robots.length >= 2) {
       const winner = alive[0]
       const name = winner ? this._actors[winner.id]?.name : null
+      const elapsed = Math.floor((performance.now() - this._startAt - this._pausedFor) / 1000)
+      const outcome = !winner ? 'draw' : winner.id === this._playerId ? 'victory' : 'defeat'
+      const stats = {}
+      for (const id in this._stats) stats[id] = { ...this._stats[id], dealt: Math.round(this._stats[id].dealt), taken: Math.round(this._stats[id].taken), name: this._actors[id]?.name }
       useCombatStore.getState().sync({
         status: 'over',
         winnerTeam: winner ? this._actors[winner.id]?.team : null,
-        message: name ? `${name} WINS! 🏆` : 'Draw',
+        message: '',
+        result: { outcome, winnerId: winner?.id ?? null, winnerName: name, elapsed, stats, playerId: this._playerId, enemyId: this._enemyId },
       })
-      this._active = false   // freeze sim; UI shows Exit
+      trackEvent('arena_over', { outcome, elapsed })
+      this._releaseInput()
+      this.aim.visible = false
+      this._active = false   // combat frozen; UI shows the result
+      this._over = true      // …but the aftermath (physics + effects) keeps playing
     }
   }
 
@@ -481,6 +644,8 @@ class CombatManager {
     this._keys.clear()
     this._mouse.primary = this._mouse.secondary = false
     this._onKeyDown = (e) => {
+      if (e.key === 'Escape') { if (this._active && !e.repeat) { e.preventDefault(); this.togglePause() } return }
+      if (this._paused) return
       const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
       if (this._activeKeys.has(k)) { this._keys.add(k); e.preventDefault() }
     }
@@ -490,10 +655,13 @@ class CombatManager {
     }
     // Mouse attacks. Ignore clicks that land on HUD buttons (e.g. Exit).
     this._onMouseDown = (e) => {
-      if (e.target?.closest?.('button')) return
+      if (this._paused || e.target?.closest?.('button, select, input, a, [data-hud-ui]')) return
       if (e.button === 0) this._mouse.primary = true
       else if (e.button === 2) this._mouse.secondary = true
     }
+    // Focus loss (alt-tab, tab switch, devtools) → nothing stays held down.
+    this._onBlur = () => this._releaseInput()
+    this._onVis = () => { if (document.hidden) this._releaseInput() }
     this._onMouseUp = (e) => {
       if (e.button === 0) this._mouse.primary = false
       else if (e.button === 2) this._mouse.secondary = false
@@ -504,6 +672,13 @@ class CombatManager {
     window.addEventListener('mousedown', this._onMouseDown)
     window.addEventListener('mouseup', this._onMouseUp)
     window.addEventListener('contextmenu', this._onContext)
+    window.addEventListener('blur', this._onBlur)
+    document.addEventListener('visibilitychange', this._onVis)
+  }
+
+  _releaseInput() {
+    this._keys.clear()
+    this._mouse.primary = this._mouse.secondary = false
   }
 
   _readPlayerInput() {
@@ -576,13 +751,18 @@ class CombatManager {
   // ── Teardown ────────────────────────────────────────────────────────────────
   stop() {
     this._active = false
+    this._over = false
+    this._aftermath = false
     window.removeEventListener('keydown', this._onKeyDown)
     window.removeEventListener('keyup', this._onKeyUp)
     window.removeEventListener('mousedown', this._onMouseDown)
     window.removeEventListener('mouseup', this._onMouseUp)
     window.removeEventListener('contextmenu', this._onContext)
-    this._keys.clear()
-    this._mouse.primary = this._mouse.secondary = false
+    window.removeEventListener('blur', this._onBlur)
+    document.removeEventListener('visibilitychange', this._onVis)
+    this._releaseInput()
+    this._paused = false
+    this.aim.visible = false
     // Restore the shared camera + tear down arena camera/effects/audio.
     arenaCameraManager.stop()
     this._effects.clear()
@@ -597,13 +777,22 @@ class CombatManager {
     for (const [id, t] of Object.entries(this._orig)) {
       const mesh = objectManager.getMesh(id)
       if (mesh) { mesh.position.set(t.position.x, t.position.y, t.position.z); mesh.rotation.set(t.rotation.x, t.rotation.y, t.rotation.z) }
-      useSceneStore.getState().updateObject(id, { position: t.position, rotation: t.rotation })
+      // The arena only moves meshes; skip a no-op store write so a battle leaves
+      // the saved design (incl. its updatedAt stamps) untouched.
+      const cur = useSceneStore.getState().objects.find(o => o.id === id)
+      const same = (a, b) => a && b && a.x === b.x && a.y === b.y && a.z === b.z
+      if (!cur || !same(cur.position, t.position) || !same(cur.rotation, t.rotation)) {
+        useSceneStore.getState().updateObject(id, { position: t.position, rotation: t.rotation })
+      }
     }
     this._orig = {}
     this._robots = []
     this._actors = {}
     this._hitClock = {}
+    this._stats = {}
     damageManager.reset()
+    // The stock opponent only ever existed for this match.
+    if (this._stockIds) { removeStockOpponent(this._stockIds); this._stockIds = null }
     useCombatStore.getState().reset()
   }
 }

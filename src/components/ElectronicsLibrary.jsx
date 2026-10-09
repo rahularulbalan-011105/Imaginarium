@@ -1,6 +1,12 @@
 import { useState } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useHistory } from '../hooks/useHistory.js'
+import { surfaceMountManager, isSurfaceMountable, PART_DRAG_MIME } from '../managers/SurfaceMountManager.js'
+
+// Transparent drag image: the 3D ghost in the viewport is the drag feedback.
+const EMPTY_DRAG_IMAGE = typeof Image !== 'undefined' ? Object.assign(new Image(), {
+  src: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+}) : null
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ElectronicsLibrary — the dedicated "Electronics" section of the right
@@ -46,7 +52,7 @@ const CATEGORIES = [
     ],
   },
   {
-    key: 'weapons', label: 'Weapons', icon: '⚔', blurb: 'Attach to a robot, then fight in the Physics Arena.',
+    key: 'weapons', label: 'Weapons', icon: '⚔', blurb: 'Drag onto a robot to mount, then fight in the Physics Arena.',
     items: [
       { type: 'weapon_autocannon', label: 'Auto Cannon',  icon: '🔫', desc: 'Sustained DPS',  purpose: 'Continuous fire, armor break, crit on exposed core.', usage: 'main gun · sustained damage' },
       { type: 'weapon_shotgun',    label: 'Shotgun',       icon: '💥', desc: 'Burst + knockback', purpose: 'Pellet spread, short range, heavy knockback.', usage: 'close-range brawling' },
@@ -67,6 +73,19 @@ export default function ElectronicsLibrary() {
   const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true, weapons: true })
   const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
   const addPart = (type) => { addObject(type); snapshot() }
+
+  // Mountable parts (weapons) can also be DRAGGED onto a robot surface; the
+  // viewport routes the drag to SurfaceMountManager. Click still adds as before.
+  const dragProps = (type) => isSurfaceMountable(type) ? {
+    draggable: true,
+    onDragStart: (e) => {
+      e.dataTransfer.setData(PART_DRAG_MIME, type)
+      e.dataTransfer.effectAllowed = 'copy'
+      if (EMPTY_DRAG_IMAGE) e.dataTransfer.setDragImage(EMPTY_DRAG_IMAGE, 0, 0)
+      surfaceMountManager.prepare(type)
+    },
+    onDragEnd: () => surfaceMountManager.cancel(),
+  } : {}
 
   return (
     <div className="flex flex-col h-full overflow-y-auto p-2">
@@ -94,7 +113,8 @@ export default function ElectronicsLibrary() {
                         key={type}
                         data-tour={`elec-${type}`}
                         onClick={() => addPart(type)}
-                        title={`${label}\n${purpose}\nCommonly used for: ${usage}`}
+                        {...dragProps(type)}
+                        title={`${label}\n${purpose}\nCommonly used for: ${usage}${isSurfaceMountable(type) ? '\nDrag onto a robot to mount it on that surface.' : ''}`}
                         className="group flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg bg-gray-800/70 border border-transparent hover:border-green-500/40 hover:bg-green-500/10 transition-all duration-150 text-left"
                       >
                         <span className="text-lg leading-none shrink-0">{icon}</span>

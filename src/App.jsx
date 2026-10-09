@@ -7,6 +7,7 @@ import StatusBar from './components/StatusBar.jsx'
 import BooleanPanel, { isBooleanCandidate } from './components/BooleanPanel.jsx'
 import CodeEditor from './components/CodeEditor.jsx'
 import BlocksPanel from './components/BlocksPanel.jsx'
+import BattlePanel from './components/BattlePanel.jsx'
 import PanelErrorBoundary from './components/PanelErrorBoundary.jsx'
 import AssetLibrary from './components/AssetLibrary.jsx'
 import ElectronicsLibrary from './components/ElectronicsLibrary.jsx'
@@ -38,7 +39,9 @@ import { useJointStore } from './stores/jointStore.js'
 import { useHistory } from './hooks/useHistory.js'
 import { resetBaseline } from './managers/history/editorDispatch.js'
 import { jointManager } from './managers/JointManager.js'
+import { battleManager } from './managers/BattleManager.js'
 import { useGameStore } from './stores/gameStore.js'
+import { combatManager } from './managers/CombatManager.js'
 import { useCombatStore } from './stores/combatStore.js'
 import { sceneManager } from './managers/SceneManager.js'
 import { objectManager } from './managers/ObjectManager.js'
@@ -52,6 +55,16 @@ import { trackEvent } from './utils/utmTracking.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
 const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo']
+
+// A bonded part edited by keyboard keeps the edit: re-derive its bond's
+// relativeMatrix (else the per-frame bond propagation snaps it straight back).
+function resyncChildBond(id, position, rotation) {
+  const rigid = useRigidStore.getState()
+  const bond = rigid.getBonds().find(b => b.childId === id)
+  if (!bond || !position || !rotation) return
+  const rel = objectManager.computeChildRelativeMatrix(bond.parentId, position, rotation)
+  if (rel) rigid.updateBond(bond.id, { relativeMatrix: rel })
+}
 
 function LoadingScreen({ progress = 0 }) {
   const pct = Math.max(4, Math.min(100, Math.round(progress * 100)))   // min 4% so the bar is visible
@@ -199,8 +212,15 @@ function AppEditor() {
       }
       // Drive physics runs every frame when simulation mode is active
       if (simActiveRef.current) driveManager.step()
+      // Robo-sumo battle — moves whole robot assemblies rigidly.
+      const battleOn = useGameStore.getState().battleActive
+      if (battleOn) battleManager.step()
+      // Physics Arena (combat) — CombatManager owns robot part positions too.
+      const arenaOn = useCombatStore.getState().arenaActive
+      if (arenaOn) combatManager.step()
       // Propagate rigid bonds every frame — bonds are live constraints.
-      const bonds = Object.values(useRigidStore.getState().bonds)
+      // Skipped during battle/arena (that manager owns robot part positions).
+      const bonds = (battleOn || arenaOn) ? [] : Object.values(useRigidStore.getState().bonds)
       if (bonds.length > 0) {
         // Skip propagating a bond whose child is currently being dragged by the
         // transform gizmo — otherwise the frame loop fights the user's drag.
@@ -225,7 +245,9 @@ function AppEditor() {
       // scene is idle the SceneManager throttles to a low rate — a big win on
       // low-end laptops (and battery). Bonds/joints moving are driven by drags,
       // which wake the renderer via their own change events.
-      if (simulationManager.isRunning() || simActiveRef.current) sceneManager.requestRender()
+      // Battle/Arena drive robot transforms imperatively (no store writes), so they
+      // must wake the renderer explicitly or the match would paint at the idle rate.
+      if (simulationManager.isRunning() || simActiveRef.current || battleOn || arenaOn) sceneManager.requestRender()
     }
     return () => { sceneManager.onAnimationTick = null }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
@@ -342,7 +364,7 @@ function AppEditor() {
     }
 
     const handleKeyDown = (e) => {
-      const tag = e.target.tagName.toLowerCase()
+      const tag = (e.target?.tagName || '').toLowerCase()   // window-targeted synthetic events have no element
       const isTyping = tag === 'input' || tag === 'textarea'
 
       // During a battle/arena, the combat manager owns WASD / arrows — block editor shortcuts.
@@ -424,6 +446,7 @@ function AppEditor() {
           st.updateObject(selectedId, { position: p })
           const mesh = objectManager.getMesh(selectedId)
           if (mesh) mesh.position.set(p.x, p.y, p.z)
+          resyncChildBond(selectedId, p, sel.rotation)
           snapshot()
           break
         }
@@ -443,6 +466,7 @@ function AppEditor() {
               useSceneStore.getState().updateObject(selectedId, { rotation: snapped })
               const mesh = objectManager.getMesh(selectedId)
               if (mesh) mesh.rotation.set(snapped.x, snapped.y, snapped.z)
+              resyncChildBond(selectedId, obj.position, snapped)
               snapshot()
             }
           }
@@ -486,6 +510,7 @@ function AppEditor() {
     ] },
     { group: 'Run', items: [
       { id: 'sim',    icon: 'play',   label: 'Sim' },
+      { id: 'battle', icon: 'swords', label: 'Battle' },
     ] },
     { group: 'Setup', items: [
       { id: 'settings', icon: 'gear', label: 'Settings' },
@@ -503,6 +528,7 @@ function AppEditor() {
       case 'joints':   return <JointPanel />
       case 'robot':    return <RobotPanel />
       case 'blocks':   return <PanelErrorBoundary label="Blocks"><BlocksPanel /></PanelErrorBoundary>
+      case 'battle':   return <PanelErrorBoundary label="Battle"><BattlePanel /></PanelErrorBoundary>
       case 'library':  return <AssetLibrary />
       case 'electronics': return <ElectronicsLibrary />
       case 'mechanical':  return <MechanicalLibrary />
