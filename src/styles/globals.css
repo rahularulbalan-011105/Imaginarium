@@ -212,3 +212,12 @@ textarea.code-text::placeholder { color: #6b8f6b; }
 .ui-lib-card:hover .ui-lib-glyph { background: rgb(var(--a-600) / 0.10); }
 .ui-lib-label { font-size: 10px; font-weight: 600; line-height: 1.1; color: rgb(var(--g-300)); text-align: center; }
 @media (prefers-reduced-motion: reduce) { .ui-lib-card { transition: none; } .ui-lib-card:hover { transform: none; } }
+
+/* ELEC → Elec part categories: each card sets --cat to its own colour. */
+.elec-cat { border-left: 3px solid var(--cat); }
+.elec-cat-head { background: color-mix(in srgb, var(--cat) 9%, transparent); }
+.elec-cat-head:hover { background: color-mix(in srgb, var(--cat) 16%, transparent); }
+.elec-item:hover, .elec-item:focus-visible {
+  border-color: color-mix(in srgb, var(--cat) 50%, transparent);
+  background: color-mix(in srgb, var(--cat) 10%, transparent);
+}
