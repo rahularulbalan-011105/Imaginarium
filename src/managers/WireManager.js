@@ -10,6 +10,10 @@ import { wireStyle } from '../utils/wiring.js'
 const PIN_COLOR_HOVER   = 0xffffff
 const HANDLE_RADIUS     = 0.14
 const PREVIEW_COLOR     = 0x44ddff
+// Wires are made and shown only in ELEC → Wiring (Workbench / Pick a Pin). The
+// 3D view shows the parts without wire tubes and doesn't do drag-to-connect.
+// Connections still live in electronicsStore.connections and drive the sim.
+const SHOW_3D_WIRES = false
 // Baseline opacities when a pin/label is REVEALED (0 = fully hidden).
 const PIN_BASE_OPACITY   = 0.55
 const LABEL_BASE_OPACITY = 0.62
@@ -221,6 +225,7 @@ class WireManager {
   }
 
   onMouseDown(event, bounds) {
+    if (!SHOW_3D_WIRES) return false
     const mouse = this._getMouse(event, bounds)
 
     // Check handle first
@@ -388,6 +393,10 @@ class WireManager {
    */
   syncFromStore(connections) {
     if (!this.scene) return
+    if (!SHOW_3D_WIRES) {
+      for (const connId of [...this.wires.keys()]) this._removeWireMesh(connId, { silent: true })
+      return
+    }
     for (const [connId, w] of [...this.wires]) {
       const c = connections[connId]
       // Gone from the store, re-pointed, or a part was rebuilt/removed → drop the mesh.

@@ -8,8 +8,8 @@ import { ELEC_TYPES, PIN_DEFS, pinRole, wireStyle, friendlyPin, isDuplicate, ROL
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pick a Pin — click a pin, click another, Connect. Reads and writes the single
-// electronicsStore.connections list (the Workbench and the 3D view use the same
-// list, and the 3D wires follow it via wireManager.syncFromStore).
+// electronicsStore.connections list — the same list the Workbench draws and the
+// simulator reads. (Wires are not drawn in the 3D view.)
 // Each wire shows in its role colour (red power · black GND · signal colours) on
 // the pins it joins; right-click a wire (or a wired pin) → Edit / Delete.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,7 +72,7 @@ export default function WiringPanel() {
     if (!srcPin || !dstPin) return
     // Only an identical duplicate is rejected — GND/5V fan out freely.
     if (!isDuplicate(connections, srcPin, dstPin)) {
-      addWireConnection(srcPin, dstPin, uuidv4())   // 3D wire follows via syncFromStore
+      addWireConnection(srcPin, dstPin, uuidv4())
       snapshot('wire')
     }
     reset()
