@@ -30,6 +30,10 @@ import { loadGLTFFromFile, loadSTLFromFile, loadModel, isModelLoaded, modelKeysF
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
 import { v4 as uuidv4 } from 'uuid'
 
+// Surface tool: pointer travel (px) below which a press is a click on a face,
+// not the start of drawing a custom patch.
+const DRAW_MIN_PX = 8
+
 export default function Viewport() {
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
@@ -81,6 +85,7 @@ export default function Viewport() {
 
   const [pickMode, setPickMode] = useState(null)         // objectId being picked, or null
   const patchDrawingRef = useRef(false)                   // true while drawing a new patch
+  const patchDownRef    = useRef(null)                    // screen point where a surface press began
 
   // Feature-pick joint mode: { picks: [feat, ...] }  (null = inactive)
   const [jointPick, setJointPick] = useState(null)
@@ -459,6 +464,7 @@ export default function Viewport() {
       } else {
         const started = patchManager.startDraw(e, bounds)
         if (started) {
+          patchDownRef.current = { x: e.clientX, y: e.clientY }
           patchDrawingRef.current = true
           if (sceneManager.orbitControls) sceneManager.orbitControls.enabled = false
         }
@@ -498,9 +504,17 @@ export default function Viewport() {
 
     if (surfaceToolRef.current) {
       if (patchManager.isDrawing) {
-        const patch = patchManager.endDraw(e, bounds)
+        // A click always wobbles a few pixels — only a real drag draws a custom
+        // patch. Anything shorter is a click: the click handler then selects
+        // the whole face (before, a 2 px wobble made an unselected patch and the
+        // Connect Surfaces prompt never appeared).
+        const d = patchDownRef.current
+        const moved = d ? Math.hypot(e.clientX - d.x, e.clientY - d.y) : Infinity
+        const patch = moved >= DRAW_MIN_PX ? patchManager.endDraw(e, bounds) : (patchManager.cancelDraw(), null)
         if (patch) {
-          useSurfaceStore.getState().addPatch(patch)
+          const store = useSurfaceStore.getState()
+          store.addPatch(patch)
+          store.toggleSelectPatch(patch.id)   // a drawn patch is selected, like a clicked face
           snapshot()
           // Keep patchDrawingRef = true so the click event (which fires after mouseup)
           // sees it and skips creating an extra face patch. Click handler clears it.

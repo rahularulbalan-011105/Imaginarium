@@ -218,6 +218,10 @@ class PatchManager {
     }
     const hits = rc.intersectObjects(targets.map(t => t.mesh), false)
     if (!hits.length) return null
+    // A patch hidden behind another part (the chassis-top patch under an
+    // Arduino sitting on it) must not steal the click meant for that part.
+    const front = rc.intersectObjects(this._objectCandidates(), false)[0]
+    if (front && front.distance < hits[0].distance - 0.02) return null
     return targets.find(t => t.mesh === hits[0].object) ?? null
   }
 
@@ -472,8 +476,8 @@ class PatchManager {
     }
   }
 
-  _raycastScene(event, bounds) {
-    const rc = this._rc(event, bounds)
+  // Every pickable surface mesh of every scene object (no patches, pins, markers).
+  _objectCandidates() {
     const candidates = []
     for (const m of (this.objectMgr?.getAllMeshes() ?? [])) {
       m.traverse(c => {
@@ -481,7 +485,12 @@ class PatchManager {
           candidates.push(c)
       })
     }
-    const hits = rc.intersectObjects(candidates, false)
+    return candidates
+  }
+
+  _raycastScene(event, bounds) {
+    const rc = this._rc(event, bounds)
+    const hits = rc.intersectObjects(this._objectCandidates(), false)
     if (!hits.length || !hits[0].face) return null
     const hit    = hits[0]
     const rootId = hit.object.userData.rootId || hit.object.userData.id
