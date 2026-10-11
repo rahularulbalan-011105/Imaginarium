@@ -162,7 +162,7 @@ toolsapp/
     │   ├── AlignmentManager.js     # Smart alignment + dynamic guide lines while dragging (Canva/Figma/Fusion-style, placement-only)
     │   ├── DriveManager.js         # Enter/exit simulation; routes wheeled vs legged
     │   ├── SimulationManager.js    # Runs Arduino/SUBO code via arduinoParser transpiler; motorSpeeds/servoAngles/ledBrightness; sensor + SUBO shims
-    │   ├── WireManager.js          # Renders 3D wires; drag-to-connect; hidden-until-needed pin reveal
+    │   ├── WireManager.js          # Pin spheres + hidden-until-needed reveal; 3D wires OFF (SHOW_3D_WIRES=false)
     │   ├── JointManager.js         # Joint markers + constraint solving / child driving; createFeatureJoint
     │   ├── ExtrudeTool.js          # Face extrusion on BufferGeometry
     │   ├── FilletTool.js           # Vertex-chamfer / bevel
@@ -342,7 +342,7 @@ Managers own all Three.js / physics / network mutation. The render loop lives in
 - **AlignmentManager** — magnetic snap + fading guide lines during a Move drag (placement-only).
 - **DriveManager** — enters sim; picks wheeled (≥2 motors wired) vs legged (servo+arm leg pairs) path.
 - **SimulationManager** — transpiles + runs Arduino/SUBO/Blockly-generated C++; exposes motorSpeeds/servoAngles/ledBrightness; injects SUBO library API + sensor libraries.
-- **WireManager** — 3D wire tubes + drag-to-connect; **hidden-until-needed pin reveal** (pins show only when the Wiring panel is open or the board is selected).
+- **WireManager** — pin spheres; 3D wire tubes + 3D drag-to-connect are switched OFF (`SHOW_3D_WIRES = false`: wiring is made and shown only in ELEC → Wiring); **hidden-until-needed pin reveal** (pins show only when the Wiring panel is open or the board is selected).
 - **BattleManager / NetworkManager** — Robo-Sumo (local + online WebRTC, split-authority, geometry streaming).
 - **CombatManager + arena/** — Physics-Arena (see [Combat Arena](#combat-arena--physics-arena)).
 - **physics/** — Rapier world + kinematic fallback + mass/env config.
@@ -362,7 +362,7 @@ Pure helpers: `geometryFactory` (primitives + bend), `csg` (boolean w/ gizmo cen
 Primitives + polyhedra + Text + SVG→solid + GLB/GLTF/STL import. **Boolean CSG** (union/subtract/intersect, gizmo-correct via `csg.js`), **Extrude** (pick face → walls → merge), **Fillet/Chamfer** (vertex bevel), **Slice** (draw a cut line), **geometry bending** (cylindrical `applyBendDeform`), typed **Dimension Editor**, **mechanical joints** (fixed/hinge/revolute/slider/ball/servo), **surface bonding** (`relativeMatrix`, propagated each frame), **gear pairing**.
 
 ### Electronics & wiring
-Arduino, **SUBO** (custom ESP32-S3), servo, DC/BO motor, LED, sensors (IR/ultrasonic/gas/OLED/buzzer/LDR/DHT11/color), weapons. Two synced wiring views: **WiringPanel** (pin-to-pin state machine) and **WiringWorkbench** (drag-to-connect 2D). 3D wires via `WireManager`. Registering a new board touches: `modelLoader`, `electronicsFactory`, `ObjectManager`, `sceneStore`, `ElectronicsLibrary`, `WiringPanel`, `CodeEditor`, `App`, `MassCalculator`.
+Arduino, **SUBO** (custom ESP32-S3), servo, DC/BO motor, LED, sensors (IR/ultrasonic/gas/OLED/buzzer/LDR/DHT11/color), weapons. Two synced wiring views: **WiringPanel** (pin-to-pin state machine) and **WiringWorkbench** (drag-to-connect 2D). Wires are NOT drawn in 3D (`WireManager` `SHOW_3D_WIRES = false`); connections live only in `electronicsStore.connections`. Registering a new board touches: `modelLoader`, `electronicsFactory`, `ObjectManager`, `sceneStore`, `ElectronicsLibrary`, `WiringPanel`, `CodeEditor`, `App`, `MassCalculator`.
 
 ### Arduino / Blockly programming & simulation
 `arduinoParser.js` = full C++ lexer → parser → JS codegen run in a sandboxed eval with Arduino API shims. Any `D<n>`/`IO<n>` pin → GPIO, so **SUBO reuses the parser unchanged** (SUBO constants + library prepended). Blockly programs convert to the same C++ via `arduinoGenerator`. `SimulationManager` injects SUBO API (matrix/buzzer/`MotorExpansion`) + sensor libraries.
