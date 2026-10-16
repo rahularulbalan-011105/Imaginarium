@@ -51,8 +51,8 @@
   dialog::backdrop{ background:rgba(0,0,0,.6) }
   @media (max-width:640px){ .wrap{ padding:16px 16px 40px } h1{ font-size:20px } }
 </style>
-  <script type="module" crossorigin src="./assets/utm-CVPvKhez.js"></script>
-  <link rel="modulepreload" crossorigin href="./assets/utmTracking-uHh9fXs1.js">
+  <script type="module" crossorigin src="./assets/utm-BPkbBVJw.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/utmTracking-DLB2xo1z.js">
 </head>
 <body>
 <div class="wrap">
@@ -126,15 +126,19 @@
             <option value="30" selected>Last 30 days</option>
             <option value="90">Last 90 days</option>
             <option value="0">All time</option>
+            <option value="custom">Custom range…</option>
           </select>
         </label>
+        <label class="f hidden" id="f_custom_from">From <input type="date" id="f_from"></label>
+        <label class="f hidden" id="f_custom_to">To <input type="date" id="f_to"></label>
         <label class="f">Source <select id="f_source"><option value="">All sources</option></select></label>
         <label class="f">Campaign <select id="f_campaign"><option value="">All campaigns</option></select></label>
         <label class="f" style="flex:1;min-width:220px">Hide internal emails (comma-separated emails or @domains)
           <input id="f_exclude" placeholder="you@gmail.com, @atumx.in">
         </label>
       </div>
-      <div class="hint" style="margin:10px 0 0">Times are when the server received each event. Test traffic (localhost / preview builds) is excluded.</div>
+      <div class="status err" id="f_err" style="min-height:0"></div>
+      <div class="hint" style="margin:10px 0 0">Times are when the server received each event; days use this computer's time zone. Test traffic (localhost / preview builds) is excluded.</div>
     </div>
 
     <div class="cards" id="kpis"></div>
@@ -150,10 +154,12 @@
         <h2>👤 Users <span class="muted" id="userCount"></span></h2>
         <div class="row">
           <input id="u_q" placeholder="Search email / source / campaign" style="min-width:230px">
+          <button class="ghost" id="u_copy" title="Copy the emails of accounts created in the selected period (one per line)">Copy new emails</button>
           <button class="ghost" id="u_csv">Download CSV</button>
         </div>
       </div>
-      <p class="hint">One row per email with activity in the selected period. Activity counts are for that period. Click a row to see everything the person did.</p>
+      <p class="hint">One row per email with activity in the selected period. Activity counts are for that period. Click a row to see everything the person did. <b>Copy new emails</b> copies only accounts created (signed up) in the selected period and filters.</p>
+      <div class="status" id="u_copy_status"></div>
       <div class="scroll tbl-wrap"><table id="t_users"></table></div>
     </div>
 
