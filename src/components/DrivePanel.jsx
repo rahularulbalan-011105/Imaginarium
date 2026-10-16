@@ -171,6 +171,7 @@ export default function DrivePanel() {
             Code running
           </span>
         )}
+        <RealtimeBadge />
         <button
           data-tour="sim-exit"
           onClick={handleExit}
@@ -389,6 +390,25 @@ export default function DrivePanel() {
 
 // Live input control for a sensor — drives what digitalRead/analogRead/pulseIn return.
 // In Auto mode IR/ultrasonic are read-only (driven by scene raycast); gas is always manual.
+// Honest real-time indicator: appears only when this computer can't keep the
+// simulation at real speed (frames too slow → physics catch-up is capped → slow
+// motion). Polls DriveManager at 2 Hz; no per-frame React work.
+function RealtimeBadge() {
+  const [rt, setRt] = useState(1)
+  useEffect(() => {
+    const id = setInterval(() => setRt(Math.round((driveManager.simStats?.realtime ?? 1) * 100) / 100), 500)
+    return () => clearInterval(id)
+  }, [])
+  if (rt >= 0.9) return null
+  return (
+    <span className="text-[10px] font-semibold px-2 py-0.5 rounded border"
+      style={{ color: '#fbbf24', borderColor: 'rgba(251,191,36,0.4)', background: 'rgba(251,191,36,0.08)' }}
+      title="This computer can't run the simulation at full speed, so it runs in slow motion (the physics stays correct, just slower). Lower Settings → Performance → Profile, or choose Preview physics.">
+      🐢 Slow motion · {Math.round(rt * 100)}% of real time
+    </span>
+  )
+}
+
 function SensorControl({ obj, value, values = {}, onChange, setValue, auto }) {
   if (obj.type === 'ldr_sensor') {
     const raw = value ?? 512

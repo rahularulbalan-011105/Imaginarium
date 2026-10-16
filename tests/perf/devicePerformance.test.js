@@ -17,6 +17,15 @@ describe('device profile', () => {
     expect(['low', 'medium']).toContain(hidpi)
     expect(QUALITY_PRESETS[hidpi].maxPixelRatio).toBeLessThanOrEqual(QUALITY_PRESETS[plain].maxPixelRatio)
   })
+  it('never starts an integrated GPU on HIGH, however strong the CPU/RAM', () => {
+    expect(classify(caps({ gpuClass: 'integrated', cores: 24, memoryGB: 16 }))).toBe('medium')
+  })
+  it('graphics profiles never change the physics rate (240 Hz everywhere)', () => {
+    for (const p of ['low', 'medium', 'high']) expect(resolveQuality(p, p).physicsMinTimestep).toBeCloseTo(1 / 240, 9)
+    expect(resolveQuality('auto', 'low').physicsMinTimestep).toBeCloseTo(1 / 240, 9)
+    // the lighter 120 Hz preview is only ever an explicit choice
+    expect(resolveQuality('low', 'low', { physicsQuality: 'low' }).physicsMinTimestep).toBeCloseTo(1 / 120, 9)
+  })
   it('never lets devicePixelRatio be uncontrolled: every preset caps it', () => {
     for (const p of Object.values(QUALITY_PRESETS)) expect(p.maxPixelRatio).toBeLessThanOrEqual(2)
   })
@@ -36,6 +45,11 @@ describe('adaptive resolution', () => {
     const a = new AdaptiveResolution({ min: 0.75, max: 1.5, start: 1.5 })
     for (let i = 0; i < 2000; i++) a.sample(33)          // ~30 fps
     expect(a.ratio).toBe(0.75)
+  })
+  it('reacts within ~1 s when frames are very slow (< 30 fps)', () => {
+    const a = new AdaptiveResolution({ min: 0.75, max: 1.5, start: 1.5 })
+    for (let i = 0; i < 30; i++) a.sample(45)            // ~22 fps for ~1.4 s
+    expect(a.ratio).toBeLessThan(1.5)
   })
   it('recovers slowly when frames are fast, never above max', () => {
     const a = new AdaptiveResolution({ min: 0.75, max: 1.5, start: 0.75 })

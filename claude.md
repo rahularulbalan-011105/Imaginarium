@@ -65,7 +65,7 @@ toolsapp/
 │   ├── optimize-models.mjs         # assets-src/models → public/models (prune/1024² textures/webp/meshopt) — `npm run optimize:models`
 │   ├── check-bundle.mjs            # startup-JS / lazy-chunk / model-size budget — `npm run check:bundle` (after build)
 │   └── bench/ (startup.cjs · runtime.cjs)  # Playwright benchmarks (throttled startup; drag/idle/scale/churn)
-├── utm-dashboard.html              # 2nd Vite page — visit-analytics dashboard (JSONP → Google Sheet)
+├── utm-dashboard.html              # 2nd Vite page — key-protected analytics dashboard + campaign-link generator (src/dashboard/)
 ├── vite.config.js                  # base path /Imaginarium/, 2 HTML inputs, VITE_BASE override
 ├── tailwind.config.js              # remaps gray→--g-*, indigo→--a-* (accent), slate→text channels
 ├── vitest.config.js                # headless physics tests (tests/physics/*.test.js)
@@ -76,8 +76,8 @@ toolsapp/
 │   └── preload.cjs                 # preload bridge
 │
 ├── docs/
-│   ├── UTM-SETUP.md                # how to wire the Google-Sheet analytics collector
-│   └── utm-collector.gs            # Google Apps Script — appends visit records to a Sheet
+│   ├── UTM-SETUP.md                # analytics setup + metric definitions (landing → sign-up → workshop funnel)
+│   └── utm-collector.gs            # Google Apps Script collector — cx_events / cx_links tabs, dedupe, key-protected reads
 │
 ├── public/
 │   ├── favicon.svg                 # robot-head tab icon
@@ -91,7 +91,7 @@ toolsapp/
 │
 └── src/
     ├── App.jsx                     # Root shell: layout, render-loop hook, keyboard shortcuts, bond propagation,
-    │                               #   right icon-rail, mounts CombatHUD; onAnimationTick drives sim/battle/arena
+    │                               #   right icon-rail; onAnimationTick drives sim (Battle/Arena unmounted since f80a8b1)
     ├── main.jsx                    # React root
     │
     ├── components/                 # ── React UI ───────────────────────────────────────────────
@@ -270,7 +270,7 @@ toolsapp/
     │   ├── export.js               # JSON/STL/GLTF export + import
     │   ├── printExport.js          # STL export + printability analysis
     │   ├── share.js                # Share-link build/read (project packed into URL hash)
-    │   ├── utmTracking.js          # Backend-free visit analytics → Google Sheet
+    │   ├── utmTracking.js          # Workshop analytics: vid/email/attribution on every event → Apps Script collector
     │   └── helpers.js              # buildProjectSnapshot (save/load), snapRotationToAxes, misc
     │
     └── styles/globals.css          # Theme CSS variables (--g-*/--a-*), scrollbars, focus rings, theme-anim
@@ -422,12 +422,14 @@ A Rapier-based, modular combat engine (distinct from the arcade Sumo). Launched 
 ### Performance & loading
 - **Progressive boot:** only `main` (~424 KB gz) loads before the workspace; `bootProgress` stages core → renderer → workspace drive `BootOverlay`. Lazy chunks: BlocksPanel/Blockly (click-to-load), PhysicsPanel, Rapier + ArticulatedSession (`preparePhysics()`, idle-prefetched), three-bvh-csg (`loadCSG()`, idle), Supabase (`getSupabase()`).
 - **Models** are never loaded at startup: `ensureModels(keys)` before creating a part / loading a project; Viewport defers mesh creation until its model is loaded; Library/Electronics hover-prefetch. Deduped promise cache; shared geometry flagged `geometry.userData.__shared` so `disposeNode` never frees it.
-- **Quality:** `devicePerformance.js` classifies the device (no fingerprinting beyond local caps) → preset (DPR range, shadows, shadow-map size, AA, physics min-timestep 1/120 on LOW, telemetry Hz). `AdaptiveResolution` lowers DPR under sustained slow frames, recovers slowly. User choice in Settings → Performance (`uiStore.perf`, `localStorage['constructa.performance.v1']`); AA change needs a reload.
+- **Quality:** `devicePerformance.js` classifies the device (no fingerprinting beyond local caps) → preset (DPR range, shadows, shadow-map size, AA, telemetry Hz). **Graphics profiles never change physics** (240 Hz everywhere; 120 Hz "Preview physics" is an explicit Settings opt-in). Integrated GPUs never auto-start on High. `AdaptiveResolution` lowers DPR under sustained slow frames (faster below 30 fps), recovers slowly. User choice in Settings → Performance (`uiStore.perf`, `localStorage['constructa.performance.v1']`); AA change needs a reload.
+- **Render on demand:** the loop paints at full rate only while woken (`sceneManager.requestRender(ms, cameraOnly)`), else a 1 s safety-net repaint. Store changes, gizmo, orbit, viewport pointer input, model loads and simulation wake it — **anything that changes the 3D view outside a store must call `requestRender()`**. The shadow map is re-rendered only on non-camera wakes (`shadowMap.autoUpdate=false`); pass `cameraOnly=true` only when no object moved. `updateMesh` rebuilds the selection outline only when the geometry changes.
+- **Simulation honesty:** catch-up is capped (8 substeps); slow motion is measured (`driveManager.simStats.realtime`) and shown in the sim HUD + Physics panel + F9 overlay.
 - **Runtime rules:** render loop sleeps when idle; bonds/joints skip unchanged matrices; no React state per frame (telemetry sampled); narrow Zustand selectors; ObjectList rows memoised + `content-visibility`; autosave is dirty-flag driven (watch list in App).
-- **Measure:** F9 overlay; `tools/bench/*.cjs`; `npm run check:bundle`.
+- **Measure:** F9 overlay; `tools/bench/` (`frames.cjs` real-GPU scenes A–F, `interaction.cjs` production UI, `physics.mjs` Rapier step cost, `startup.cjs`, `runtime.cjs`); `npm run check:bundle`. Findings + numbers: `docs/PERFORMANCE-AUDIT.md`.
 
 ### Branding & Analytics
-**Constructa** brand: `ConstructaLogo`, loading screen, `DiscordGate` beta card, favicon, custom domain. **UTM analytics** (`utmTracking.js`) — backend-free, one record/tab-session → `sendBeacon` → Google Apps Script (`docs/utm-collector.gs`) → Sheet; `utm-dashboard.html` reads it via JSONP.
+**Constructa** brand: `ConstructaLogo`, loading screen, `DiscordGate` beta card, favicon, custom domain. **Analytics v2** — one event stream for landing → sign-up → workshop (`cx_events` tab via `docs/utm-collector.gs`). Landing (`landing-tracker.ts`) creates a visitor id + stores attribution and hands both to the editor (`?cx_vid=…&utm_*`); the editor (`utmTracking.js`) tags every event with vid + email + source. **EmailGate** forces an email for anyone not logged in (skipped on localhost). `utm-dashboard.html` (key-protected) = link generator + per-source funnel + per-email users + timelines; all metrics in `src/dashboard/analyze.js` (tested). See `docs/UTM-SETUP.md`.
 
 ---
 

@@ -31,11 +31,18 @@ class SceneManager {
     // back to a low idle rate. requestRender() extends the awake window.
     this._wakeUntil = 0
     this._lastRender = 0
+    this._shadowsDirty = true
   }
 
-  /** Wake the renderer to full frame-rate for a short window (default ~400ms). */
-  requestRender(ms = 400) {
-    this._wakeUntil = performance.now() + ms
+  /**
+   * Wake the renderer to full frame-rate for a short window (default ~400ms).
+   * `cameraOnly` = only the view changed (orbit, resize, hover): the shadow map
+   * is still valid, so its pass is skipped. Anything that may move/alter objects
+   * must use the default (it re-renders shadows).
+   */
+  requestRender(ms = 400, cameraOnly = false) {
+    this._wakeUntil = Math.max(this._wakeUntil, performance.now() + ms)
+    if (!cameraOnly) this._shadowsDirty = true
   }
 
   init(canvas, width, height) {
@@ -57,6 +64,11 @@ class SceneManager {
     this._antialias = preQ.antialias
     this.renderer.shadowMap.enabled = true
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    // The sun never moves, so the shadow map only changes when objects do: it is
+    // re-rendered on scene changes (requestRender) instead of on every paint —
+    // orbiting the camera no longer redraws every shadow caster a second time.
+    this.renderer.shadowMap.autoUpdate = false
+    this._shadowsDirty = true
     bootProgress.mark('renderer')
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.toneMappingExposure = 1.2
@@ -109,7 +121,12 @@ class SceneManager {
     this.orbitControls.minDistance = 0.5
     this.orbitControls.maxDistance = 500
     // Any camera move (incl. inertial damping frames) keeps the renderer awake.
-    this.orbitControls.addEventListener('change', () => this.requestRender())
+    this.orbitControls.addEventListener('change', () => this.requestRender(400, true))
+    // Pointer / wheel input over the viewport can change hover highlights, previews
+    // and pickers in any tool — wake briefly so those always paint immediately.
+    for (const ev of ['pointermove', 'pointerdown', 'pointerup', 'wheel']) {
+      this.renderer.domElement.addEventListener(ev, () => this.requestRender(250, true), { passive: true })
+    }
 
     // TransformControls — smaller, elegant gizmo
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement)
@@ -145,7 +162,15 @@ class SceneManager {
   onAnimationTick = null
 
   // Cheap counters for the performance overlay (no per-frame allocation).
-  stats = { frames: 0, renderMs: 0, calls: 0, triangles: 0 }
+  stats = { frames: 0, renderMs: 0, calls: 0, triangles: 0, intervals: new Float32Array(240), intervalN: 0 }
+
+  /** Frame-interval percentile over the recent continuous (awake) frames, in ms. */
+  frameTimePercentile(p = 0.95) {
+    const st = this.stats, n = Math.min(st.intervalN, st.intervals.length)
+    if (!n) return null
+    const a = Array.from(st.intervals.subarray(0, n)).sort((x, y) => x - y)
+    return a[Math.min(n - 1, Math.floor(n * p))]
+  }
 
   /** (Re)apply the effective quality: pixel-ratio range, shadows, shadow map size. */
   applyQuality() {
@@ -169,13 +194,17 @@ class SceneManager {
       }
     }
     this.renderer.shadowMap.enabled = q.shadows
-    this.renderer.shadowMap.needsUpdate = true
+    this._shadowsDirty = true
     this.antialiasPendingReload = q.antialias !== this._antialias
     this.requestRender?.()
   }
 
   _startLoop() {
-    const IDLE_INTERVAL = 120  // ms between paints when nothing is moving (~8fps)
+    // Safety-net repaint when nothing woke the renderer. Every scene change wakes it
+    // (store subscriptions, gizmo, orbit, viewport input, model loads, simulation),
+    // so this only covers a change that forgot to; it was 120 ms (~8 paints/s of a
+    // static scene — up to a third of an integrated GPU idling on a large scene).
+    const IDLE_INTERVAL = 1000
     const tick = () => {
       this.animationId = requestAnimationFrame(tick)
       this.orbitControls?.update()
@@ -197,9 +226,14 @@ class SceneManager {
           if (r !== this.renderer.getPixelRatio()) this.renderer.setPixelRatio(r)
         }
         this._lastAwake = awake
+        // Shadows: re-render the shadow map only when objects may have changed
+        // (safety-net paints refresh it too, in case a change forgot to say so).
+        if (this._shadowsDirty || !awake) { this.renderer.shadowMap.needsUpdate = true; this._shadowsDirty = false }
         const t0 = performance.now()
         this.renderer.render(this.scene, this.camera)
         const st = this.stats
+        // Continuous frames only: idle safety-net repaints are spaced out on purpose.
+        if (awake && now - this._lastRender < 250) st.intervals[st.intervalN++ % st.intervals.length] = now - this._lastRender
         st.frames++; st.renderMs += (performance.now() - t0 - st.renderMs) * 0.1
         st.calls = this.renderer.info.render.calls; st.triangles = this.renderer.info.render.triangles
         this._lastRender = now
@@ -234,7 +268,7 @@ class SceneManager {
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(width, height)
     setOutlineResolution(width, height)
-    this.requestRender()
+    this.requestRender(400, true)
   }
 
   attachTransformTo(mesh) {

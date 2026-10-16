@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { sceneManager } from './SceneManager.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AlignmentManager — the Smart Alignment & Dynamic Guideline system (Phase 5).
@@ -292,6 +293,7 @@ class AlignmentManager {
   _startLoop() {
     if (this._raf) return
     const step = () => {
+      sceneManager.requestRender(100, true)   // fading guides must paint (the renderer sleeps when idle)
       let anyVisible = false
       for (const [key, g] of this._lines) {
         g.current += (g.target - g.current) * FADE_LERP

@@ -135,7 +135,6 @@ const PROFILE_CYCLE = ['auto', 'low', 'medium', 'high']
 const TRI = [null, true, false]                         // auto → on → off
 const triLabel = (v) => (v == null ? 'Auto' : v ? 'On' : 'Off')
 const SCALE_CYCLE = [null, 0.5, 0.75, 1, 1.25, 1.5, 2]
-const PHYS_CYCLE = [null, 'high', 'low']
 const TEL_CYCLE = [null, 5, 10, 20]
 const cap = (s) => s[0].toUpperCase() + s.slice(1)
 
@@ -166,8 +165,8 @@ function PerformanceSection() {
             valueLabel={triLabel(o.shadows)} onClick={() => setO('shadows', cycle(TRI, o.shadows ?? null))} />
           <Row icon="sparkles" label="Antialiasing" hint="Smooth edges — takes effect after reloading the page" active={o.antialias != null}
             valueLabel={triLabel(o.antialias) + (sceneManager.antialiasPendingReload ? ' · reload' : '')} onClick={() => setO('antialias', cycle(TRI, o.antialias ?? null))} />
-          <Row icon="cpu" label="Physics quality" hint="Robot physics rate: High 240 Hz · Low 120 Hz (both verified stable)" active={o.physicsQuality != null}
-            valueLabel={o.physicsQuality == null ? 'Auto' : cap(o.physicsQuality)} onClick={() => setO('physicsQuality', cycle(PHYS_CYCLE, o.physicsQuality ?? null))} />
+          <Row icon="cpu" label="Physics quality" hint="Standard 240 Hz is used on every device. Preview 120 Hz halves the physics CPU cost on slow computers — stable, but a lighter, less precise simulation" active={o.physicsQuality === 'low'}
+            valueLabel={o.physicsQuality === 'low' ? 'Preview · 120 Hz' : 'Standard · 240 Hz'} onClick={() => setO('physicsQuality', o.physicsQuality === 'low' ? null : 'low')} />
           <Row icon="chart" label="Telemetry rate" hint="How often the Physics panel refreshes live values" active={o.telemetryHz != null}
             valueLabel={o.telemetryHz == null ? 'Auto' : `${o.telemetryHz} Hz`} onClick={() => setO('telemetryHz', cycle(TEL_CYCLE, o.telemetryHz ?? null))} />
         </div>

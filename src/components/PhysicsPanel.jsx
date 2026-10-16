@@ -305,7 +305,8 @@ function TelemetrySection({ t }) {
       <Field label="Battery"><span>{f(t.battery.voltage)} V · {f(t.battery.current)} A · {f(t.battery.soc * 100, 0)}%{t.battery.brownout ? ' · BROWNOUT' : t.battery.currentLimited ? ' · limited' : ''}</span></Field>
       <Field label="Energy used"><span>{f(t.battery.energyUsed_J, 1)} J</span></Field>
       <Field label="Joint / foot error"><span>{f(t.validation.maxJointError * DEG, 1)}° / {f(t.validation.maxFootError_m * 100, 1)} cm</span></Field>
-      <Field label="Physics"><span>{Math.round(1 / t.runtime.timestep)} Hz · {f(t.runtime.stepMsAvg, 2)} ms/step · {t.runtime.stepsLastFrame}/frame</span></Field>
+      <Field label="Physics"><span>{Math.round(1 / t.runtime.timestep)} Hz{t.runtime.timestep > 1 / 200 ? ' (Preview)' : ''} · {f(t.runtime.stepMsAvg, 2)} ms/step · {t.runtime.stepsLastFrame}/frame</span></Field>
+      {t.runtime.droppedTime > 0.05 && <Field label="Slow motion"><span style={{ color: '#f59e0b' }}>{f(t.runtime.droppedTime, 1)} s not simulated in real time (computer too slow)</span></Field>}
       {t.warnings?.length > 0 && <div className="text-[10px]" style={{ color: '#f59e0b' }}>{t.warnings.join(' · ')}</div>}
     </Section>
     <Section title="Servos">

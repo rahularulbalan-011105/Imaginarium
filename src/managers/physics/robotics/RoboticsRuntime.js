@@ -33,7 +33,10 @@ export class RoboticsRuntime {
     this.terrain = null
     this.time = 0
     this._acc = 0
-    this.stats = { stepsLastFrame: 0, stepMs: 0, stepMsAvg: 0, droppedTime: 0 }
+    // stepMs* = one WHOLE fixed step (controllers + Rapier + sensors/stability);
+    // solveMsAvg = the Rapier world.step share. simulatedLastFrame vs the frame's
+    // wall time is what reports slow-motion honestly (see DriveManager.simStats).
+    this.stats = { stepsLastFrame: 0, stepMs: 0, stepMsAvg: 0, solveMsAvg: 0, physicsMsLastFrame: 0, simulatedLastFrame: 0, droppedTime: 0 }
     world.integrationParameters.numSolverIterations = this.config.solverIterations
     this.setGravity(this.config.gravity)
     if (this.ground) this.setGroundMaterial(DEFAULT_GROUND_MATERIAL)
@@ -134,16 +137,19 @@ export class RoboticsRuntime {
   // ── Stepping ────────────────────────────────────────────────────────────────
   /** Exactly one fixed physics step of h seconds. */
   step(h = this.config.timestep) {
+    const t0 = _now()
     for (const r of this.robots.values()) r.control(h)
     this.terrain?.update(this.time + h)
     this.world.timestep = h
-    const t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+    const t1 = _now()
     this.world.step()
-    const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0
-    this.stats.stepMs = ms
-    this.stats.stepMsAvg = this.stats.stepMsAvg * 0.95 + ms * 0.05
+    const t2 = _now()
     this.time += h
     for (const r of this.robots.values()) r.postStep(h)
+    const ms = _now() - t0, st = this.stats
+    st.stepMs = ms
+    st.stepMsAvg = st.stepMsAvg * 0.95 + ms * 0.05
+    st.solveMsAvg = st.solveMsAvg * 0.95 + (t2 - t1) * 0.05
   }
 
   /** Run n fixed steps (tests / headless). */
@@ -159,9 +165,15 @@ export class RoboticsRuntime {
     const h = this.config.timestep
     this._acc += Math.min(Math.max(0, frameDt), 0.25)
     let n = 0
+    const t0 = _now()
     while (this._acc >= h && n < this.config.maxSubsteps) { this.step(h); this._acc -= h; n++ }
-    if (this._acc >= h) { this.stats.droppedTime += this._acc; this._acc = this._acc % h }   // slow-mo, not spiral
+    // Catch-up policy: at most maxSubsteps per frame. Time beyond that is DROPPED
+    // (the sim runs in slow motion rather than spiralling) — and counted, so the
+    // UI can say so instead of pretending to be real time.
+    if (this._acc >= h) { this.stats.droppedTime += this._acc - (this._acc % h); this._acc = this._acc % h }
     this.stats.stepsLastFrame = n
+    this.stats.simulatedLastFrame = n * h
+    this.stats.physicsMsLastFrame = _now() - t0
     return this._acc / h
   }
 
@@ -184,3 +196,4 @@ export class RoboticsRuntime {
 }
 
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion()
+const _now = typeof performance !== 'undefined' ? () => performance.now() : () => Date.now()

@@ -12,6 +12,12 @@
 //                 are unchanged within that tolerance)
 // The runtime loader registers three's MeshoptDecoder (modelLoader.js).
 // Keep the originals in assets-src/models/ — they are the editable source of truth.
+//
+// OPT-IN  --simplify[=0.0005]   weld + meshoptimizer simplify before compression, with a
+//   max deviation of that fraction of each mesh's size (borders locked). Measured at
+//   0.0005: subo 166k→85k tris, free_wheels 146k→50k, oled 77k→8k, dht11 75k→43k,
+//   buzzer 26k→10k. Off by default because it changes how the models look (slightly);
+//   check the result visually (pins / LED matrix on SUBO, rotor on wheels) before shipping.
 import { execFileSync } from 'node:child_process'
 import { readdirSync, statSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
@@ -20,7 +26,9 @@ import { tmpdir } from 'node:os'
 const SRC = 'assets-src/models'
 const OUT = 'public/models'
 const CLI = ['-y', '@gltf-transform/cli@4']
-const only = process.argv.slice(2)
+const simplifyArg = process.argv.find(a => a.startsWith('--simplify'))
+const simplifyError = simplifyArg ? (Number(simplifyArg.split('=')[1]) || 0.0005) : 0
+const only = process.argv.slice(2).filter(a => !a.startsWith('--'))
 
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
 const run = (...args) => execFileSync(npx, [...CLI, ...args], { stdio: ['ignore', 'ignore', 'inherit'], shell: process.platform === 'win32' })
@@ -34,7 +42,13 @@ let before = 0, after = 0
 for (const f of files) {
   const src = join(SRC, f), name = basename(f, '.glb')
   const a = join(tmp, `${name}.1.glb`), b = join(tmp, `${name}.2.glb`), c = join(tmp, `${name}.3.glb`)
-  run('prune', src, a, '--keep-attributes', 'false')
+  if (simplifyError) {
+    const w = join(tmp, `${name}.w.glb`), s = join(tmp, `${name}.s.glb`)
+    run('weld', src, w)
+    run('simplify', w, s, '--ratio', '0', '--error', String(simplifyError), '--lock-border', 'true')
+    run('prune', s, a, '--keep-attributes', 'false')
+    for (const t of [w, s]) if (existsSync(t)) rmSync(t)
+  } else run('prune', src, a, '--keep-attributes', 'false')
   run('resize', a, b, '--width', '1024', '--height', '1024')
   run('webp', b, c)
   run('meshopt', c, join(OUT, f), '--level', 'medium',

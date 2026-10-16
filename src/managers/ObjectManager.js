@@ -48,10 +48,14 @@ function applyHoleStyle(object3d, obj) {
   const wantTransp = obj.material === 'transparent'
   object3d.traverse(child => {
     if (!child.isMesh || !child.material) return
-    child.material.transparent = wantHole || wantTransp
-    child.material.opacity     = wantHole ? 0.28 : (wantTransp ? 0.45 : 1)
-    child.material.depthWrite   = !wantHole
-    child.material.needsUpdate = true
+    const m = child.material
+    const transparent = wantHole || wantTransp
+    // Only flag a material rebuild when its render state really changes — this runs
+    // on every transform update (each frame of a gizmo drag).
+    if (m.transparent !== transparent || m.depthWrite !== !wantHole) m.needsUpdate = true
+    m.transparent = transparent
+    m.opacity     = wantHole ? 0.28 : (wantTransp ? 0.45 : 1)
+    m.depthWrite  = !wantHole
   })
 }
 
@@ -266,6 +270,9 @@ class ObjectManager {
     if (!o) return
 
     const attached = this.attachedObjects.has(id)
+    // Remember the geometry so the selection outline is rebuilt only when the shape
+    // changes — outlines follow transforms on their own (_syncOutlines).
+    const geo0 = o.geometry, bend0 = geo0?.userData.currentBend
     // Transform is managed by Three.js parenting while attached to a rotor, so
     // skip it for attached objects — but DO still apply colour/material below.
     if (!attached) this._applyTransform(o, obj)
@@ -336,8 +343,9 @@ class ObjectManager {
         }
       }
     }
-    // Keep the selection outline hugging the geometry after a live edit.
-    this.refreshOutline(id)
+    // Keep the selection outline hugging the geometry after a live shape edit.
+    // (Rebuilding it on every move recompiled its shader each drag frame.)
+    if (o.geometry !== geo0 || o.geometry?.userData.currentBend !== bend0) this.refreshOutline(id)
   }
 
   // Apply bend deformation directly to the mesh geometry (used by PropertiesPanel for live preview)

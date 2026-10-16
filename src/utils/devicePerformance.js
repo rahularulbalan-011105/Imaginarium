@@ -12,11 +12,13 @@ let _current = null
 export function setCurrentQuality(q) { _current = q }
 export function getCurrentQuality() { return _current }
 
-// What each profile means. `physicsMinTimestep` is a FLOOR on the robotics step
-// (low-end devices may run 120 Hz instead of 240 Hz); correctness settings such as
-// servo limits are never touched.
+// What each profile means. Graphics profiles never change the simulation: every
+// profile runs the robotics engine at its configured 240 Hz (measured: one robot
+// costs ~1 ms per 60 fps frame — rendering, not physics, is what low-end laptops
+// struggle with). The lighter 120 Hz "Preview" physics is an explicit opt-in
+// (Settings → Performance → Physics quality), never applied automatically.
 export const QUALITY_PRESETS = {
-  low:    { minPixelRatio: 0.6,  maxPixelRatio: 1.0, shadows: false, shadowMapSize: 512,  antialias: false, effects: 'low',    physicsMinTimestep: 1 / 120, telemetryHz: 5 },
+  low:    { minPixelRatio: 0.6,  maxPixelRatio: 1.0, shadows: false, shadowMapSize: 512,  antialias: false, effects: 'low',    physicsMinTimestep: 1 / 240, telemetryHz: 5 },
   medium: { minPixelRatio: 0.75, maxPixelRatio: 1.5, shadows: true,  shadowMapSize: 1024, antialias: true,  effects: 'medium', physicsMinTimestep: 1 / 240, telemetryHz: 10 },
   high:   { minPixelRatio: 1.0,  maxPixelRatio: 2.0, shadows: true,  shadowMapSize: 2048, antialias: true,  effects: 'high',   physicsMinTimestep: 1 / 240, telemetryHz: 10 },
 }
@@ -72,7 +74,10 @@ export function classify(caps) {
   if (caps.mobile) score -= 2
   // A huge high-DPI screen on a modest GPU is the classic laptop trap.
   if (caps.dpr >= 2 && caps.gpuClass !== 'discrete') score -= 1
-  return score >= 4 ? 'high' : score >= 1 ? 'medium' : 'low'
+  const profile = score >= 4 ? 'high' : score >= 1 ? 'medium' : 'low'
+  // A fast CPU + lots of RAM doesn't make an integrated GPU fast: measured on Intel
+  // UHD, a 42-part scene took 42 ms/paint at 1.5× resolution. Never start it on High.
+  return profile === 'high' && caps.gpuClass === 'integrated' ? 'medium' : profile
 }
 
 /** Resolve the effective quality settings from the user's choice + overrides. */
@@ -113,7 +118,10 @@ export class AdaptiveResolution {
     if (this.avg > this.budget * 1.25) { this._slow++; this._fast = 0 }        // < ~48 fps
     else if (this.avg < this.budget * 1.05) { this._fast++; this._slow = 0 }   // ≥ ~57 fps
     else { this._slow = 0; this._fast = 0 }
-    if (this._slow >= 45 && this.ratio > this.min) {                  // ~0.75 s consistently slow
+    // ~0.75 s consistently slow → step down; when frames take over twice the budget
+    // (< 30 fps) step down after ~15 frames so a heavy scene recovers within a second.
+    const veryslow = this.avg > this.budget * 2
+    if (this._slow >= (veryslow ? 15 : 45) && this.ratio > this.min) {
       this.ratio = Math.max(this.min, +(this.ratio - 0.1).toFixed(2)); this._slow = 0
     } else if (this._fast >= 240 && this.ratio < this.max) {          // ~4 s consistently fast
       this.ratio = Math.min(this.max, +(this.ratio + 0.05).toFixed(2)); this._fast = 0

@@ -4,6 +4,7 @@ import { sceneManager } from '../managers/SceneManager.js'
 import { physicsManager } from '../managers/physics/PhysicsManager.js'
 import { roboticsTelemetry } from '../managers/physics/robotics/telemetry.js'
 import { modelLoadTimes } from '../utils/modelLoader.js'
+import { driveManager } from '../managers/DriveManager.js'
 import { Z } from './ui/zIndex.js'
 
 // Performance overlay. Off by default (Settings → Performance, or F9). Samples at
@@ -25,6 +26,7 @@ export default function PerfOverlay() {
 
   useEffect(() => {
     if (!on) { setM(null); return }
+    sceneManager.stats.intervalN = 0   // opening the overlay starts a fresh measurement
     let lastFrames = sceneManager.stats.frames, lastT = performance.now()
     const id = setInterval(() => {
       const r = sceneManager.renderer
@@ -41,6 +43,12 @@ export default function PerfOverlay() {
         heap: performance.memory ? performance.memory.usedJSHeapSize / 1048576 : null,
         bodies: w ? w.bodies.len() : null, colliders: w ? w.colliders.len() : null, joints: w ? w.impulseJoints.len() : null,
         stepMs: tel?.runtime?.stepMsAvg ?? null, physHz: tel?.runtime ? Math.round(1 / tel.runtime.timestep) : null,
+        substeps: tel?.runtime?.stepsLastFrame ?? null,
+        simOn: !!useUiStore.getState().simActive,
+        physFrameMs: useUiStore.getState().simActive ? driveManager.simStats?.physicsMs ?? null : null,
+        realtime: useUiStore.getState().simActive ? driveManager.simStats?.realtime ?? null : null,
+        p95: sceneManager.frameTimePercentile(0.95), p50: sceneManager.frameTimePercentile(0.5),
+        fidelity: useUiStore.getState().perf.overrides?.physicsQuality === 'low' ? 'Preview 120 Hz' : 'Standard 240 Hz',
         models: Object.keys(modelLoadTimes()).length,
       })
     }, 500)
@@ -53,14 +61,18 @@ export default function PerfOverlay() {
   return (
     <div data-testid="perf-overlay"
       style={{ position: 'fixed', left: 12, bottom: 34, zIndex: Z.toast ?? 200, font: '11px/1.35 ui-monospace, monospace', color: '#e5e7eb', background: 'rgba(10,12,18,0.82)', padding: '8px 10px', borderRadius: 8, minWidth: 190, pointerEvents: 'none' }}>
-      {row('FPS', `${f(m.fps, 0)}  (${f(m.renderMs, 2)} ms render)`)}
+      {row('FPS', `${f(m.fps, 0)}  (${f(m.renderMs, 2)} ms render CPU)`)}
+      {row('Frame time p50 / p95', m.p95 == null ? '— (idle)' : `${f(m.p50, 1)} / ${f(m.p95, 1)} ms`)}
       {row('Draw calls', m.calls)}
       {row('Triangles', m.tris.toLocaleString())}
       {row('Geometries / textures', `${m.geo} / ${m.tex}`)}
-      {row('Pixel ratio', `${f(m.dpr, 2)} · ${m.profile}${m.auto ? ' (auto)' : ''}`)}
+      {row('Pixel ratio', `${f(m.dpr, 2)} · ${m.profile}${m.auto ? ' (auto-adjusting)' : ' (fixed)'}`)}
       {m.heap != null && row('JS heap', `${f(m.heap, 0)} MB`)}
       {m.bodies != null && row('Bodies / colliders / joints', `${m.bodies} / ${m.colliders} / ${m.joints}`)}
-      {m.stepMs != null && row('Physics', `${m.physHz} Hz · ${f(m.stepMs, 2)} ms/step`)}
+      {m.stepMs != null && row('Physics', `${m.physHz} Hz · ${f(m.stepMs, 2)} ms/step · ${m.substeps}/frame`)}
+      {row('Simulation', m.simOn ? `on · ${m.fidelity}` : `off (editing) · ${m.fidelity}`)}
+      {m.physFrameMs != null && row('Physics per frame', `${f(m.physFrameMs, 2)} ms`)}
+      {m.realtime != null && row('Real time', <span style={{ color: m.realtime < 0.9 ? '#fbbf24' : undefined }}>{f(m.realtime * 100, 0)}%{m.realtime < 0.9 ? ' (slow motion)' : ''}</span>)}
       {row('Models loaded', m.models)}
       <div style={{ opacity: 0.5, marginTop: 4 }}>F9 to hide</div>
     </div>

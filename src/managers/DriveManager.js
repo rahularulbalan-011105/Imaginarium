@@ -39,6 +39,7 @@ const MAX_V          = 200  // max vertical fall speed (scene units/s) — clamp
 
 class DriveManager {
   constructor() {
+    this.simStats    = { realtime: 1, physicsMs: null, _req: 0, _sim: 0 }   // physicsMs: articulated path only (measured)
     this.scene       = null
     this.objectMgr   = null
     this.rootGroup   = null
@@ -212,6 +213,7 @@ class DriveManager {
 
   enter(objects) {
     if (!this.scene || this.rootGroup || this._useRapierFreefall || this._articulated) return
+    this.simStats = { realtime: 1, physicsMs: null, _req: 0, _sim: 0 }   // physicsMs: articulated path only (measured)
 
     // Split scene objects into robot parts (go into rootGroup) and standalone
     // obstacles (stay fixed; get static Rapier colliders so the robot stops on contact).
@@ -847,22 +849,37 @@ class DriveManager {
   getDriveGroups() { return { leftIds: this._leftIds, rightIds: this._rightIds } }
 
   // Called every animation frame.
+  // Real-time honesty: per ~1 s window, simulated seconds ÷ wall seconds. Below 1
+  // the simulation is running in slow motion because this computer can't keep up
+  // (both paths cap per-frame catch-up instead of spiralling). DrivePanel warns.
+  _trackRealtime(wallDt, simulated) {
+    const s = this.simStats
+    if (!(wallDt > 0) || wallDt > 0.5) return          // first frame / tab was hidden
+    s._req += wallDt; s._sim += simulated
+    if (s._req >= 1) { s.realtime = Math.min(1, s._sim / s._req); s._req = 0; s._sim = 0 }
+  }
+
   step() {
     if (this._articulated) {
       const now = performance.now() / 1000
-      const dt = this._lastTime !== null ? Math.min(now - this._lastTime, 0.1) : 0
+      const raw = this._lastTime !== null ? now - this._lastTime : 0
+      const dt = Math.min(raw, 0.1)
       this._lastTime = now
       const lc = usePhysicsStore.getState().leggedControl
       // DrivePanel speeds (±8 su/s, ±1.8 rad/s) → normalised gait command.
       this._articulated.frame(dt, { forward: (lc?.speed || 0) / 8, turn: (lc?.turn || 0) / 1.8 })
+      const st = this._articulated.runtime?.stats
+      if (st) { this.simStats.physicsMs = st.physicsMsLastFrame; this._trackRealtime(raw, st.simulatedLastFrame) }
       return
     }
     if (!this.rootGroup && !this._useRapierFreefall) return
 
     const now = performance.now() / 1000
-    const dt  = this._lastTime !== null ? Math.min(now - this._lastTime, 0.05) : 0
+    const raw = this._lastTime !== null ? now - this._lastTime : 0
+    const dt  = Math.min(raw, 0.05)
     this._lastTime = now
     if (dt === 0) return
+    this._trackRealtime(raw, dt)
 
     // AI behaviors (if any) write drive commands into simulationManager.motorSpeeds
     // BEFORE the wheeled path reads them, so an AI robot drives via the same channel.
