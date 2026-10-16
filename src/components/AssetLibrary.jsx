@@ -10,6 +10,7 @@ import { useHistory } from '../hooks/useHistory.js'
 import { loadGLTFFromFile, loadSTLFromFile, cloneModel, flattenToGeometry, ensureModels, loadModel } from '../utils/modelLoader.js'
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
 import { svgTextToGeometry } from '../utils/svgImport.js'
+import { trackEvent } from '../utils/utmTracking.js'
 
 const SHAPE_GROUPS = [
   {
@@ -51,6 +52,19 @@ const SHAPE_GROUPS = [
 // keyed by `modelKey` so they survive save/reload.
 const MODELS = [
   { key: 'free_wheels', label: 'Wheels', icon: '🛞', color: '#cfd2d6' },
+]
+
+// Ready-made Constructa presets (full project files in public/presets/, fetched
+// on click). Opening one loads it as the current project via the same
+// `constructa:load-project` path as the debug mission.
+const PRESETS = [
+  { file: '2-wheel-chassis', label: '2-Wheel Chassis', icon: '🚙' },
+  { file: '4-wheel-chassis', label: '4-Wheel Chassis', icon: '🚗' },
+  { file: 'single-leg',      label: 'Single Leg',      icon: '🦿' },
+  { file: 'simple-claw',     label: 'Simple Claw',     icon: '🦾' },
+  { file: 'robotic-head',    label: 'Robotic Head',    icon: '🤖' },
+  { file: 'propeller',       label: 'Propeller',       icon: '🌀' },
+  { file: 'name-plate',      label: 'Name Plate',      icon: '🏷️' },
 ]
 
 const LABEL_COLORS = {
@@ -169,6 +183,28 @@ export default function AssetLibrary() {
     e.target.value = ''
   }
 
+  const [presetBusy, setPresetBusy] = useState(null)
+
+  const openPreset = async ({ file, label }) => {
+    if (useSceneStore.getState().objects.length > 0 &&
+        !confirm(`Open the "${label}" preset? It replaces the current scene — unsaved changes will be lost.`)) return
+    setPresetBusy(file)
+    setImportErr(null)
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}presets/${file}.json`)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      // Fresh id so saving never overwrites another copy of the same preset.
+      window.dispatchEvent(new CustomEvent('constructa:load-project', {
+        detail: { ...data, projectId: uuidv4(), name: label },
+      }))
+      trackEvent('preset_opened', { preset: file })
+    } catch (e) {
+      setImportErr(`Could not load preset "${label}": ${e.message}`)
+    }
+    setPresetBusy(null)
+  }
+
   const handleAddSaved = (asset) => {
     insertObject({
       ...JSON.parse(JSON.stringify(asset)),
@@ -252,6 +288,25 @@ export default function AssetLibrary() {
             >
               <span className="ui-lib-glyph"><span className="text-lg leading-none">{icon}</span></span>
               <span className="ui-lib-label">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Presets (ready-made projects) ────────────────────────────────── */}
+      <div className="px-3 pt-3">
+        <div className="text-[9px] text-orange-500 uppercase tracking-wider mb-1.5 font-semibold">Presets</div>
+        <div className="grid grid-cols-3 gap-1.5">
+          {PRESETS.map((p) => (
+            <button
+              key={p.file}
+              onClick={() => openPreset(p)}
+              disabled={presetBusy !== null}
+              title={`Open the ${p.label} preset`}
+              className="ui-lib-card"
+            >
+              <span className="ui-lib-glyph"><span className="text-lg leading-none">{presetBusy === p.file ? '⏳' : p.icon}</span></span>
+              <span className="ui-lib-label">{p.label}</span>
             </button>
           ))}
         </div>
