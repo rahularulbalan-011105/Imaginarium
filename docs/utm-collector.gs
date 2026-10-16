@@ -1,233 +1,166 @@
 /**
- * UTM collector for Constructa — Google Apps Script Web App.
+ * Constructa analytics collector — Google Apps Script Web App (v2).
  *
- * doPost  : a visit ping from the app → appends one row to the "visits" sheet.
- * doGet   : returns every row as JSON (JSONP via ?callback=) → the dashboard reads it.
+ * ONE event stream for the whole funnel:
+ *   landing page (constructa-page.atumx.in)  →  sign-up / login  →  editor (constructa.atumx.in)
+ * Every row carries the visitor id (vid), the email (once known) and the
+ * attribution (source / medium / campaign / content / term / ref) that brought
+ * the visitor in. The dashboard (utm-dashboard.html) joins them per email.
  *
- * Cross-origin notes (why this works from GitHub Pages):
- *  - The app writes with navigator.sendBeacon / a text-plain POST → a "simple"
- *    request, so the browser sends NO CORS preflight (Apps Script can't answer
- *    preflight OPTIONS, which is why application/json POSTs fail).
- *  - The dashboard reads with JSONP (a <script> tag), which is not subject to CORS.
+ * Tabs (created automatically, fresh — the old v1 tabs "visits", "events",
+ * "links", "landing", "by_user" are NOT read any more and can be deleted):
+ *   cx_events  — one row per event
+ *   cx_links   — campaign links saved from the dashboard's link generator
  *
- * NOTE: one row per session, sent at session end (carries session_duration +
- * popup_action). If you previously deployed the older schema, DELETE the old
- * "visits" tab once so it is recreated with the new header row, then Deploy →
- * Manage deployments → Edit → New version.
+ * Accuracy guards:
+ *   • unknown event names / apps are rejected (keeps junk out of the sheet)
+ *   • each event has a unique eid → duplicates (beacon retries) are dropped
+ *   • `received` = server time (client clocks can be wrong); client ts kept too
+ *   • events from any host other than the two production hosts are stored with
+ *     env = "test" and hidden by the dashboard
  *
- * Setup: see docs/UTM-SETUP.md.
+ * Privacy: the sheet holds emails, so READING requires the dashboard key.
+ *   1. Paste this file into Extensions → Apps Script (replace everything).
+ *   2. Run the function `setup` once (▶ Run, choose "setup") and approve.
+ *      It prints the DASHBOARD KEY in the execution log — copy it.
+ *   3. Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy
+ *      (keeps the same /exec URL the site already uses).
+ *   4. Open https://constructa.atumx.in/utm-dashboard.html and enter the key.
+ * Run `setup` again any time to rotate the key.
  */
 
-var SHEET_NAME = 'visits';
-var HEADERS = ['received', 'ts', 'source', 'campaign', 'ref', 'landing', 'country',
-  'device_type', 'is_returning_visitor', 'popup_action', 'session_duration',
-  'medium', 'term', 'content', 'referrer', 'language', 'timezone', 'ua', 'sid'];
+var EVENTS_TAB = 'cx_events';
+var EVENT_HEADERS = ['received', 'env', 'eid', 'app', 'event', 'email', 'vid', 'sid',
+  'source', 'medium', 'campaign', 'content', 'term', 'ref', 'referrer',
+  'page', 'device', 'value', 'meta', 'client_ts'];
 
-// In-app engagement events (app_loaded, code_run, sim_started, share_link_created,
-// project_saved, discord_join, email_submitted, …) land in a separate tab.
-var EVENTS_NAME = 'events';
-var EVENT_HEADERS = ['received', 'ts', 'sid', 'event', 't', 'source', 'campaign', 'ref', 'device_type', 'email', 'extra'];
+var LINKS_TAB = 'cx_links';
+var LINK_HEADERS = ['saved', 'label', 'url', 'base', 'source', 'medium', 'campaign', 'content', 'term', 'ref'];
 
-// Generated campaign links you build + "Save to sheet" in the dashboard land here,
-// so every link you hand out is in one registry (separate from the visits tab).
-var LINKS_NAME = 'links';
-var LINK_HEADERS = ['saved', 'label', 'url', 'source', 'medium', 'campaign', 'ref', 'term', 'content'];
+var PROD_HOSTS = { 'constructa.atumx.in': 1, 'constructa-page.atumx.in': 1 };
+var APPS = { landing: 1, editor: 1 };
+var EVENTS = {
+  // landing site
+  landing_view: 1, cta_click: 1, updates_signup: 1, signup: 1, login: 1,
+  open_editor: 1, whatsapp_click: 1,
+  // editor
+  editor_open: 1, email_entered: 1, session_time: 1, app_loaded: 1,
+  shape_added: 1, preset_opened: 1, code_run: 1, sim_started: 1, battle_started: 1,
+  arena_started: 1, project_saved: 1, export_json: 1, share_link_created: 1,
+  tutorial_started: 1, tutorial_step: 1, tutorial_completed: 1, tutorial_exited: 1,
+  whatsapp_join: 1, popup_dismiss: 1
+};
 
-// Landing-page activity (constructa-page.atumx.in): page views + early-access
-// clicks + email submits, each a row with a "sub" action type. Read by utm-dashboard2.
-var LANDING_NAME = 'landing';
-var LANDING_HEADERS = ['received', 'ts', 'sid', 'sub', 'email', 'source', 'medium',
-  'campaign', 'ref', 'term', 'content', 'country', 'device_type', 'referrer', 'url'];
-
-function sheet_() {
+function tab_(name, headers) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) { sh = ss.insertSheet(SHEET_NAME); sh.appendRow(HEADERS); }
+  var sh = ss.getSheetByName(name);
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(headers); sh.setFrozenRows(1); }
   return sh;
 }
-function eventsSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(EVENTS_NAME);
-  if (!sh) { sh = ss.insertSheet(EVENTS_NAME); sh.appendRow(EVENT_HEADERS); }
-  return sh;
-}
-function linksSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(LINKS_NAME);
-  if (!sh) { sh = ss.insertSheet(LINKS_NAME); sh.appendRow(LINK_HEADERS); }
-  return sh;
-}
-function landingSheet_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(LANDING_NAME);
-  if (!sh) { sh = ss.insertSheet(LANDING_NAME); sh.appendRow(LANDING_HEADERS); }
-  return sh;
+
+function str_(v, max) { return v == null ? '' : String(v).slice(0, max || 200); }
+function cleanEmail_(v) {
+  var e = str_(v, 160).trim().toLowerCase();
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : '';
 }
 
 function doPost(e) {
+  var v;
+  try { v = JSON.parse((e && e.postData && e.postData.contents) || '{}'); }
+  catch (err) { return json_({ ok: false, error: 'bad json' }); }
+
+  if (v.type === 'cx_link') return saveLink_(v);
+  if (v.type !== 'cx') return json_({ ok: false, error: 'ignored' });   // old v1 clients
+  if (!APPS[v.app] || !EVENTS[v.event]) return json_({ ok: false, error: 'unknown event' });
+
+  var eid = str_(v.eid, 40);
+  if (!eid) return json_({ ok: false, error: 'no eid' });
+  var cache = CacheService.getScriptCache();
+  if (cache.get('eid_' + eid)) return json_({ ok: true, dup: true });
+
   var lock = LockService.getScriptLock();
-  try { lock.waitLock(5000); } catch (_) {}
+  try { lock.waitLock(10000); } catch (_) { /* append anyway */ }
   try {
-    var v = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if (v.type === 'event') {
-      var known = { type:1, event:1, sid:1, ts:1, t:1, source:1, campaign:1, ref:1, device_type:1, email:1 };
-      var extra = {};
-      for (var k in v) if (!known[k]) extra[k] = v[k];
-      eventsSheet_().appendRow([
-        new Date(), v.ts || '', v.sid || '', v.event || '', v.t || 0,
-        v.source || '', v.campaign || '', v.ref || '', v.device_type || '',
-        v.email || '', Object.keys(extra).length ? JSON.stringify(extra) : ''
-      ]);
-      return json_({ ok: true });
-    }
-    if (v.type === 'link') {                    // a generated campaign link → links tab
-      linksSheet_().appendRow([
-        new Date(), v.label || '', v.url || '', v.source || '', v.medium || '',
-        v.campaign || '', v.ref || '', v.term || '', v.content || ''
-      ]);
-      return json_({ ok: true });
-    }
-    if (v.type === 'landing') {                  // landing-page view/click/email → landing tab
-      landingSheet_().appendRow([
-        new Date(), v.ts || '', v.sid || '', v.sub || 'view', v.email || '',
-        v.source || '', v.medium || '', v.campaign || '', v.ref || '', v.term || '', v.content || '',
-        v.country || '', v.device_type || '', v.referrer || '', v.url || ''
-      ]);
-      return json_({ ok: true });
-    }
-    sheet_().appendRow([
-      new Date(), v.ts || '', v.source || '', v.campaign || '', v.ref || '', v.landing || '',
-      v.country || '', v.device_type || '', v.is_returning_visitor ? 'returning' : 'new',
-      v.popup_action || '', v.session_duration || 0,
-      v.medium || '', v.term || '', v.content || '', v.referrer || '', v.language || '', v.timezone || '', v.ua || '',
-      v.id || v.sid || ''
+    if (cache.get('eid_' + eid)) return json_({ ok: true, dup: true });
+    var value = Number(v.value);
+    tab_(EVENTS_TAB, EVENT_HEADERS).appendRow([
+      new Date(),
+      PROD_HOSTS[str_(v.host, 100).toLowerCase()] ? 'prod' : 'test',
+      eid, v.app, v.event, cleanEmail_(v.email), str_(v.vid, 40), str_(v.sid, 40),
+      str_(v.source, 100).trim().toLowerCase() || '(direct)', str_(v.medium, 100).trim().toLowerCase(),
+      str_(v.campaign, 120).trim().toLowerCase(), str_(v.content, 120).trim().toLowerCase(), str_(v.term, 120), str_(v.ref, 80), str_(v.referrer, 300),
+      str_(v.page, 300), str_(v.device, 20), isFinite(value) ? value : '',
+      v.meta && typeof v.meta === 'object' ? JSON.stringify(v.meta).slice(0, 1000) : '',
+      str_(v.ts, 40)
     ]);
+    cache.put('eid_' + eid, '1', 21600);   // 6 h dedupe window
     return json_({ ok: true });
-  } catch (err) {
-    return json_({ ok: false, error: String(err) });
   } finally {
     try { lock.releaseLock(); } catch (_) {}
   }
 }
 
+function saveLink_(v) {
+  if (!keyOk_(v.key)) return json_({ ok: false, error: 'bad key' });
+  tab_(LINKS_TAB, LINK_HEADERS).appendRow([
+    new Date(), str_(v.label, 120), str_(v.url, 1000), str_(v.base, 200), str_(v.source, 100),
+    str_(v.medium, 100), str_(v.campaign, 120), str_(v.content, 120), str_(v.term, 120), str_(v.ref, 80)
+  ]);
+  return json_({ ok: true });
+}
+
+// GET ?key=…&what=events|links|ping [&callback=fn]  (JSONP for the dashboard)
 function doGet(e) {
-  // ?landing=1 → landing-page activity; ?links=1 → saved-links; ?events=1 → events; else visits.
-  if (e && e.parameter && e.parameter.landing) {
-    var la = landingSheet_().getDataRange().getValues();
-    var laOut = [];
-    for (var p = 1; p < la.length; p++) {
-      var pr = la[p];
-      laOut.push({
-        ts: pr[1] || (pr[0] && pr[0].toISOString ? pr[0].toISOString() : String(pr[0])),
-        sid: pr[2], sub: pr[3], email: pr[4], source: pr[5], medium: pr[6], campaign: pr[7],
-        ref: pr[8], term: pr[9], content: pr[10], country: pr[11], device_type: pr[12],
-        referrer: pr[13], url: pr[14], tagged: !!(pr[5] && pr[5] !== '(direct)')
-      });
+  var p = (e && e.parameter) || {};
+  if (p.what === 'ping') return reply_({ ok: true, keySet: !!getKey_() }, p);
+  if (!keyOk_(p.key)) return reply_({ ok: false, error: 'bad key' }, p);
+
+  if (p.what === 'links') {
+    var lk = tab_(LINKS_TAB, LINK_HEADERS).getDataRange().getValues();
+    var links = [];
+    for (var j = 1; j < lk.length; j++) {
+      var l = lk[j];
+      links.push({ saved: iso_(l[0]), label: l[1], url: l[2], base: l[3], source: l[4],
+        medium: l[5], campaign: l[6], content: l[7], term: l[8], ref: l[9] });
     }
-    return reply_(laOut, e);
+    return reply_({ ok: true, rows: links }, p);
   }
-  // ?links=1 → the saved-links registry; ?events=1 → the events tab; else visits.
-  if (e && e.parameter && e.parameter.links) {
-    var lk = linksSheet_().getDataRange().getValues();
-    var lkOut = [];
-    for (var m = 1; m < lk.length; m++) {
-      var lr = lk[m];
-      lkOut.push({
-        saved: lr[0] && lr[0].toISOString ? lr[0].toISOString() : String(lr[0]),
-        label: lr[1], url: lr[2], source: lr[3], medium: lr[4], campaign: lr[5],
-        ref: lr[6], term: lr[7], content: lr[8]
-      });
-    }
-    return reply_(lkOut, e);
+
+  var vals = tab_(EVENTS_TAB, EVENT_HEADERS).getDataRange().getValues();
+  var rows = [];
+  for (var i = 1; i < vals.length; i++) {
+    var r = vals[i];
+    // compact arrays (same order as EVENT_HEADERS) keep the payload small
+    rows.push([iso_(r[0])].concat(r.slice(1, 19)).concat([String(r[19] || '')]));
   }
-  // ?events=1 → return the events tab; otherwise the visits tab.
-  if (e && e.parameter && e.parameter.events) {
-    var ev = eventsSheet_().getDataRange().getValues();
-    var evOut = [];
-    for (var j = 1; j < ev.length; j++) {
-      var er = ev[j];
-      evOut.push({ ts: er[1], sid: er[2], event: er[3], t: er[4], source: er[5], campaign: er[6], ref: er[7], device_type: er[8], email: er[9], extra: er[10] });
-    }
-    return reply_(evOut, e);
-  }
-  var values = sheet_().getDataRange().getValues();
-  var out = [];
-  for (var i = 1; i < values.length; i++) {           // row 0 = headers
-    var r = values[i];
-    out.push({
-      ts: r[1] || (r[0] && r[0].toISOString ? r[0].toISOString() : String(r[0])),
-      source: r[2], campaign: r[3], ref: r[4], landing: r[5], country: r[6],
-      device_type: r[7], is_returning_visitor: r[8], popup_action: r[9], session_duration: r[10],
-      medium: r[11], term: r[12], content: r[13], referrer: r[14], language: r[15], timezone: r[16], ua: r[17],
-      sid: r[18] || '',
-      tagged: !!(r[2] && r[2] !== '(direct)')
-    });
-  }
-  return reply_(out, e);
+  return reply_({ ok: true, headers: EVENT_HEADERS, rows: rows }, p);
 }
 
-// ── Per-user summary tab ─────────────────────────────────────────────────────
-// Scans the "events" tab and (re)builds a "by_user" tab: ONE ROW PER USER
-// (session id) with their action counts — run code, simulations, shapes,
-// Export JSON, furthest tutorial step, etc.
-// Run it from the editor (Run ▸ rebuildUserSummary), from the UTM menu that
-// appears on the sheet, or add a time-driven trigger to keep it fresh.
-var BY_USER_NAME = 'by_user';
-var BY_USER_HEADERS = ['sid', 'source', 'campaign', 'ref', 'code_run', 'sim_started',
-  'shapes_added', 'shapes_peak', 'export_json', 'furthest_step', 'total_events', 'first_seen', 'last_seen'];
+function iso_(d) { return d && d.toISOString ? d.toISOString() : String(d || ''); }
 
-function rebuildUserSummary() {
-  var ev = eventsSheet_().getDataRange().getValues();
-  var u = {};
-  for (var i = 1; i < ev.length; i++) {                 // row 0 = headers
-    var r = ev[i];
-    var ts = r[1], sid = r[2] || '(no id)', name = r[3], source = r[5], campaign = r[6], ref = r[7], extra = r[10];
-    var o = u[sid] || (u[sid] = { sid: sid, source: source || '', campaign: campaign || '', ref: ref || '',
-      code_run: 0, sim_started: 0, shapes_added: 0, shapes_peak: 0, export_json: 0, step: 0, events: 0, first: ts, last: ts });
-    o.events++;
-    if (source) o.source = source;
-    if (campaign) o.campaign = campaign;
-    if (ref) o.ref = ref;
-    if (ts && (!o.first || ts < o.first)) o.first = ts;
-    if (ts && ts > o.last) o.last = ts;
-    if (name === 'code_run') o.code_run++;
-    else if (name === 'sim_started') o.sim_started++;
-    else if (name === 'export_json') o.export_json++;
-    else if (name === 'shape_added') { o.shapes_added++; var n = 0; try { n = (JSON.parse(extra || '{}').count) | 0; } catch (e) {} if (n > o.shapes_peak) o.shapes_peak = n; }
-    else if (name === 'tutorial_step') { var st = 0; try { st = (JSON.parse(extra || '{}').step) | 0; } catch (e) {} if (st > o.step) o.step = st; }
-  }
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sh = ss.getSheetByName(BY_USER_NAME);
-  if (!sh) sh = ss.insertSheet(BY_USER_NAME); else sh.clear();
-  sh.appendRow(BY_USER_HEADERS);
-  var rows = Object.keys(u).map(function (k) {
-    var o = u[k];
-    return [o.sid, o.source, o.campaign, o.ref, o.code_run, o.sim_started,
-      o.shapes_added, o.shapes_peak, o.export_json, o.step, o.events, o.first, o.last];
-  });
-  if (rows.length) sh.getRange(2, 1, rows.length, BY_USER_HEADERS.length).setValues(rows);
-  return rows.length + ' users summarised';
+function getKey_() { return PropertiesService.getScriptProperties().getProperty('DASH_KEY') || ''; }
+function keyOk_(k) { var real = getKey_(); return !!real && String(k || '') === real; }
+
+/** Run once from the editor: creates (or rotates) the dashboard key and the tabs. */
+function setup() {
+  var key = Utilities.getUuid().replace(/-/g, '');
+  PropertiesService.getScriptProperties().setProperty('DASH_KEY', key);
+  tab_(EVENTS_TAB, EVENT_HEADERS);
+  tab_(LINKS_TAB, LINK_HEADERS);
+  Logger.log('DASHBOARD KEY: ' + key);
+  return key;
 }
 
-// Adds a "UTM ▸ Rebuild per-user summary" menu to the spreadsheet.
-function onOpen() {
-  try { SpreadsheetApp.getUi().createMenu('UTM').addItem('Rebuild per-user summary', 'rebuildUserSummary').addToUi(); }
-  catch (e) { /* not a bound context */ }
-}
-
-// JSONP (if ?callback=) or plain JSON.
-function reply_(obj, e) {
+function reply_(obj, p) {
   var payload = JSON.stringify(obj);
-  var cb = e && e.parameter && e.parameter.callback;
-  if (cb) {
+  var cb = p && p.callback;
+  if (cb && /^[A-Za-z_$][\w$]{0,60}$/.test(cb)) {
     return ContentService.createTextOutput(cb + '(' + payload + ')')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
-  return ContentService.createTextOutput(payload)
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(payload).setMimeType(ContentService.MimeType.JSON);
 }
 
 function json_(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { submitEmail } from '../utils/utmTracking.js'
+import { submitEmail, getKnownEmail } from '../utils/utmTracking.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EmailCapture — a soft, dismissible email prompt with a real value exchange.
@@ -29,7 +29,7 @@ export default function EmailCapture() {
     return () => window.removeEventListener('constructa:saved', onSaved)
   }, [done])
 
-  if (done || !visible) return null
+  if (done || !visible || getKnownEmail()) return null
 
   const set = (v) => { try { localStorage.setItem(KEY, v) } catch { /* private mode */ } }
 

@@ -10,6 +10,7 @@ import CenterWorkspace from './components/shell/CenterWorkspace.jsx'
 import WelcomeOverlay from './components/WelcomeOverlay.jsx'
 import ConstructaLogo from './components/ConstructaLogo.jsx'
 import EmailCapture from './components/EmailCapture.jsx'
+import EmailGate from './components/EmailGate.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import CloudSaveBar from './components/CloudSaveBar.jsx'
@@ -522,6 +523,7 @@ function AppEditor() {
       <OverlayBridge />
       <CloudSaveBar />
       <EmailCapture />
+      <EmailGate />
       <WelcomeOverlay />
       <ProductTour />
       <GuidedCoach />

@@ -1,88 +1,68 @@
-# UTM tracking — see WhatsApp clicks from everyone
+# Constructa analytics — setup & how it works
 
-The app records how each visit arrived (`?utm_source=…`). By default that data
-lives only in each visitor's own browser. To collect clicks from **all** visitors
-into one place you own, connect a free Google Sheet. ~10 minutes, one time.
-
----
-
-## Part A — Create the collector (Google Sheet + script)
-
-1. Go to <https://sheets.new> to make a **new Google Sheet**. Name it anything
-   (e.g. "UTM Clicks").
-2. In the menu: **Extensions → Apps Script**. A code editor opens in a new tab.
-3. Delete whatever is in `Code.gs`, then paste the entire contents of
-   [`docs/utm-collector.gs`](utm-collector.gs) from this repo. Click **Save** (💾).
-4. Click **Deploy → New deployment**.
-   - Click the **gear ⚙ → Web app**.
-   - **Description:** anything.
-   - **Execute as:** *Me*.
-   - **Who has access:** **Anyone**  ← important, or visitor clicks can't reach it.
-   - Click **Deploy**. Approve/authorize when Google asks (it's your own script).
-5. Copy the **Web app URL** it shows. It looks like:
-   `https://script.google.com/macros/s/AKfy…long…/exec`
-   **Keep this URL** — you need it in Parts B and C.
-
-> Test it: paste that URL into a browser tab. You should see `[]` (an empty list).
-> That means the server is live.
-
----
-
-## Part B — Point the app at the collector
-
-1. Open [`src/utils/utmTracking.js`](../src/utils/utmTracking.js).
-2. Find this line near the top:
-   ```js
-   const COLLECTOR_ENDPOINT = ''
-   ```
-3. Paste your Web app URL between the quotes:
-   ```js
-   const COLLECTOR_ENDPOINT = 'https://script.google.com/macros/s/AKfy…/exec'
-   ```
-4. Rebuild + redeploy the site so visitors start reporting:
-   ```bash
-   npm run deploy
-   ```
-   (Ask me and I'll do this step for you.)
-
-From now on, **every click on your app** — from WhatsApp, anywhere, anyone's
-phone — adds a row to your Google Sheet.
-
----
-
-## Part C — View everyone's clicks in the dashboard
-
-1. Open your dashboard:
-   `https://rahularulbalan-011105.github.io/Imaginarium/utm-dashboard.html`
-2. In the **Server (Google Sheet)** box at the top, paste the **same Web app URL**
-   and click **Load from server**.
-3. The cards, tallies and table now show clicks from **all visitors**. The URL is
-   remembered, so next time it loads automatically.
-
-You can also just open the Google Sheet itself to see the raw rows.
-
----
-
-## Make a link to share on WhatsApp
-
-Use the **UTM link builder** in the dashboard, or write it by hand:
+One event stream covers the whole journey:
 
 ```
-https://rahularulbalan-011105.github.io/Imaginarium/?utm_source=whatsapp&utm_medium=chat&utm_campaign=launch
+campaign link ─► landing page (constructa-page.atumx.in) ─► sign-up / login ─► workshop (constructa.atumx.in)
+                 landing_view · cta_click · signup · login      editor_open · shape_added · code_run · sim_started · …
 ```
 
-- **utm_source** = where you shared it (`whatsapp`, `instagram`, …)
-- **utm_medium** = the kind of channel (`chat`, `social`, `email`, …)
-- **utm_campaign** = which push (`launch`, `demo-day`, …)
+Every event is a row in the Google Sheet tab **`cx_events`**. Each row has:
 
-Share that link. Each person who taps it shows up in your dashboard, grouped by
-source / medium / campaign.
+- **vid**: a visitor id. The landing page creates it, and it is handed to the workshop in the URL (`?cx_vid=…`, removed from the address bar on arrival). This links landing visits and workshop activity to the same person.
+- **email**: comes from the Supabase account (sign-up / login), or from the **email gate**. Nobody can use the workshop without entering an email.
+- **source / medium / campaign / content / ref**: from the campaign link. It is captured when the visitor arrives and stored in the browser, so it survives the jump to `/signup`, `/dashboard` and the workshop. Rule: explicit UTM > external referrer > previously stored > `(direct)`. The source is also saved on the Supabase account at sign-up (`signup_source`, `signup_campaign`, …).
+
+Dashboard: **https://constructa.atumx.in/utm-dashboard.html** (protected by a key, because the data includes emails).
 
 ---
 
-### Notes
-- The Apps Script URL must be deployed with access **"Anyone"** (Part A step 4),
-  otherwise browsers can't post to it and the dashboard can't read it.
-- If you change the script later, use **Deploy → Manage deployments → Edit →
-  New version** so the same URL keeps working.
-- Free-tier Apps Script easily handles normal campaign traffic.
+## One-time setup (Google Apps Script)
+
+1. Open the Google Sheet that holds the analytics → **Extensions → Apps Script**.
+2. Replace everything in `Code.gs` with [`docs/utm-collector.gs`](utm-collector.gs) → **Save**.
+3. Choose the function **`setup`** in the toolbar → **▶ Run** → approve. Open **Execution log** and copy the
+   `DASHBOARD KEY: …` value. (Run `setup` again any time to change the key.)
+4. **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy.**
+   Editing the existing deployment keeps the same `/exec` URL that the site already uses. Don't create a new deployment.
+5. Open the dashboard and paste the key.
+
+Until step 4 is done, the live sites send v2 events that the old script ignores, so nothing is recorded.
+
+The old v1 tabs (`visits`, `events`, `links`, `landing`, `by_user`) are no longer used and can be deleted.
+
+---
+
+## Accuracy rules (what the numbers mean)
+
+| Number | Definition |
+|---|---|
+| Visitors | unique browsers (vid) that opened the landing page or the workshop |
+| Landing visits | landing-page browser sessions (one per tab session) |
+| Try-free clicks | landing sessions that clicked "Try Constructa" |
+| Sign-ups | new accounts (re-submitting an existing email is **not** counted) |
+| Workshop users | unique emails that opened the workshop |
+| Active builders | unique emails that added a part, opened a preset, ran code, simulated, battled, saved, exported or shared |
+| Time building | per tab session, the **maximum** cumulative visible-tab time (pings are cumulative, so nothing is double-counted) |
+
+- **A person's source** is the source they **signed up** through. Accounts created before this tracking use the first non-direct source they arrived from (marked "first visit").
+- Visit metrics follow the source of **that visit**. People metrics follow the **person's** source.
+- Events without an email are linked to a person only when their browser (vid) or tab session belongs to **exactly one** email. Shared school computers are never guessed.
+- Duplicates are removed (unique event id, deduplicated in the collector and again in the dashboard). Unknown event names are rejected.
+- Times are the server's receive time. Traffic from any host other than the two production hosts (localhost, previews) is stored as `env = test` and hidden.
+- Use **Hide internal emails** in the dashboard to drop your own team's accounts (for example `@atumx.in`).
+
+## Making links
+
+Use the dashboard's **Campaign link generator**. Pick a source, type a campaign (and optionally content/ref), then copy the link. **Save to list** to see each link's visitors / sign-ups / workshop users / active builders. Values are lower-cased and spaces become dashes, so `WhatsApp` and `whatsapp` never split into two rows.
+
+## Code map
+
+| Where | File |
+|---|---|
+| Collector (Apps Script) | `docs/utm-collector.gs` |
+| Workshop tracking + email identity | `src/utils/utmTracking.js`, `src/components/EmailGate.jsx` |
+| Dashboard | `utm-dashboard.html`, `src/dashboard/dashboard.js`, `src/dashboard/analyze.js` (tested in `tests/dashboard/`) |
+| Landing tracking | landing repo `src/lib/landing-tracker.ts` (+ `auth.tsx`, `workspace.ts`, `SignupForm.tsx`, `Nav.tsx`, `share.$token.tsx`) |
+
+To add a new tracked action: call `trackEvent('name')` in the workshop (or `ctrack('name')` on the landing). Add the name to `EVENTS` in `utm-collector.gs`, and redeploy the script as a new version.
