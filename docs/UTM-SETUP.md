@@ -29,6 +29,12 @@ Dashboard: **https://constructa.atumx.in/utm-dashboard.html** (protected by a ke
 
 Until step 4 is done, the live sites send v2 events that the old script ignores, so nothing is recorded.
 
+> **Order matters when updating the script.** The dashboard now authenticates reads
+> with a short-lived signature instead of sending the key in the URL. Deploy the
+> new `utm-collector.gs` **before (or with)** the site, otherwise the dashboard
+> reports \"Wrong dashboard key\" until the script is updated. Event collection is
+> unaffected either way.
+
 The old v1 tabs (`visits`, `events`, `links`, `landing`, `by_user`) are no longer used and can be deleted.
 
 ---

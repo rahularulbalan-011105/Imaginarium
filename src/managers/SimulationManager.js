@@ -3,6 +3,7 @@ import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
 import { createSensorLibraries } from '../arduino/sensorLibs.js'
+import { runSketchSandboxed } from './sketchSandbox.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
 
@@ -53,6 +54,7 @@ class SimulationManager {
   constructor() {
     this._running         = false
     this._cancelDelay     = null
+    this._sandbox         = null
     this._onMotorSpeed    = null
     this._onLedBrightness = null
     this._onServoAngle    = null
@@ -104,29 +106,18 @@ class SimulationManager {
     // exactly like the built-in Servo class. Each instance binds to the scene
     // sensor wired to its pin (via sensorMap) and routes readings through the
     // single reusable sensorSim interface.
-    const { LDR, DHT11, ColorSensor, RGB } = createSensorLibraries({
+    const { LDR, DHT11, ColorSensor } = createSensorLibraries({
       sensorMap,
       getStore: () => useElectronicsStore.getState(),
     })
 
     // ── Arduino API ───────────────────────────────────────────────────────────
-
-    const delay = (ms) =>
-      new Promise((resolve, reject) => {
-        if (!self._running) { reject(new Error('stopped')); return }
-        const id = setTimeout(resolve, Math.max(1, Number(ms) || 0))
-        self._cancelDelay = () => { clearTimeout(id); reject(new Error('stopped')) }
-      })
-
-    // Yield control to the browser once per loop() iteration. Without this, a
-    // loop() that never calls delay() (easy to make with blocks) spins forever
-    // on the main thread and hard-freezes the page. Also lets stop() interrupt.
-    const __yield = () =>
-      new Promise((resolve, reject) => {
-        if (!self._running) { reject(new Error('stopped')); return }
-        const id = setTimeout(resolve, 0)
-        self._cancelDelay = () => { clearTimeout(id); reject(new Error('stopped')) }
-      })
+    // NOTE: the pure parts of the API (delay, millis, maths, Serial, the Servo /
+    // sensor / SUBO classes …) live INSIDE the sandbox frame — see
+    // sketchSandbox.js. What remains here is everything that needs the scene,
+    // the wiring maps, audio or physics: the sandbox forwards those calls to the
+    // `dispatch` table at the end of start(), and reads values back through the
+    // per-frame snapshot built by _buildInput().
 
     const _write = (pin, val, isDigital) => {
       if (!self._running) return
@@ -168,9 +159,6 @@ class SimulationManager {
       }
     }
 
-    const analogWrite  = (pin, val) => _write(pin, val, false)
-    const digitalWrite = (pin, val) => _write(pin, val, true)
-    const pinMode      = () => {}
 
     // ── Legged locomotion API (beginner "just walk it" path) ───────────────────
     // walk(speed) / turn(rate) / stopWalking() set a drive intent that the gait
@@ -244,7 +232,6 @@ class SimulationManager {
       if (!s || s.type !== 'ultrasonic') return 0
       return Math.round(_read(s) * 58)
     }
-    const delayMicroseconds = () => {}   // sub-millisecond — effectively instant here
 
     // ── Buzzer (Web Audio) ────────────────────────────────────────────────────
     const _beep = (freq, durSec) => {
@@ -280,56 +267,6 @@ class SimulationManager {
       for (const o of self._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, text)
       if (self._onOled) self._onOled(text)
     }
-    class Adafruit_SSD1306 {
-      constructor() { this._lines = []; this._cur = '' }
-      begin() { _oledSet(''); return true }
-      clearDisplay() { this._lines = []; this._cur = '' }
-      setCursor() {} setTextSize() {} setTextColor() {} setRotation() {} cp437() {} dim() {}
-      print(t)   { this._cur += String(t ?? '') }
-      write(t)   { this._cur += String(t ?? '') }
-      println(t) { this._lines.push(this._cur + String(t ?? '')); this._cur = '' }
-      drawPixel() {} drawLine() {} drawRect() {} fillRect() {} drawCircle() {} fillCircle() {} fillScreen() {} drawBitmap() {} startscrollright() {} stopscroll() {}
-      display() {
-        const out = [...this._lines]; if (this._cur) out.push(this._cur)
-        _oledSet(out.join('\n'))
-      }
-      width()  { return 128 }
-      height() { return 64 }
-    }
-    const Wire = {
-      begin() {}, beginTransmission() {}, write() {}, endTransmission() { return 0 },
-      requestFrom() { return 0 }, read() { return 0 }, available() { return 0 },
-    }
-
-    const HIGH = 1, LOW = 0, OUTPUT = 1, INPUT = 0
-    const millis     = () => performance.now()
-    const micros     = () => performance.now() * 1000
-    const map        = (v, il, ih, ol, oh) => ((v - il) / (ih - il)) * (oh - ol) + ol
-    const constrain  = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
-    const abs    = Math.abs
-    const min    = (a, b) => Math.min(a, b)
-    const max    = (a, b) => Math.max(a, b)
-    const sq     = (x) => x * x
-    const sqrt   = Math.sqrt
-    const pow    = Math.pow
-    const floor  = Math.floor
-    const ceil   = Math.ceil
-    const round  = Math.round
-    const log    = Math.log
-    const exp    = Math.exp
-    const sin    = Math.sin
-    const cos    = Math.cos
-    const tan    = Math.tan
-    const random     = (lo, hi) => hi !== undefined
-      ? Math.floor(Math.random() * (hi - lo + 1)) + lo
-      : Math.floor(Math.random() * (lo || 1))
-    const randomSeed = () => {}
-    const Serial = {
-      begin:   () => {},
-      print:   (v) => { if (self._onSerialOut) self._onSerialOut(String(v ?? '')) },
-      println: (v) => { if (self._onSerialOut) self._onSerialOut(String(v ?? '') + '\n') },
-      write:   (v) => { if (self._onSerialOut) self._onSerialOut(String(v ?? '')) },
-    }
 
     const onRuntimeError = (msg) => {
       self._running = false
@@ -338,88 +275,59 @@ class SimulationManager {
       if (self._onRuntimeError) self._onRuntimeError(msg)
     }
 
-    // ── Servo library class ───────────────────────────────────────────────────
-    // `Servo myServo;` transpiles to `let myServo = new Servo()`.
-    // attach(pin) + write(angle) are the two methods users call.
-    class Servo {
-      constructor() { this._pin = -1; this._angle = 90 }
-      attach(pin) {
-        this._pin = Number(pin)
-        // Auto-bind so the CODE drives real servos even when the user hasn't
-        // manually wired them (common for legged robots). If NO servo is wired
-        // to this pin, claim the next unclaimed scene servo — in scene order,
-        // which usually matches how the legs were built — so Servo.write()
-        // animates actual leg servos (and the body then walks). Wired setups are
-        // untouched: this only fires when the pin has no servo from the wiring.
-        const hasWired = (pinMap[this._pin] || []).some(c => c.type === 'servo')
-        if (hasWired) return
-        const claimed = self._autoServoIds || (self._autoServoIds = new Set())
-        const wiredIds = new Set()
-        for (const arr of Object.values(pinMap))
-          for (const c of arr) if (c.type === 'servo') wiredIds.add(c.id)
-        const next = self._objects.find(
-          (o) => o.type === 'servo' && !wiredIds.has(o.id) && !claimed.has(o.id)
-        )
-        if (next) {
-          claimed.add(next.id)
-          ;(pinMap[this._pin] ||= []).push({ id: next.id, type: 'servo', terminal: 'A' })
-          console.log(`[Sim] auto-bound servo ${next.id} → pin ${this._pin} (no wire; code-driven)`)
+    // ── Servo binding (the sandboxed Servo class forwards here) ───────────────
+    // Auto-bind so the CODE drives real servos even when the user hasn't
+    // manually wired them (common for legged robots). If NO servo is wired to
+    // this pin, claim the next unclaimed scene servo — in scene order, which
+    // usually matches how the legs were built — so Servo.write() animates actual
+    // leg servos (and the body then walks). Wired setups are untouched: this
+    // only fires when the pin has no servo from the wiring.
+    const _servoAttach = (pin) => {
+      const p = Number(pin)
+      const hasWired = (pinMap[p] || []).some(c => c.type === 'servo')
+      if (hasWired) return
+      const claimed = self._autoServoIds || (self._autoServoIds = new Set())
+      const wiredIds = new Set()
+      for (const arr of Object.values(pinMap))
+        for (const c of arr) if (c.type === 'servo') wiredIds.add(c.id)
+      const next = self._objects.find(
+        (o) => o.type === 'servo' && !wiredIds.has(o.id) && !claimed.has(o.id)
+      )
+      if (next) {
+        claimed.add(next.id)
+        ;(pinMap[p] ||= []).push({ id: next.id, type: 'servo', terminal: 'A' })
+        console.log(`[Sim] auto-bound servo ${next.id} → pin ${p} (no wire; code-driven)`)
+      }
+    }
+    const _servoWrite = (pin, angle) => {
+      const a = Math.max(0, Math.min(180, Number(angle) || 0))
+      for (const comp of (pinMap[Number(pin)] || [])) {
+        if (comp.type === 'servo') {
+          self.servoAngles[comp.id] = a
+          if (self._onServoAngle) self._onServoAngle(comp.id, a)
         }
       }
-      write(angle) {
-        this._angle = Math.max(0, Math.min(180, Number(angle) || 0))
-        for (const comp of (pinMap[this._pin] || [])) {
-          if (comp.type === 'servo') {
-            self.servoAngles[comp.id] = this._angle
-            if (self._onServoAngle) self._onServoAngle(comp.id, this._angle)
-          }
-        }
-      }
-      writeMicroseconds(us) {
-        this.write(Math.max(0, Math.min(180, ((Number(us) - 500) / 2000) * 180)))
-      }
-      read()     { return this._angle }
-      attached() { return this._pin >= 0 }
-      detach()   { this._pin = -1 }
     }
 
-    // ── Physics-simulated hardware ────────────────────────────────────────────
-    // Readings come from the articulated physics engine's SENSOR MODELS (noise,
-    // bias, drift, quantisation, sample rate) via roboticsHardware — never from
-    // Three.js transforms or commanded values. Without an active physics robot
-    // they read neutral values and print one hint to Serial.
-    let _hwHinted = false
-    const _hwHint = () => {
-      if (_hwHinted || roboticsHardware.active) return
-      _hwHinted = true
-      if (self._onSerialOut) self._onSerialOut('[sim] IMU/Encoder/Battery read physics sensors — start the Simulation to get live values\n')
+    // Sensor-library values, resolved per pin for the sandbox snapshot. Uses the
+    // very same library classes the sketch used to call directly, so readings
+    // (including "not wired" values) are unchanged.
+    const _libInst = new Map()
+    const libReaders = (pin) => {
+      const s = sensorMap[pin]
+      if (!s) return {}
+      let L = _libInst.get(pin)
+      if (!L) {
+        L = { ldr: new LDR(pin), dht: new DHT11(pin), col: new ColorSensor(0, 0, 0, 0, pin) }
+        _libInst.set(pin, L)
+      }
+      const out = {}
+      if (s.type === 'ldr_sensor')   { out.ldr = L.ldr.read(); out.ldrPct = L.ldr.readPercentage() }
+      if (s.type === 'dht11')        { out.temp = L.dht.readTemperature(); out.hum = L.dht.readHumidity() }
+      if (s.type === 'color_sensor') { const c = L.col.readRGB(); out.rgb = { r: c.r, g: c.g, b: c.b }; out.color = L.col.readColor() }
+      return out
     }
-    class IMU {
-      begin() { _hwHint(); return true }
-      update() { this._r = roboticsHardware.imu(); return !!this._r }
-      _get() { return this._r ?? roboticsHardware.imu() }
-      getRoll()   { _hwHint(); return this._get()?.roll ?? 0 }
-      getPitch()  { _hwHint(); return this._get()?.pitch ?? 0 }
-      getYaw()    { _hwHint(); return this._get()?.yaw ?? 0 }
-      getAccelX() { return this._get()?.accel.x ?? 0 }
-      getAccelY() { return this._get()?.accel.y ?? 9.81 }
-      getAccelZ() { return this._get()?.accel.z ?? 0 }
-      getGyroX()  { return this._get()?.gyro.x ?? 0 }
-      getGyroY()  { return this._get()?.gyro.y ?? 0 }
-      getGyroZ()  { return this._get()?.gyro.z ?? 0 }
-    }
-    class Encoder {
-      constructor(pin) { this._pin = pin == null ? -1 : Number(pin) }
-      attach(pin) { this._pin = Number(pin) }
-      _servoId() { return (pinMap[this._pin] || []).find(c => c.type === 'servo')?.id ?? null }
-      read() { _hwHint(); const e = roboticsHardware.encoder(this._servoId()); return e ? e.deg : 90 }
-      readVelocity() { const e = roboticsHardware.encoder(this._servoId()); return e ? e.degPerSec : 0 }
-    }
-    class Battery {
-      readVoltage() { _hwHint(); return roboticsHardware.battery()?.voltage ?? 0 }
-      readCurrent() { return roboticsHardware.battery()?.current ?? 0 }
-      readPercent() { return roboticsHardware.battery()?.percent ?? 0 }
-    }
+
 
     // ── SUBO board library shims ──────────────────────────────────────────────
     // Lets real Subo sketches (Subo.h / MotorExpansion.h) run in the simulator.
@@ -431,11 +339,6 @@ class SimulationManager {
     const _matrixSet = (mode, ...args) => {
       for (const o of self._objects) if (o.type === 'subo') objectManager.setSuboMatrix(o.id, mode, ...args)
     }
-    const SuboMatrixInit = () => { _matrixSet('clear') }
-    const stripclear     = () => { _matrixSet('clear') }
-    const setAllLED      = (r, g, b) => { _matrixSet('all', +r || 0, +g || 0, +b || 0) }
-    const setSingleLED   = (n, r, g, b) => { _matrixSet('one', +n || 1, +r || 0, +g || 0, +b || 0) }
-    const playLEDSeq     = (id) => { _matrixSet('seq', +id || 1) }
     // On-board buzzer — real Web-Audio tone. NOTE: SUBO's dur is in SECONDS.
     const playTone       = (f, dur) => {
       _beep(+f || 440, dur ? +dur : 0)
@@ -451,16 +354,6 @@ class SimulationManager {
       const notes = seqs[Math.round(id)] || seqs[1]
       let t = 0
       for (const n of notes) { const nn = n; setTimeout(() => { if (self._running) { nn ? _beep(nn, 0.16) : _silence() } }, t); t += 190 }
-    }
-    const start_motors   = () => {}
-    const drive_motors   = (m1a, m1b, m2a, m2b) => _mexSet(+m1a || 0, +m1b || 0, +m2a || 0, +m2b || 0)
-    const runMotor       = (dir, speed) => {
-      const s = Number(speed) || 0
-      if      (dir === 'F') _mexSet(s, 0, s, 0)
-      else if (dir === 'B') _mexSet(0, s, 0, s)
-      else if (dir === 'L') _mexSet(s, 0, 0, s)
-      else if (dir === 'R') _mexSet(0, s, s, 0)
-      else                  _mexSet(0, 0, 0, 0)
     }
 
     // SUBO constants (IOn → GPIO, onboard pins) — prepended to the script so the
@@ -491,68 +384,92 @@ class SimulationManager {
       if (!isSensorPowered(this._connections, this._objects, o.id))
         console.warn(`[Sim] ${o.name || o.type} has no power/ground — needs VCC→5V and GND→GND. Reads as disconnected.`)
     }
+    // IMU / Encoder / Battery read the articulated physics sensor models. If the
+    // sketch uses them with no physics robot running, say so once — the readings
+    // are neutral placeholders, not measurements.
+    if (/\b(IMU|Encoder|Battery)\b/.test(code) && !roboticsHardware.active && this._onSerialOut)
+      this._onSerialOut('[sim] IMU/Encoder/Battery read physics sensors — start the Simulation to get live values\n')
+
     const { code: jsCode, error: parseErr } = parseAndTranspile(code, BUILTIN_NAMES)
     if (parseErr) {
       this._running = false
       return { error: 'Parse error: ' + parseErr }
     }
 
-    const script = `
-${SUBO_CONSTS}
-${SENSOR_CONSTS}
-${SUBO_NOTE_DEFS}
-${jsCode}
-if (typeof setup === 'function') await setup();
-while (true) {
-  if (typeof loop === 'function') await loop();
-  await __yield();
-}
-`
+
+    // ── Run the sketch in an isolated frame ───────────────────────────────────
+    // The sketch may come from a shared link or someone else's community build,
+    // so it never runs in this page's realm (see sketchSandbox.js). It can only
+    // reach the app through the calls dispatched below.
+    const servoInstances = new Map()          // pin → last angle, for Servo.read()
+    const dispatch = (fn, a) => {
+      if (!self._running) return
+      switch (fn) {
+        case 'analogWrite':  _write(a[0], a[1], false); break
+        case 'digitalWrite': _write(a[0], a[1], true); break
+        case 'tone':         tone(a[0], a[1], a[2]); break
+        case 'noTone':       noTone(a[0]); break
+        case 'serial':       if (self._onSerialOut) self._onSerialOut(a[0]); break
+        case 'oled':         _oledSet(a[0]); break
+        case 'servoAttach':  _servoAttach(a[0]); break
+        case 'servoWrite':   _servoWrite(a[0], a[1]); servoInstances.set(a[0], a[1]); break
+        case 'matrix':       _matrixSet(...a); break
+        case 'playTone':     playTone(a[0], a[1]); break
+        case 'stopBuzzer':   stopBuzzer(); break
+        case 'playBuzSeq':   playBuzSeq(a[0]); break
+        case 'driveMotors':  _mexSet(a[0], a[1], a[2], a[3]); break
+        case 'walk':         walk(a[0]); break
+        case 'turn':         turn(a[0]); break
+        case 'stopWalking':  stopWalking(); break
+        default: break      // unknown call → ignored
+      }
+    }
 
     try {
-      // eslint-disable-next-line no-new-func
-      const fn = new Function(
-        'analogWrite','digitalWrite','pinMode','digitalRead','analogRead',
-        'delay','HIGH','LOW','OUTPUT','INPUT',
-        'millis','micros','map','constrain',
-        'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
-        'sin','cos','tan','random','randomSeed','Serial','onRuntimeError','Servo','__yield',
-        'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
-        'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
-        'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
-        'LDR','DHT11','ColorSensor','RGB','IMU','Encoder','Battery',
-        'walk','turn','stopWalking',
-        `"use strict";
-         return (async () => {
-           try { ${script} }
-           catch (e) {
-             if (e?.message !== 'stopped') {
-               const msg = (e instanceof Error) ? (e.name + ': ' + e.message) : String(e)
-               onRuntimeError(msg)
-             }
-           }
-         })()`
-      )
-
-      fn(
-        analogWrite, digitalWrite, pinMode, digitalRead, analogRead,
-        delay, HIGH, LOW, OUTPUT, INPUT,
-        millis, micros, map, constrain,
-        abs, min, max, sq, sqrt, pow, floor, ceil, round, log, exp,
-        sin, cos, tan, random, randomSeed, Serial, onRuntimeError, Servo, __yield,
-        SuboMatrixInit, setAllLED, setSingleLED, playLEDSeq, stripclear,
-        playTone, stopBuzzer, playBuzSeq, start_motors, drive_motors, runMotor,
-        delayMicroseconds, pulseIn, tone, noTone, Wire, Adafruit_SSD1306,
-        LDR, DHT11, ColorSensor, RGB, IMU, Encoder, Battery,
-        walk, turn, stopWalking
-      ).then(() => { self._running = false })
-
+      this._sandbox = runSketchSandboxed({
+        userJs: jsCode,
+        consts: `${SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}`,
+        onOut: dispatch,
+        onError: (msg) => onRuntimeError(msg),
+        getInput: () => self._buildInput(sensorMap, pinMap, digitalRead, analogRead, pulseIn, libReaders),
+      })
     } catch (e) {
       this._running = false
       return { error: e.message }
     }
 
     return null
+  }
+
+  /**
+   * Snapshot of everything the sketch can read, rebuilt once per animation frame
+   * and posted into the sandbox. Values are resolved HERE (scene, wiring maps,
+   * physics telemetry) because the frame has no access to any of that.
+   */
+  _buildInput(sensorMap, pinMap, digitalRead, analogRead, pulseIn, libReaders) {
+    const aread = {}, dread = {}, pulse = {}, lib = {}, enc = {}
+    for (const pin of Object.keys(sensorMap)) {
+      const p = Number(pin)
+      aread[p] = analogRead(p)
+      dread[p] = digitalRead(p)
+      pulse[p] = pulseIn(p)
+      lib[p] = libReaders(p)
+    }
+    // SUBO on-board buttons are not in sensorMap but are read with digitalRead.
+    for (const p of [47, 1]) if (dread[p] == null) dread[p] = digitalRead(p)
+    // Encoders read the servo wired to a pin.
+    for (const [pin, comps] of Object.entries(pinMap)) {
+      const servo = comps.find(c => c.type === 'servo')
+      if (!servo) continue
+      const e = roboticsHardware.encoder(servo.id)
+      enc[Number(pin)] = e ? { deg: e.deg, degPerSec: e.degPerSec } : { deg: 90, degPerSec: 0 }
+    }
+    return {
+      aread, dread, pulse, lib, enc,
+      imu: roboticsHardware.imu() ?? null,
+      battery: roboticsHardware.battery() ?? null,
+      hwActive: !!roboticsHardware.active,
+    }
   }
 
   stop() {
@@ -568,6 +485,12 @@ while (true) {
     this._motorTerminals = {}
     this.ledBrightness   = {}
     this.servoAngles     = {}
+    // Tearing down the frame kills the sketch outright — no pending timer can
+    // resume it, and nothing of it survives.
+    if (this._sandbox) {
+      this._sandbox.stop()
+      this._sandbox = null
+    }
     if (this._cancelDelay) {
       this._cancelDelay()
       this._cancelDelay = null

@@ -71,7 +71,9 @@ function doPost(e) {
 
   if (v.type === 'cx_link') return saveLink_(v);
   if (v.type !== 'cx') return json_({ ok: false, error: 'ignored' });   // old v1 clients
+  if (v.w !== WRITE_TOKEN) return json_({ ok: false, error: 'bad token' });
   if (!APPS[v.app] || !EVENTS[v.event]) return json_({ ok: false, error: 'unknown event' });
+  if (!underWriteCap_()) return json_({ ok: false, error: 'rate limited' });
 
   var eid = str_(v.eid, 40);
   if (!eid) return json_({ ok: false, error: 'no eid' });
@@ -113,7 +115,7 @@ function saveLink_(v) {
 function doGet(e) {
   var p = (e && e.parameter) || {};
   if (p.what === 'ping') return reply_({ ok: true, keySet: !!getKey_() }, p);
-  if (!keyOk_(p.key)) return reply_({ ok: false, error: 'bad key' }, p);
+  if (!sigOk_(p)) return reply_({ ok: false, error: 'bad key' }, p);
 
   if (p.what === 'links') {
     var lk = tab_(LINKS_TAB, LINK_HEADERS).getDataRange().getValues();
@@ -139,7 +141,44 @@ function doGet(e) {
 function iso_(d) { return d && d.toISOString ? d.toISOString() : String(d || ''); }
 
 function getKey_() { return PropertiesService.getScriptProperties().getProperty('DASH_KEY') || ''; }
+
+/** Raw-key check — only for POST bodies (never logged in a URL). */
 function keyOk_(k) { var real = getKey_(); return !!real && String(k || '') === real; }
+
+/**
+ * Signed read check for GET. The dashboard sends ts + sig = HMAC-SHA256(ts, key)
+ * instead of the key itself, so the key never lands in a URL, a server log or a
+ * Referer header. The timestamp window limits replay of a captured signature.
+ */
+var SIG_WINDOW_MS = 5 * 60 * 1000;
+function sigOk_(p) {
+  var real = getKey_();
+  if (!real || !p || !p.ts || !p.sig) return false;
+  var ts = Number(p.ts);
+  if (!isFinite(ts) || Math.abs(Date.now() - ts) > SIG_WINDOW_MS) return false;
+  var raw = Utilities.computeHmacSha256Signature(String(p.ts), real);
+  var want = Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
+  return String(p.sig).replace(/=+$/, '') === want;
+}
+
+/**
+ * Write token for event ingest. The collector URL is public (it ships in the
+ * site's JavaScript), so this only raises the bar against drive-by posting — it
+ * is NOT a secret and cannot authenticate a browser. Treat client-sent events as
+ * untrusted: the hourly cap below protects the Sheet and the Apps Script quota,
+ * and anything business-critical should be confirmed server-side instead.
+ */
+var WRITE_TOKEN = 'cx1_w7kQ2mBvRt';
+var MAX_EVENTS_PER_HOUR = 5000;
+
+function underWriteCap_() {
+  var cache = CacheService.getScriptCache();
+  var slot = 'cxrate_' + Math.floor(Date.now() / 3600000);
+  var n = Number(cache.get(slot) || 0);
+  if (n >= MAX_EVENTS_PER_HOUR) return false;
+  cache.put(slot, String(n + 1), 3900);
+  return true;
+}
 
 /** Run once from the editor: creates (or rotates) the dashboard key and the tabs. */
 function setup() {

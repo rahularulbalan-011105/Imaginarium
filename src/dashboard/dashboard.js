@@ -13,34 +13,31 @@ let EVENTS = [], LINKS = []
 let RESULT = null
 
 // ── data ────────────────────────────────────────────────────────────────────
-let _cb = 0
-function jsonp(params) {
-  return new Promise((resolve, reject) => {
-    const name = '__cx' + (++_cb) + Date.now()
-    const s = document.createElement('script')
-    const t = setTimeout(() => { cleanup(); reject(new Error('The collector did not answer (timeout).')) }, 45000)
-    function cleanup() { clearTimeout(t); delete window[name]; s.remove() }
-    window[name] = (data) => { cleanup(); resolve(data) }
-    s.onerror = () => { cleanup(); reject(new Error('Could not reach the collector.')) }
-    s.src = COLLECTOR_ENDPOINT + '?' + new URLSearchParams({ ...params, callback: name, _: Date.now() })
-    document.head.appendChild(s)
-  })
+// The dashboard key is NEVER put in a URL: query strings end up in Google's
+// request logs and in Referer headers. Each read carries a timestamp plus
+// HMAC-SHA256(timestamp, key); the collector recomputes it and accepts a ±5 min
+// window, so a captured signature is useless shortly afterwards.
+const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+async function signedParams() {
+  const ts = String(Date.now())
+  const enc = new TextEncoder()
+  const k = await crypto.subtle.importKey('raw', enc.encode(KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  return { ts, sig: b64url(await crypto.subtle.sign('HMAC', k, enc.encode(ts))) }
 }
 
-// Cookie-free fetch first: when the browser is signed in to Google (often several
+// Cookie-free fetch: when the browser is signed in to Google (often several
 // accounts), a credentialed request to an Apps Script web app gets an HTML
-// sign-in/error page instead of data — which broke the JSONP <script> load.
+// sign-in page instead of data. There is deliberately NO JSONP fallback — JSONP
+// executes the response as script, which would hand the page to anyone who could
+// impersonate the collector.
 async function getJson(params) {
-  try {
-    const r = await fetch(COLLECTOR_ENDPOINT + '?' + new URLSearchParams({ ...params, _: Date.now() }),
-      { credentials: 'omit', cache: 'no-store', redirect: 'follow' })
-    const text = await r.text()
-    try { return JSON.parse(text) } catch {
-      throw new Error(`The collector answered with a non-JSON page (HTTP ${r.status}): ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`)
-    }
-  } catch (e) {
-    if (/non-JSON/.test(e.message)) throw e
-    return jsonp(params)   // network/CORS failure → fall back to JSONP
+  const auth = params.what === 'ping' ? {} : await signedParams()
+  const r = await fetch(COLLECTOR_ENDPOINT + '?' + new URLSearchParams({ ...params, ...auth, _: Date.now() }),
+    { credentials: 'omit', cache: 'no-store', redirect: 'follow' })
+  const text = await r.text()
+  try { return JSON.parse(text) } catch {
+    throw new Error(`The collector answered with a non-JSON page (HTTP ${r.status}): ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`)
   }
 }
 
@@ -49,7 +46,7 @@ async function load() {
   st.className = 'status'; st.textContent = 'Loading…'
   $('refresh').disabled = true
   try {
-    const [ev, lk] = await Promise.all([getJson({ what: 'events', key: KEY }), getJson({ what: 'links', key: KEY })])
+    const [ev, lk] = await Promise.all([getJson({ what: 'events' }), getJson({ what: 'links' })])
     if (Array.isArray(ev)) throw new Error('The collector is still the old version — paste docs/utm-collector.gs into Apps Script and deploy a new version.')
     if (!ev.ok) {
       if (ev.error === 'bad key') { const p = await getJson({ what: 'ping' }).catch(() => null); throw new Error(p && !p.keySet ? 'No key set yet — run the "setup" function in Apps Script.' : 'Wrong dashboard key.') }
@@ -292,7 +289,7 @@ async function saveLink() {
   try {
     await fetch(COLLECTOR_ENDPOINT, { method: 'POST', mode: 'no-cors', body: JSON.stringify(rec), headers: { 'Content-Type': 'text/plain;charset=UTF-8' } })
     st.className = 'status ok'; st.textContent = 'Saved. Refreshing the list…'
-    const lk = await getJson({ what: 'links', key: KEY })
+    const lk = await getJson({ what: 'links' })
     if (lk.ok) { LINKS = lk.rows; render() }
     st.textContent = 'Saved ✓'
   } catch (e) { st.className = 'status err'; st.textContent = 'Could not save: ' + e.message }

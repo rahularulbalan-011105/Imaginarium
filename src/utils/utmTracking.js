@@ -20,6 +20,10 @@ const VID_KEY   = 'cx_vid'
 const EMAIL_KEY = 'cx_email'
 const SID_KEY   = 'cx_sid'
 const UTM_KEYS  = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term']
+// Ingest token for the collector. It ships in this bundle, so it is NOT a secret:
+// it only stops drive-by posting to a public endpoint. The collector also caps
+// events per hour, and client-sent events are treated as untrusted.
+const WRITE_TOKEN = 'cx1_w7kQ2mBvRt'
 const EMAIL_RE  = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const IDENTITY_WAIT_MS = 8000
 
@@ -108,7 +112,7 @@ function send(rec) {
 function build(event, meta, value) {
   const a = _attr || {}
   return {
-    type: 'cx', app: 'editor', event, eid: makeId('e'), ts: new Date().toISOString(),
+    type: 'cx', app: 'editor', w: WRITE_TOKEN, event, eid: makeId('e'), ts: new Date().toISOString(),
     vid: _vid, sid: _sid, email: _email,
     source: a.source || '(direct)', medium: a.medium || '', campaign: a.campaign || '',
     content: a.content || '', term: a.term || '', ref: a.ref || '', referrer: a.referrer || '',

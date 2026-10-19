@@ -23,11 +23,29 @@ async function gzip(bytes) {
   return new Uint8Array(await new Response(cs.readable).arrayBuffer())
 }
 
+// A share payload comes from whoever sent the link, so decompression is bounded:
+// gzip expands ~1000×, and an unbounded stream would let a short URL exhaust the
+// tab's memory ("zip bomb"). 64 MB is far above any real project.
+const MAX_SHARE_BYTES = 64 * 1024 * 1024
+
 async function gunzip(bytes) {
   const ds = new DecompressionStream('gzip')
   const writer = ds.writable.getWriter()
   writer.write(bytes); writer.close()
-  return new Uint8Array(await new Response(ds.readable).arrayBuffer())
+  const reader = ds.readable.getReader()
+  const chunks = []
+  let total = 0
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    total += value.length
+    if (total > MAX_SHARE_BYTES) { try { await reader.cancel() } catch { /* already closed */ } throw new Error('shared project is too large') }
+    chunks.push(value)
+  }
+  const out = new Uint8Array(total)
+  let at = 0
+  for (const c of chunks) { out.set(c, at); at += c.length }
+  return out
 }
 
 // Encode a project snapshot to a hash payload string (with a 2-char codec tag).
