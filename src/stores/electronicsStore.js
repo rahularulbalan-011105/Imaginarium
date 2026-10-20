@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
+import { esp32GpioFromName } from '../utils/esp32Board.js'
 
 const DEFAULT_CODE = `// Arduino Code
 // Motor TERM_A connected to Pin ~3 (PWM)
@@ -60,6 +61,38 @@ export const useElectronicsStore = create((set, get) => ({
   // Manual = values come from the Sensor panel sliders/toggles.
   autoSense: true,
   setAutoSense: (v) => set({ autoSense: v }),
+
+  // ── ESP32 ──────────────────────────────────────────────────────────────────
+  // Only USER-driven, low-frequency state lives here (re-renders are cheap at
+  // this rate). High-frequency runtime state — Wi-Fi/BLE status, network and
+  // readout values coming back from firmware — lives on simulationManager.esp32
+  // and is polled by the panel, so a chatty sketch can never storm React.
+
+  /** 'sim' = simulated board · 'hw' = a real board over a hardware link. */
+  esp32Mode: 'sim',
+  setEsp32Mode: (m) => set({ esp32Mode: m === 'hw' ? 'hw' : 'sim' }),
+
+  /** Program-declared control values: id → number. Read by the firmware. */
+  esp32Controls: {},
+  setEsp32Control: (id, value) =>
+    set((s) => ({ esp32Controls: { ...s.esp32Controls, [id]: value } })),
+  /** Seed values from freshly parsed @control annotations (keeps live edits). */
+  seedEsp32Controls: (defaults) =>
+    set((s) => {
+      const next = {}
+      for (const [id, v] of Object.entries(defaults)) next[id] = s.esp32Controls[id] ?? v
+      return { esp32Controls: next }
+    }),
+
+  /** Text typed into the Simulation tab's serial box, drained by Serial.read(). */
+  esp32SerialIn: '',
+  // Typed input arrives as a LINE, so terminate it: a sketch using
+  // Serial.readStringUntil('\n') must see a complete line, like on hardware.
+  pushEsp32SerialIn: (text) => set((s) => {
+    const t = String(text ?? '')
+    return { esp32SerialIn: (s.esp32SerialIn + (t.endsWith('\n') ? t : t + '\n')).slice(-4096) }
+  }),
+  consumeEsp32SerialIn: (n) => set((s) => ({ esp32SerialIn: s.esp32SerialIn.slice(n) })),
 
   // ── connections ──────────────────────────────────────────────────────────
   // The ONE connection list every wiring view (Pick a Pin, Workbench, 3D) uses.
@@ -170,6 +203,10 @@ export function pinNameToNumber(pinName) {
   if (d) return parseInt(d[1], 10)
   // SUBO IOn label → its GPIO number, so wiring to IOn maps the same as the code's pins
   if (pinName in SUBO_IO_TO_GPIO) return SUBO_IO_TO_GPIO[pinName]
+  // ESP32 header pins are named by GPIO ('GPIO23'), and TX0/RX0 are GPIO1/3 —
+  // the board table is the authority (utils/esp32Board.js).
+  const g = esp32GpioFromName(pinName)
+  if (g != null) return g
   return null
 }
 

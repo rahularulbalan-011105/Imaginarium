@@ -17,6 +17,7 @@ const CATEGORIES = [
     items: [
       { type: 'arduino', label: 'Arduino', icon: '🟢', desc: 'Microcontroller board', purpose: 'The programmable “brain”. Runs your code and controls everything wired to it.', usage: 'robot brains · automation · reading sensors' },
       { type: 'subo',    label: 'SUBO',    icon: '🟣', desc: 'ESP32 board (AtumX)', purpose: 'AtumX SUBO — an ESP32 board with an on-board 48-LED matrix, buzzer, 2 buttons and IO1–IO21 header pins. Programmed with the official Subo library.', usage: 'robotics · 48-LED matrix · buzzer · buttons · motor expansion' },
+      { type: 'esp32',   label: 'ESP32',   icon: '🔵', desc: 'ESP32 DevKit V1', purpose: 'ESP32-WROOM-32 on the 30-pin DevKit V1 header. 3.3 V logic, 12-bit analog inputs, LEDC PWM on any output pin, plus simulated Wi-Fi and BLE. Programmed with the Arduino-ESP32 API.', usage: 'Wi-Fi · Bluetooth · sensors · motors · more GPIO than an Uno' },
     ],
   },
   {

@@ -4,10 +4,14 @@
 //   connId → { fromPinId: 'compId:PIN', toPinId: 'compId:PIN', color? }
 // Every view reads and writes that list; nothing keeps its own copy. `color` is
 // optional — without it a wire is coloured by its electrical role.
+import { ESP32_PIN_NAMES } from './esp32Board.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
+export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
 
 export const PIN_DEFS = {
+  // ESP32 pin names are derived from the board table (utils/esp32Board.js) so the
+  // wiring UI and the 3D board can never drift apart.
+  esp32:    ESP32_PIN_NAMES,
   arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2'],
   // Official Subo IO header (Subo.h): IO1..IO21 + power rails. Matches SUBO_PIN_ORDER in
   // electronicsFactory so these map to the same pinIds as the 3D pin spheres.

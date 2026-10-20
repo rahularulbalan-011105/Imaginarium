@@ -30,6 +30,9 @@ export const OUT_CALLS = new Set([
   'serial', 'oled', 'servoAttach', 'servoWrite',
   'matrix', 'playTone', 'stopBuzzer', 'playBuzSeq', 'driveMotors',
   'walk', 'turn', 'stopWalking',
+  // ESP32
+  'ledcAttach', 'ledcWrite', 'ledcDetach', 'dacWrite',
+  'wifi', 'ble', 'netSend', 'controlPublish', 'serialConsume',
 ])
 
 // A sketch that never yields would spin its own frame forever. The frame posts a
@@ -41,12 +44,16 @@ const HEARTBEAT_TIMEOUT_MS = 10000
 /** Escape so the code can be inlined in a <script> without breaking out of it. */
 const forScriptTag = (js) => String(js).replace(/<\/(script)/gi, '<\\/$1')
 
-function bootstrapHtml(userJs, consts) {
+// Exported for tests: the whole runtime lives inside one template literal, so a
+// stray backtick or an under-escaped newline silently breaks EVERY sketch. A
+// test parses this output to catch that before a user ever presses Run.
+export function bootstrapHtml(userJs, consts) {
   // NOTE: this runs inside the sandboxed frame. It has no app imports and no
   // access to anything outside itself.
   const runtime = `
 'use strict';
-var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, imu:null, battery:null, hwActive:false };
+var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, imu:null, battery:null, hwActive:false,
+           touch:{}, ctrl:{}, wifi:null, ble:null, net:null, serialIn:'' };
 var RUNNING = true;
 var send = function (f, a) { try { parent.postMessage({ t:'out', f:f, a:a }, '*') } catch (e) {} };
 addEventListener('message', function (e) {
@@ -96,6 +103,33 @@ var Serial = {
   print: function (v) { send('serial', [String(v == null ? '' : v)]) },
   println: function (v) { send('serial', [String(v == null ? '' : v) + '\\n']) },
   write: function (v) { send('serial', [String(v == null ? '' : v)]) },
+  // Input typed into the Simulation tab's serial box.
+  available: function () { return IN.serialIn ? IN.serialIn.length : 0 },
+  read: function () {
+    if (!IN.serialIn || !IN.serialIn.length) return -1;
+    var ch = IN.serialIn.charCodeAt(0);
+    IN.serialIn = IN.serialIn.slice(1);
+    send('serialConsume', [1]);
+    return ch;
+  },
+  readString: function () {
+    var s = IN.serialIn || '';
+    IN.serialIn = '';
+    if (s.length) send('serialConsume', [s.length]);
+    return s;
+  },
+  // Real firmware reads one line at a time; honour the terminator so a sketch
+  // that sends two lines before the next loop() does not swallow both.
+  readStringUntil: function (term) {
+    var t = typeof term === 'number' ? String.fromCharCode(term) : (term == null ? '\\n' : String(term));
+    var buf = IN.serialIn || '';
+    var i = buf.indexOf(t);
+    if (i < 0) return this.readString();
+    IN.serialIn = buf.slice(i + 1);
+    send('serialConsume', [i + 1]);
+    return buf.slice(0, i).replace(/\\r$/, '');
+  },
+  flush: function () {},
 };
 var tone = function (p, f, d) { send('tone', [Number(p), Number(f), d == null ? 0 : Number(d)]) };
 var noTone = function (p) { send('noTone', [Number(p)]) };
@@ -219,6 +253,113 @@ var runMotor       = function (dir, s) {
 var walk = function (s) { send('walk', [Number(s) || 0]) };
 var turn = function (r) { send('turn', [Number(r) || 0]) };
 var stopWalking = function () { send('stopWalking', []) };
+
+// ── ESP32: LEDC PWM, DAC, touch ───────────────────────────────────────────
+// Arduino-ESP32 core 3.x uses ledcAttach(pin, freq, bits) + ledcWrite(pin, duty).
+// Core 2.x used ledcSetup(ch, freq, bits) + ledcAttachPin(pin, ch) +
+// ledcWrite(ch, duty). Both spellings are accepted; channel→pin is tracked so a
+// 2.x sketch still drives the right pin.
+var _ledcChanPin = {};
+var ledcSetup = function (ch, freq, bits) { return Number(freq) || 5000 };
+var ledcAttachPin = function (pin, ch) { _ledcChanPin[Number(ch)] = Number(pin); send('ledcAttach', [Number(pin), 5000, 8]) };
+var ledcAttach = function (pin, freq, bits) { send('ledcAttach', [Number(pin), Number(freq) || 5000, Number(bits) || 8]); return true };
+var ledcWrite = function (a, duty) {
+  var n = Number(a);
+  var pin = (_ledcChanPin[n] !== undefined) ? _ledcChanPin[n] : n;   // channel or pin
+  send('ledcWrite', [pin, Number(duty) || 0]);
+};
+var ledcDetach = function (pin) { send('ledcDetach', [Number(pin)]) };
+var ledcRead = function () { return 0 };
+var dacWrite = function (pin, v) { send('dacWrite', [Number(pin), Number(v) || 0]) };
+var touchRead = function (p) { var v = IN.touch[Number(p)]; return v == null ? 80 : v };
+var analogReadResolution = function () {};
+var analogSetAttenuation = function () {};
+
+// ── ESP32: simulated Wi-Fi ────────────────────────────────────────────────
+// A simulated board has no radio. This models the Arduino WiFi API's lifecycle
+// and status codes against a simulated network; the Simulation tab labels it
+// SIMULATED so it can never be mistaken for a real connection.
+var WL_IDLE_STATUS = 0, WL_NO_SSID_AVAIL = 1, WL_CONNECTED = 3, WL_CONNECT_FAILED = 4, WL_DISCONNECTED = 6;
+var WIFI_STA = 1, WIFI_AP = 2, WIFI_AP_STA = 3, WIFI_OFF = 0;
+var WiFi = {
+  begin: function (ssid, pass) { send('wifi', ['begin', String(ssid == null ? '' : ssid), String(pass == null ? '' : pass)]); return WL_DISCONNECTED },
+  disconnect: function () { send('wifi', ['disconnect']) },
+  softAP: function (ssid, pass) { send('wifi', ['softAP', String(ssid == null ? '' : ssid), String(pass == null ? '' : pass)]); return true },
+  softAPdisconnect: function () { send('wifi', ['disconnect']) },
+  mode: function (m) { send('wifi', ['mode', Number(m) || 0]); return true },
+  status: function () { return IN.wifi ? IN.wifi.status : WL_IDLE_STATUS },
+  localIP: function () { return IN.wifi ? IN.wifi.ip : '0.0.0.0' },
+  softAPIP: function () { return IN.wifi ? IN.wifi.apIp : '0.0.0.0' },
+  SSID: function () { return IN.wifi ? IN.wifi.ssid : '' },
+  RSSI: function () { return IN.wifi ? IN.wifi.rssi : 0 },
+  macAddress: function () { return IN.wifi ? IN.wifi.mac : '00:00:00:00:00:00' },
+  isConnected: function () { return !!(IN.wifi && IN.wifi.status === WL_CONNECTED) },
+  setHostname: function () { return true },
+};
+// Minimal client: writes land in the Simulation tab's network log.
+function WiFiClient() { this._open = false }
+WiFiClient.prototype = {
+  connect: function (host, port) { this._open = !!(IN.wifi && IN.wifi.status === WL_CONNECTED); send('netSend', ['connect', String(host) + ':' + String(port)]); return this._open },
+  connected: function () { return this._open },
+  print: function (v) { send('netSend', ['tx', String(v == null ? '' : v)]) },
+  println: function (v) { send('netSend', ['tx', String(v == null ? '' : v) + '\\n']) },
+  available: function () { return IN.net ? IN.net.available : 0 },
+  read: function () { return IN.net && IN.net.buf && IN.net.buf.length ? IN.net.buf.charCodeAt(0) : -1 },
+  stop: function () { this._open = false; send('netSend', ['close']) },
+};
+
+// ── ESP32: simulated Bluetooth ────────────────────────────────────────────
+// BluetoothSerial models Classic SPP (supported by the ESP32-WROOM-32 chip);
+// BLESerial models a BLE UART service. Both are SIMULATED here — see
+// docs/ESP32.md for what a browser can and cannot do with real hardware.
+// Bluetooth Serial — Classic SPP and a BLE UART, with the same stream API as
+// the real libraries. These are CONSTRUCTORS, because a sketch declares them as
+// objects: BluetoothSerial SerialBT; transpiles to new BluetoothSerial().
+function _btClass(kind) {
+  function C() {}
+  C.prototype = {
+    begin: function (name) { send('ble', [kind, 'begin', String(name == null ? 'ESP32' : name)]); return true },
+    end: function () { send('ble', [kind, 'end']) },
+    hasClient: function () { return !!(IN.ble && IN.ble.connected) },
+    connected: function () { return !!(IN.ble && IN.ble.connected) },
+    available: function () { return IN.ble ? IN.ble.available : 0 },
+    read: function () {
+      if (!IN.ble || !IN.ble.buf || !IN.ble.buf.length) return -1;
+      var ch = IN.ble.buf.charCodeAt(0);
+      IN.ble.buf = IN.ble.buf.slice(1); IN.ble.available = IN.ble.buf.length;
+      send('ble', [kind, 'consume', 1]);
+      return ch;
+    },
+    readString: function () {
+      if (!IN.ble || !IN.ble.buf) return '';
+      var s = IN.ble.buf; IN.ble.buf = ''; IN.ble.available = 0;
+      send('ble', [kind, 'consume', s.length]);
+      return s;
+    },
+    // One line at a time, terminator dropped (and a stray CR with it).
+    readStringUntil: function (term) {
+      if (!IN.ble || !IN.ble.buf) return '';
+      var t = typeof term === 'number' ? String.fromCharCode(term) : (term == null ? '\\n' : String(term));
+      var i = IN.ble.buf.indexOf(t);
+      if (i < 0) return this.readString();
+      var line = IN.ble.buf.slice(0, i);
+      IN.ble.buf = IN.ble.buf.slice(i + 1); IN.ble.available = IN.ble.buf.length;
+      send('ble', [kind, 'consume', i + 1]);
+      return line.replace(/\\r$/, '');
+    },
+    print: function (v) { send('ble', [kind, 'tx', String(v == null ? '' : v)]) },
+    println: function (v) { send('ble', [kind, 'tx', String(v == null ? '' : v) + '\\n']) },
+    write: function (v) { send('ble', [kind, 'tx', String(v == null ? '' : v)]) },
+    flush: function () {},
+  };
+  return C;
+}
+var BluetoothSerial = _btClass('classic');
+var BLESerial = _btClass('ble');
+
+// ── Program-defined simulation controls ───────────────────────────────────
+var controlValue = function (id) { var v = IN.ctrl[String(id)]; return v == null ? 0 : v };
+var controlPublish = function (id, v) { send('controlPublish', [String(id), Number(v)]) };
 
 var onRuntimeError = function (m) { try { parent.postMessage({ t:'err', m:String(m) }, '*') } catch (e) {} };
 `

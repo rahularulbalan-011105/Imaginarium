@@ -9,7 +9,7 @@ const DENSITY = { plastic: 1200, metal: 7800, rubber: 1200, default: 1000 }
 // Fixed masses for electronics (kg) — real module weights. A part listed here
 // never falls through to the volume estimate (which would treat it as a solid block).
 const ELEC_MASS = {
-  arduino: 0.025, subo: 0.020, motor: 0.120, motor_bo: 0.100, motor_dc: 0.080,
+  arduino: 0.025, subo: 0.020, esp32: 0.010, motor: 0.120, motor_bo: 0.100, motor_dc: 0.080,
   servo: 0.021, led: 0.003,
   ultrasonic: 0.0085, ir_sensor: 0.003, gas_sensor: 0.010, color_sensor: 0.005,
   ldr_sensor: 0.003, dht11: 0.004, oled: 0.006, buzzer: 0.003,

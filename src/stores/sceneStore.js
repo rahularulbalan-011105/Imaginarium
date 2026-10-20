@@ -23,7 +23,7 @@ export const useSceneStore = create((set, get) => ({
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
     const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
-    const isElectronics = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', ...SENSOR_TYPES].includes(type)
+    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', ...SENSOR_TYPES].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw']
     const isMech = mechTypes.includes(type)
     const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
@@ -31,6 +31,7 @@ export const useSceneStore = create((set, get) => ({
     const defaultPos = isWeapon             ? { x: count * 4 - 2, y: 2, z: -3 }
       : type === 'arduino'                  ? { x: count * 8 - 4, y: 0.15, z: -5 }
       : type === 'subo'                   ? { x: count * 8 - 4, y: 0.15, z: -5 }
+      : type === 'esp32'                  ? { x: count * 8 - 4, y: 0.15, z: -5 }
       : type === 'motor_bo'               ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'motor_dc'               ? { x: count * 8 - 4, y: 0.15, z: 8  }
       : type === 'motor'                  ? { x: count * 8 - 4, y: 0.15, z: 5  }

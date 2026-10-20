@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { cloneModel, findRotorNode, detectRotorAxis, findEmissiveMeshes } from './modelLoader.js'
+import { ESP32_PINS } from './esp32Board.js'
 
 // ─── shared material helper ───────────────────────────────────────────────────
 const mat = (color, opts = {}) =>
@@ -392,6 +393,82 @@ function buildArduinoProcedural() {
 }
 
 // ─── SUBO board (custom ESP32) ───────────────────────────────────────────────
+
+// ── ESP32 DevKit V1 ─────────────────────────────────────────────────────────
+// Pins come from the ONE board table (utils/esp32Board.js) and are placed on the
+// real GLB's two header edges, so the 3D board and the wiring UI can never drift
+// apart. Same dynamic-placement approach as the Arduino board.
+export function createEsp32Group() {
+  const glbScene = cloneModel('esp32')
+  if (!glbScene) return buildEsp32Procedural()
+
+  const root = new THREE.Group()
+  root.add(glbScene)
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  root.updateMatrixWorld(true)
+
+  const box  = new THREE.Box3().setFromObject(root)
+  const size = box.getSize(new THREE.Vector3())
+  // thin = PCB thickness, med = board width (header rows sit on its two edges),
+  // long = board length (pins are spaced along it).
+  const sorted   = [['x', size.x], ['y', size.y], ['z', size.z]].sort((a, b) => a[1] - b[1])
+  const thinAxis = sorted[0][0], medAxis = sorted[1][0], longAxis = sorted[2][0]
+  const above    = box.max[thinAxis] + 0.3
+  const rowFor   = (side) => (side === 'left' ? box.min[medAxis] + 0.1 : box.max[medAxis] - 0.1)
+  const longMin  = box.min[longAxis], longSpan = size[longAxis]
+
+  const COLOR = { power: 0xff2222, gnd: 0x333333, enable: 0x9b59b6, digital: 0xffcc00 }
+  const perSide = Math.max(...ESP32_PINS.map(p => p.index)) + 1      // 15
+  const pins = {}
+  for (const p of ESP32_PINS) {
+    const t = perSide > 1 ? p.index / (perSide - 1) : 0.5
+    const pos = { x: 0, y: 0, z: 0 }
+    pos[longAxis] = longMin + longSpan * (0.08 + t * 0.84)
+    pos[medAxis]  = rowFor(p.side)
+    pos[thinAxis] = above
+    // ADC-capable GPIOs get the analog colour so the header reads at a glance.
+    const color = p.kind !== 'digital' ? COLOR[p.kind]
+      : p.adc ? 0x3aa3ff : (p.pwm ? 0xff8800 : COLOR.digital)
+    pins[p.name] = {
+      ...pos, color, label: p.label,
+      type: p.kind === 'digital' ? (p.adc ? 'analog' : (p.pwm ? 'pwm' : 'digital')) : p.kind,
+    }
+  }
+  root.userData.dynamicPins = pins
+  root.userData.boardId = 'esp32'
+  return root
+}
+
+// Fallback if the GLB is missing: a plain PCB slab so wiring still works.
+function buildEsp32Procedural() {
+  const root = new THREE.Group()
+  const pcb = new THREE.Mesh(
+    new THREE.BoxGeometry(5.1, 0.18, 2.5),
+    new THREE.MeshStandardMaterial({ color: 0x15503a, roughness: 0.8 }),
+  )
+  pcb.castShadow = pcb.receiveShadow = true
+  root.add(pcb)
+  const shield = new THREE.Mesh(
+    new THREE.BoxGeometry(2.4, 0.22, 1.7),
+    new THREE.MeshStandardMaterial({ color: 0xc8ccd0, metalness: 0.8, roughness: 0.35 }),
+  )
+  shield.position.set(-1.1, 0.2, 0)
+  root.add(shield)
+  const pins = {}
+  const perSide = Math.max(...ESP32_PINS.map(p => p.index)) + 1
+  for (const p of ESP32_PINS) {
+    const t = perSide > 1 ? p.index / (perSide - 1) : 0.5
+    pins[p.name] = {
+      x: -2.1 + t * 4.2, y: 0.22, z: p.side === 'left' ? -1.15 : 1.15,
+      color: p.kind === 'power' ? 0xff2222 : p.kind === 'gnd' ? 0x333333 : p.adc ? 0x3aa3ff : 0xffcc00,
+      type: p.kind === 'digital' ? (p.adc ? 'analog' : 'digital') : p.kind,
+      label: p.label,
+    }
+  }
+  root.userData.dynamicPins = pins
+  root.userData.boardId = 'esp32'
+  return root
+}
 
 export function createSuboGroup() {
   const glbScene = cloneModel('subo')

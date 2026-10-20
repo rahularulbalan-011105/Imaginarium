@@ -42,6 +42,9 @@ loader.setMeshoptDecoder(MeshoptDecoder)
 // Scale to use for each model type (longest bounding-box dimension → this value)
 export const MODEL_SCALE_TARGET = {
   arduino:  6.8,
+  // ESP32 DevKit V1 is ~5.1 cm long vs the Uno's 6.8 cm — the same ratio keeps
+  // the two boards correctly sized relative to each other in the workspace.
+  esp32:    5.1,
   // NOTE: 'subo' intentionally has NO entry here. The SUBO board GLB (subo.glb) is
   // authored to its correct final size in Blender (a real 6.45 × 6.8 PCB, longest side
   // 6.8 = Arduino Uno), so the loader renders it at native GLB size with no rescale /
@@ -65,6 +68,7 @@ const BASE = import.meta.env.BASE_URL
 
 const MODEL_PATHS = {
   arduino:  `${BASE}models/arduino_uno.glb`,
+  esp32:    `${BASE}models/esp32.glb`,
   subo:     `${BASE}models/subo.glb`,
   motor_bo: `${BASE}models/motor_bo.glb`,
   motor_dc: `${BASE}models/motor_dc.glb`,

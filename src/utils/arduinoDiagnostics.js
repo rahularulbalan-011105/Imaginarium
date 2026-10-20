@@ -19,6 +19,8 @@
 //          message, explain, suggestion, snippet, caret }
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { validateEsp32Pin } from './esp32Board.js'
+
 const FILE = 'sketch.ino'
 
 // ── Known symbol dictionaries ────────────────────────────────────────────────
@@ -39,6 +41,32 @@ const SUBO_FUNCS = {
   playTone: 2, stopBuzzer: 0, playBuzSeq: 1,
   start_motors: 0, drive_motors: null, runMotor: 2,
 }
+// ESP32 (Arduino-ESP32 core) free functions → arity. ledcWrite/ledcAttach have
+// different shapes between core 2.x and 3.x, so their arity is left unenforced.
+const ESP32_FUNCS = {
+  ledcSetup: 3, ledcAttachPin: 2, ledcAttach: null, ledcWrite: null, ledcRead: 1,
+  ledcDetach: 1, ledcWriteTone: 2, dacWrite: 2, touchRead: 1,
+  analogReadResolution: 1, analogSetAttenuation: 1, analogSetPinAttenuation: 2,
+  // Constructa's simulation-control bridge (see esp32Controls.js).
+  controlValue: 1, controlPublish: 2,
+}
+// ESP32-only constants.
+const ESP32_CONSTS = new Set([
+  'INPUT_PULLDOWN', 'INPUT_OUTPUT', 'ANALOG',
+  'WL_IDLE_STATUS', 'WL_NO_SSID_AVAIL', 'WL_CONNECTED', 'WL_CONNECT_FAILED', 'WL_DISCONNECTED',
+  'WIFI_STA', 'WIFI_AP', 'WIFI_AP_STA', 'WIFI_OFF',
+  'ADC_0db', 'ADC_2_5db', 'ADC_6db', 'ADC_11db',
+  ...Array.from({ length: 10 }, (_, i) => `T${i}`),
+  ...[10, 11, 12, 13, 14, 15, 16, 17, 18, 19].map((n) => `A${n}`),
+])
+// What each builtin does with its FIRST argument, for ESP32 pin validation.
+const ESP32_PIN_USE = {
+  pinMode: 'digital', digitalRead: 'digital',
+  digitalWrite: 'output', analogWrite: 'pwm',
+  analogRead: 'adc', dacWrite: 'dac', touchRead: 'touch',
+  ledcAttach: 'pwm', ledcAttachPin: 'pwm', ledcDetach: 'pwm',
+}
+
 // Constants / macros always in scope.
 const CORE_CONSTS = new Set([
   'HIGH', 'LOW', 'INPUT', 'OUTPUT', 'INPUT_PULLUP', 'LED_BUILTIN',
@@ -55,9 +83,12 @@ const SUBO_CONSTS = new Set([
 // pitches.h note names (NOTE_C4 … + REST) — pattern-matched, plus a few explicit.
 const isNoteConst = (s) => /^NOTE_[A-G]S?[0-8]$/.test(s) || s === 'REST'
 // Library classes that can be constructed as objects.
-const LIB_CLASSES = new Set(['Servo', 'LDR', 'DHT11', 'ColorSensor', 'RGB', 'Adafruit_SSD1306', 'String', 'IMU', 'Encoder', 'Battery'])
+const LIB_CLASSES = new Set(['Servo', 'LDR', 'DHT11', 'ColorSensor', 'RGB', 'Adafruit_SSD1306', 'String', 'IMU', 'Encoder', 'Battery',
+  // ESP32 radios (simulated in Constructa, real in the Arduino-ESP32 core).
+  'WiFiClient', 'WiFiServer', 'BluetoothSerial', 'BLESerial'])
 // Known #include libraries (base name, without .h).
-const KNOWN_LIBS = new Set(['Subo', 'Servo', 'LDR', 'DHT11', 'ColorSensor', 'Wire', 'SPI', 'Adafruit_SSD1306', 'Adafruit_GFX', 'pitches', 'MotorExpansion', 'IMU', 'Encoder', 'Battery', 'math', 'stdint', 'Arduino', 'string', 'stdlib', 'EEPROM'])
+const KNOWN_LIBS = new Set(['Subo', 'Servo', 'LDR', 'DHT11', 'ColorSensor', 'Wire', 'SPI', 'Adafruit_SSD1306', 'Adafruit_GFX', 'pitches', 'MotorExpansion', 'IMU', 'Encoder', 'Battery', 'math', 'stdint', 'Arduino', 'string', 'stdlib', 'EEPROM',
+  'WiFi', 'WiFiClient', 'BluetoothSerial', 'BLESerial', 'BLEDevice', 'ESP32Servo', 'driver/ledc', 'esp_wifi'])
 
 const C_TYPES = new Set(['void', 'int', 'float', 'double', 'bool', 'boolean', 'char', 'byte', 'long', 'short', 'unsigned', 'signed', 'String', 'auto', 'size_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int8_t', 'int16_t', 'int32_t', 'word'])
 const CONTROL_KW = new Set(['if', 'else', 'while', 'for', 'do', 'switch', 'case', 'default', 'return', 'break', 'continue', 'goto'])
@@ -256,7 +287,26 @@ export function analyzeArduino(src, { board = 'arduino' } = {}) {
     if (isTypeTok && b.t === T.IDENT && prevOkForType) {
       const after = sig[k + 2]
       const isFnDef = after && after.t === T.PUNCT && after.v === '(' && !LIB_CLASSES.has(a.v)
-      if (!isFnDef && !CORE_CONSTS.has(b.v) && !SUBO_CONSTS.has(b.v)) userVars.set(b.v, b)
+      if (!isFnDef && !CORE_CONSTS.has(b.v) && !SUBO_CONSTS.has(b.v)) {
+        userVars.set(b.v, b)
+        // Extra declarators in the same statement:  int a = 1, b = 2, c;
+        // Without this they read as undeclared identifiers (a false error).
+        if (!isFnDef) {
+          let j = k + 2, depth = 0
+          for (; j < sig.length; j++) {
+            const t = sig[j]
+            if (t.t === T.PUNCT && '([{'.includes(t.v)) { depth++; continue }
+            if (t.t === T.PUNCT && ')]}'.includes(t.v)) { depth--; continue }
+            if (depth > 0) continue
+            if (t.t === T.PUNCT && t.v === ';') break
+            if (t.t === T.PUNCT && t.v === ',') {
+              let n = sig[j + 1]
+              while (n && n.t === T.OP && (n.v === '*' || n.v === '&')) n = sig[++j + 1]
+              if (n && n.t === T.IDENT && !CORE_CONSTS.has(n.v)) userVars.set(n.v, n)
+            }
+          }
+        }
+      }
     }
     // for-loop / param locals: '(' TYPE IDENT  and  ',' TYPE IDENT
     if ((a.t === T.PUNCT && (a.v === '(' || a.v === ',')) && sig[k + 1] && (C_TYPES.has(sig[k + 1].v)) && sig[k + 2] && sig[k + 2].t === T.IDENT) {
@@ -264,8 +314,10 @@ export function analyzeArduino(src, { board = 'arduino' } = {}) {
     }
   }
 
+  const isEsp32 = board === 'esp32'
   const known = (name) =>
     CORE_FUNCS[name] !== undefined || SUBO_FUNCS[name] !== undefined ||
+    (isEsp32 && (ESP32_FUNCS[name] !== undefined || ESP32_CONSTS.has(name) || name === 'WiFi')) ||
     CORE_CONSTS.has(name) || SUBO_CONSTS.has(name) || isNoteConst(name) ||
     LIB_CLASSES.has(name) || C_TYPES.has(name) || CONTROL_KW.has(name) || DECL_KW.has(name) ||
     userFuncs.has(name) || userVars.has(name) || userTypes.has(name) || defines.has(name) ||
@@ -273,7 +325,8 @@ export function analyzeArduino(src, { board = 'arduino' } = {}) {
 
   // Full dictionary for spelling suggestions.
   const dict = [
-    ...Object.keys(CORE_FUNCS), ...Object.keys(SUBO_FUNCS), ...CORE_CONSTS, ...SUBO_CONSTS,
+    ...Object.keys(CORE_FUNCS), ...Object.keys(SUBO_FUNCS), ...CORE_CONSTS,
+    ...(isEsp32 ? [...Object.keys(ESP32_FUNCS), ...ESP32_CONSTS, 'WiFi'] : [...SUBO_CONSTS]),
     ...LIB_CLASSES, 'Serial', 'Wire', 'setup', 'loop', ...userFuncs.keys(), ...userVars.keys(), ...defines,
   ]
 
@@ -350,11 +403,16 @@ export function analyzeArduino(src, { board = 'arduino' } = {}) {
     const isDeclName = prev && prev.t === T.IDENT && (C_TYPES.has(prev.v) || LIB_CLASSES.has(prev.v) || userTypes.has(prev.v))
 
     // 5a) Board validation — SUBO API on a plain Arduino board.
-    if (board === 'arduino' && !includes.has('Subo')) {
+    if (board !== 'subo' && !includes.has('Subo')) {
       if ((SUBO_FUNCS[tk.v] !== undefined && isCall) || SUBO_CONSTS.has(tk.v)) {
-        err('board-mismatch', tk, `'${tk.v}' belongs to the SUBO library`, 'This function/constant is part of the SUBO board API, not the Arduino core.', 'Add  #include <Subo.h>  and use a SUBO board.')
+        err('board-mismatch', tk, `'${tk.v}' belongs to the SUBO library`, `This function/constant is part of the SUBO board API, not the ${isEsp32 ? 'ESP32' : 'Arduino'} core.`, isEsp32 ? 'Use the ESP32 API (ledcWrite, dacWrite, touchRead…) or place a SUBO board in the scene.' : 'Add  #include <Subo.h>  and use a SUBO board.')
         continue
       }
+    }
+    // 5a-ii) ESP32-only API used on a non-ESP32 board.
+    if (!isEsp32 && isCall && ESP32_FUNCS[tk.v] !== undefined && !userFuncs.has(tk.v) && CORE_FUNCS[tk.v] === undefined) {
+      err('board-mismatch', tk, `'${tk.v}' is part of the ESP32 core`, 'This function only exists on an ESP32 (LEDC PWM, DAC, touch, or Constructa simulation controls).', 'Place an ESP32 board in the scene to use it.')
+      continue
     }
 
     // 5b) Invalid pin constant (IOn out of range).
@@ -388,13 +446,33 @@ export function analyzeArduino(src, { board = 'arduino' } = {}) {
 
     // 5e) Argument-count + type checks for core/SUBO builtins.
     if (isCall && !isMember) {
-      const arity = CORE_FUNCS[tk.v] ?? SUBO_FUNCS[tk.v]
+      const arity = CORE_FUNCS[tk.v] ?? SUBO_FUNCS[tk.v] ?? (isEsp32 ? ESP32_FUNCS[tk.v] : undefined)
       if (arity != null) {
         const argc = countArgs(sig, k + 1)
         if (argc !== arity) {
           err('arg-count', tk, `'${tk.v}' expects ${arity} argument${arity === 1 ? '' : 's'}, got ${argc}`, `The function '${tk.v}' is called with the wrong number of arguments.`, `Call it with exactly ${arity} argument${arity === 1 ? '' : 's'}.`)
         }
       }
+      // ESP32 pin legality — only for a LITERAL first argument, so a pin held in
+      // a variable is never guessed at (precision over recall).
+      if (isEsp32) {
+        let use = ESP32_PIN_USE[tk.v]
+        // pinMode(pin, OUTPUT) really is an output; pinMode(pin, INPUT*) is not.
+        if (tk.v === 'pinMode') {
+          const a2 = nthArgFirstTok(sig, k + 1, 1)
+          if (a2 && a2.t === T.IDENT && (a2.v === 'OUTPUT' || a2.v === 'INPUT_OUTPUT')) use = 'output'
+        }
+        if (use) {
+          const a1 = nthArgFirstTok(sig, k + 1, 0)
+          const solo = a1 && soloArg(sig, k + 1, 0)
+          if (a1 && solo && a1.t === T.NUM && /^\d+$/.test(String(a1.v))) {
+            const v = validateEsp32Pin(+a1.v, use)
+            if (v.level === 'error') err('invalid-pin', a1, v.message, `${tk.v}() cannot use this pin on an ESP32 DevKit V1.`, v.hint ?? '')
+            else if (v.level === 'warn') warn('risky-pin', a1, v.message, `${tk.v}() works here, but this pin has a caveat on the ESP32.`, v.hint ?? '')
+          }
+        }
+      }
+
       // digitalWrite(pin, HIGH|LOW) — arg 2 must be a level, not a string.
       if (tk.v === 'digitalWrite') {
         const a2 = nthArgFirstTok(sig, k + 1, 1)
@@ -519,6 +597,21 @@ function nthArgFirstTok(sig, openIdx, n) {
     }
   }
   return null
+}
+// True when argument `n` of a call consists of exactly ONE token — so a literal
+// pin number is validated, while `pin + 1` or a variable is left alone.
+function soloArg(sig, openIdx, n) {
+  let depth = 0, arg = 0, count = 0
+  for (let k = openIdx; k < sig.length; k++) {
+    const tk = sig[k]
+    if (tk.t === T.PUNCT && (tk.v === '(' || tk.v === '[' || tk.v === '{')) { depth++; if (depth === 1 && tk.v === '(') continue }
+    if (tk.t === T.PUNCT && (tk.v === ')' || tk.v === ']' || tk.v === '}')) { depth--; if (depth === 0) break; continue }
+    if (depth === 1) {
+      if (tk.t === T.PUNCT && tk.v === ',') { if (arg === n) return count === 1; arg++; continue }
+      if (arg === n) count++
+    }
+  }
+  return arg === n && count === 1
 }
 // while(true)/while(1)/for(;;) with no `break`/`return` in the following block.
 function flagInfiniteLoops(sig, warn) {

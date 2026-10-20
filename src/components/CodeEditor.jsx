@@ -230,9 +230,9 @@ export default function CodeEditor({ full = false }) {
   // Components a sketch can drive OR read — motors/LED/servo/buzzer/OLED plus
   // every sensor (so sensor-only sketches like an LDR/DHT11/ColorSensor reader
   // are runnable, not just actuator sketches).
-  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo']
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
   const hasConnections  = Object.keys(connections).length > 0
-  const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo')
+  const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo' || o.type === 'esp32')
   // Count ANY controllable component (sensors/buzzer/OLED included), not just
   // motors/LEDs/servos — otherwise a scene with only an OLED or sensor wrongly
   // shows "add an electronics component" and disables Run.
@@ -240,6 +240,21 @@ export default function CodeEditor({ full = false }) {
   // SUBO has on-board peripherals (matrix / buzzer / buttons) that run with no
   // external component or wiring — so a SUBO board alone is runnable.
   const hasSubo         = objects.some(o => o.type === 'subo')
+  // An ESP32 is runnable on its own too: it has an onboard LED, touch pins and
+  // the sketch's own declared controls, so it needs no external wiring.
+  const hasEsp32        = objects.some(o => o.type === 'esp32')
+  const standalone      = hasSubo || hasEsp32
+  const board           = hasEsp32 ? 'esp32' : hasSubo ? 'subo' : 'arduino'
+  // ESP32 examples are a lazy chunk: they only matter when an ESP32 is present,
+  // and they must not sit in the startup bundle.
+  const [esp32Examples, setEsp32Examples] = useState(null)
+  useEffect(() => {
+    if (!hasEsp32 || esp32Examples) return
+    let live = true
+    import('../utils/esp32Examples.js').then(m => { if (live) setEsp32Examples(m.ESP32_EXAMPLES) })
+    return () => { live = false }
+  }, [hasEsp32, esp32Examples])
+  const templates       = hasEsp32 ? (esp32Examples ?? []) : TEMPLATES
 
   // Jump the editor caret to a diagnostic's line/column and scroll it into view.
   const jumpTo = (line, col) => {
@@ -265,7 +280,6 @@ export default function CodeEditor({ full = false }) {
     window.dispatchEvent(new Event('constructa:code-run'))   // → community popup + code_run analytics (App listener)
 
     // ── Compile pass: full diagnostics BEFORE running. Errors withhold execution. ──
-    const board = hasSubo ? 'subo' : 'arduino'
     const report = analyzeArduino(code, { board })
     setDiag(report)
     if (!report.ok) return   // blocking errors — do not start the simulation
@@ -304,7 +318,7 @@ export default function CodeEditor({ full = false }) {
 
   const noArduino    = !hasArduino
   const noComponent  = !hasControllable
-  const noConnection = hasArduino && hasControllable && !hasConnections && !hasSubo
+  const noConnection = hasArduino && hasControllable && !hasConnections && !standalone
 
   const hasMotorSpeeds = Object.keys(simulation.motorSpeeds ?? {}).length > 0
   const hasServoAngles = Object.keys(simulation.servoAngles ?? {}).length > 0
@@ -315,7 +329,13 @@ export default function CodeEditor({ full = false }) {
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
         <span className="text-xs font-semibold text-gray-300">{full ? 'C++ Coding' : 'Arduino Code'}</span>
-        {full && <span className="text-[10px] text-gray-500">Arduino sketch · Block Coding edits the same code</span>}
+        {full && (
+          <span className="text-[10px] text-gray-500">
+            {hasEsp32
+              ? 'ESP32 DevKit V1 target · simulated in the browser (no compile/flash)'
+              : 'Arduino sketch · Block Coding edits the same code'}
+          </span>
+        )}
 
         {/* Templates dropdown */}
         <div className="relative ml-1" ref={templatesRef}>
@@ -328,7 +348,7 @@ export default function CodeEditor({ full = false }) {
           </button>
           {showTemplates && (
             <div className="absolute left-0 top-full mt-1 z-50 bg-gray-800 border border-gray-700 rounded shadow-xl min-w-[130px]">
-              {TEMPLATES.map((t) => (
+              {templates.map((t) => (
                 <button
                   key={t.label}
                   onClick={() => { setCode(t.code); setShowTemplates(false) }}
@@ -348,7 +368,7 @@ export default function CodeEditor({ full = false }) {
       {/* Prerequisite hints */}
       {(noArduino || noComponent || noConnection) && (
         <div className="px-3 py-2 space-y-1 shrink-0 border-b border-gray-700/30">
-          {noArduino   && <Hint icon="⚠" text="Add an Arduino or SUBO board to the scene" />}
+          {noArduino   && <Hint icon="⚠" text="Add an Arduino, ESP32 or SUBO board to the scene" />}
           {noComponent && <Hint icon="⚠" text="Add an electronics component (motor, servo, LED, sensor, buzzer, OLED…)" />}
           {!noArduino && !noComponent && noConnection && (
             <Hint icon="⚠" text="Draw a wire from an Arduino pin to the component" />
@@ -390,7 +410,7 @@ export default function CodeEditor({ full = false }) {
         ) : (
           <button
             onClick={handleRun}
-            disabled={!hasArduino || !hasControllable || (!hasConnections && !hasSubo)}
+            disabled={!hasArduino || !hasControllable || (!hasConnections && !standalone)}
             className="flex-1 flex items-center justify-center gap-2 py-2 rounded bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
           >
             <span>▶</span> Run

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { useUiStore } from '../stores/uiStore.js'
 import { physicsManager } from '../managers/physics/PhysicsManager.js'
 import { preparePhysics } from '../managers/DriveManager.js'
@@ -6,6 +6,9 @@ import { recordSnapshot } from '../managers/history/editorDispatch.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import Icon from './ui/Icon.jsx'
 import { trackEvent } from '../utils/utmTracking.js'
+import { useSceneStore } from '../stores/sceneStore.js'
+// Lazy: the ESP32 section is only mounted when the scene actually has a board.
+const Esp32Panel = lazy(() => import('./Esp32Panel.jsx'))
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SimulationPanel — a single home for the simulation entry points that used to
@@ -40,6 +43,8 @@ export default function SimulationPanel() {
   const setEnvironment = usePhysicsStore((s) => s.setEnvironment)
   const gravity      = usePhysicsStore((s) => s.gravity)
   const [preparing, setPreparing] = useState(false)
+  // The ESP32 section only exists when the scene actually has an ESP32 board.
+  const hasEsp32 = useSceneStore((s) => s.objects.some((o) => o.type === 'esp32'))
 
   return (
     <div className="p-3 flex flex-col gap-4">
@@ -101,6 +106,12 @@ export default function SimulationPanel() {
         </div>
       </div>
 
+      {/* ── ESP32 (only when the scene has one) ───────────────────────────── */}
+      {hasEsp32 && (
+        <div className="-mx-3 -mb-3">
+          <Suspense fallback={null}><Esp32Panel /></Suspense>
+        </div>
+      )}
     </div>
   )
 }

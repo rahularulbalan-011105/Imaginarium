@@ -4,6 +4,8 @@ import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
 import { createSensorLibraries } from '../arduino/sensorLibs.js'
 import { runSketchSandboxed } from './sketchSandbox.js'
+import { ESP32_PINS } from '../utils/esp32Board.js'
+import { parseControlAnnotations, controlDefaults } from '../utils/esp32Controls.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
 
@@ -40,21 +42,54 @@ const BUILTIN_NAMES = new Set([
   // Sensors / outputs API + constants
   'delayMicroseconds','pulseIn','tone','noTone','Wire','Adafruit_SSD1306',
   'A0','A1','A2','A3','A4','A5','A6','A7','INPUT_PULLUP','LED_BUILTIN',
+  'A10','A12','A13','A14','A15','A16','A17','A18','A19','INPUT_PULLDOWN',
   'WHITE','BLACK','SSD1306_WHITE','SSD1306_BLACK','SSD1306_INVERSE',
   'SSD1306_SWITCHCAPVCC','SSD1306_EXTERNALVCC','SCREEN_WIDTH','SCREEN_HEIGHT',
   // New sensor libraries (LDR / DHT11 / ColorSensor) + their pin macros
   'LDR','DHT11','ColorSensor','RGB','S0','S1','S2','S3','OUT',
   // Physics-simulated hardware (articulated robots): IMU / joint encoders / battery
   'IMU','Encoder','Battery',
+  // ESP32: LEDC PWM / DAC / touch, simulated Wi-Fi + Bluetooth, sim controls
+  'ledcSetup','ledcAttachPin','ledcAttach','ledcWrite','ledcDetach','ledcRead',
+  'dacWrite','touchRead','analogReadResolution','analogSetAttenuation',
+  'WiFi','WiFiClient','BluetoothSerial','BLESerial',
+  'WL_IDLE_STATUS','WL_NO_SSID_AVAIL','WL_CONNECTED','WL_CONNECT_FAILED','WL_DISCONNECTED',
+  'WIFI_STA','WIFI_AP','WIFI_AP_STA','WIFI_OFF',
+  'controlValue','controlPublish',
   // SUBO pitches.h note constants
   ...Object.keys(SUBO_NOTES),
 ])
+
+// ── ESP32 runtime state ──────────────────────────────────────────────────────
+// Lives here (not in a store) because firmware can touch it every loop
+// iteration; the Simulation tab polls it at a low rate. Everything in here is
+// SIMULATED unless `mode === 'hw'` and a hardware link is attached.
+const MAX_LOG = 200
+function freshEsp32State() {
+  return {
+    mode: 'sim',
+    firmware: 'idle',                 // idle | running | error
+    wifi: {
+      status: 0,                      // WL_IDLE_STATUS
+      mode: 0, ssid: '', ip: '0.0.0.0', apIp: '192.168.4.1',
+      rssi: 0, mac: '24:6F:28:AA:BB:CC', ap: false, connecting: false,
+    },
+    ble: { kind: null, name: '', connected: false, buf: '', available: 0 },
+    net: { available: 0, buf: '', open: false },
+    readouts: {},                     // controlPublish(id, v)
+    ledc: {},                         // pin → { freq, bits }
+    touch: {},                        // gpio → value
+    log: [],                          // [{ at, ch, text }] — net / ble / wifi events
+    rev: 0,                           // bumped on change so the panel can poll cheaply
+  }
+}
 
 class SimulationManager {
   constructor() {
     this._running         = false
     this._cancelDelay     = null
     this._sandbox         = null
+    this.esp32            = freshEsp32State()
     this._onMotorSpeed    = null
     this._onLedBrightness = null
     this._onServoAngle    = null
@@ -101,6 +136,20 @@ class SimulationManager {
     const pinMap    = buildPinToComponentMap(this._connections, this._objects)
     const sensorMap = buildSensorInputMap(this._connections, this._objects)
     const self      = this
+
+    // Which board is this sketch for? ESP32 differs from an AVR in ways the
+    // runtime must honour — chiefly a 12-bit ADC (0…4095, not 0…1023).
+    this._board = this._objects.some(o => o.type === 'esp32') ? 'esp32'
+      : this._objects.some(o => o.type === 'subo') ? 'subo' : 'arduino'
+
+    // Program-declared Simulation-tab controls. Parsed from `// @control` lines —
+    // never guessed from arbitrary C++.
+    const parsed = parseControlAnnotations(code)
+    this.esp32.controlDefs = parsed.controls
+    this.esp32.controlErrors = parsed.errors
+    this.esp32.firmware = 'running'
+    this.esp32.rev++
+    useElectronicsStore.getState().seedEsp32Controls(controlDefaults(parsed.controls))
 
     // Sensor libraries (LDR / DHT11 / ColorSensor / RGB) — provided to the sketch
     // exactly like the built-in Servo class. Each instance binds to the scene
@@ -219,12 +268,18 @@ class SimulationManager {
       }
       return 0
     }
+    // The ESP32's ADC is 12-bit (0…4095); an AVR's is 10-bit (0…1023). Sensor
+    // panels work in 10-bit values, so they are scaled up for an ESP32 sketch —
+    // otherwise every analogRead() would look stuck at a quarter scale.
+    const adcFull = () => (this._board === 'esp32' ? 4095 : 1023)
     const analogRead = (pin) => {
       const s = sensorMap[pin]
       if (!s) return 0
+      const full = adcFull()
       const v = _read(s)
-      if (s.type === 'ir_sensor') return v ? 1023 : 0
-      return Math.max(0, Math.min(1023, Math.round(v)))   // gas / generic analog
+      if (s.type === 'ir_sensor') return v ? full : 0
+      const scaled = this._board === 'esp32' ? v * (4095 / 1023) : v
+      return Math.max(0, Math.min(full, Math.round(scaled)))   // gas / generic analog
     }
     // HC-SR04: returns echo pulse width (µs). distance_cm = pulseIn(echo)/58.
     const pulseIn = (pin) => {
@@ -360,6 +415,11 @@ class SimulationManager {
     // user's library-style code (digitalWrite(IO3,...) etc.) resolves them.
     const SUBO_CONSTS = `const IO1=4,IO2=39,IO3=13,IO4=38,IO5=14,IO6=48,IO7=42,IO8=5,IO9=41,IO10=40,IO11=6,IO12=7,IO13=15,IO14=16,IO15=17,IO16=18,IO17=8,IO18=11,IO19=10,IO20=9,IO21=3,SUBO_BUZZER_PIN=2,SUBO_LED_PIN=12,SUBO_LED_NUM=48,SUBO_BUTTONR=47,SUBO_BUTTONL=1,A0=14,A1=15,A2=16,A3=17,A4=18,A5=19,A6=20,A7=21,INPUT_PULLUP=2,LED_BUILTIN=13,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;`
 
+    // ESP32 constants, used INSTEAD of the SUBO set when the sketch targets an
+    // ESP32 (the same name cannot be declared twice in one scope). Analog pin
+    // aliases and LED_BUILTIN follow the Arduino-ESP32 core for a DevKit V1.
+    const ESP32_CONSTS = `const A0=36,A3=39,A4=32,A5=33,A6=34,A7=35,A10=4,A12=2,A13=15,A14=13,A15=12,A16=14,A17=27,A18=25,A19=26,INPUT_PULLUP=5,INPUT_PULLDOWN=9,LED_BUILTIN=2,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;`
+
     // Default TCS3200 colour-sensor control-pin macros, so `ColorSensor color(S0,
     // S1,S2,S3,OUT);` runs even when a copied sketch omits its own #defines.
     // A sketch that DOES #define them has those skipped (see BUILTIN_NAMES) and
@@ -421,6 +481,23 @@ class SimulationManager {
         case 'walk':         walk(a[0]); break
         case 'turn':         turn(a[0]); break
         case 'stopWalking':  stopWalking(); break
+        // ── ESP32 ──────────────────────────────────────────────────────────
+        // LEDC PWM and the DAC drive the SAME component path as analogWrite, so
+        // an LED wired to a pin dims identically however the sketch writes it.
+        case 'ledcAttach':   self.esp32.ledc[a[0]] = { freq: a[1], bits: a[2] }; self.esp32.rev++; break
+        case 'ledcDetach':   delete self.esp32.ledc[a[0]]; self.esp32.rev++; break
+        case 'ledcWrite': {
+          const cfg = self.esp32.ledc[a[0]]
+          const maxDuty = cfg ? (2 ** (cfg.bits || 8)) - 1 : 255
+          _write(a[0], Math.round((Math.max(0, Math.min(maxDuty, a[1])) / maxDuty) * 255), false)
+          break
+        }
+        case 'dacWrite':     _write(a[0], Math.max(0, Math.min(255, a[1])), false); break
+        case 'wifi':         self._esp32Wifi(a); break
+        case 'ble':          self._esp32Ble(a); break
+        case 'netSend':      self._esp32Net(a); break
+        case 'controlPublish': self.esp32.readouts[a[0]] = a[1]; self.esp32.rev++; break
+        case 'serialConsume': useElectronicsStore.getState().consumeEsp32SerialIn(a[0]); break
         default: break      // unknown call → ignored
       }
     }
@@ -428,7 +505,7 @@ class SimulationManager {
     try {
       this._sandbox = runSketchSandboxed({
         userJs: jsCode,
-        consts: `${SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}`,
+        consts: `${this._board === 'esp32' ? ESP32_CONSTS : SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}`,
         onOut: dispatch,
         onError: (msg) => onRuntimeError(msg),
         getInput: () => self._buildInput(sensorMap, pinMap, digitalRead, analogRead, pulseIn, libReaders),
@@ -439,6 +516,108 @@ class SimulationManager {
     }
 
     return null
+  }
+
+  _esp32Log(ch, text) {
+    const L = this.esp32.log
+    L.push({ at: Date.now(), ch, text: String(text).slice(0, 300) })
+    if (L.length > MAX_LOG) L.splice(0, L.length - MAX_LOG)
+    this.esp32.rev++
+  }
+
+  /**
+   * SIMULATED Wi-Fi. Models the Arduino WiFi lifecycle and status codes against
+   * a fake network — a board running in the browser has no radio. Connection
+   * takes a moment, as a real one does, so sketches that poll WiFi.status() in a
+   * loop behave the way they would on hardware.
+   */
+  _esp32Wifi([action, a]) {
+    const w = this.esp32.wifi
+    if (action === 'mode') { w.mode = a; this.esp32.rev++; return }
+    if (action === 'begin') {
+      w.ssid = a; w.ap = false; w.connecting = true; w.status = 6 /* WL_DISCONNECTED */
+      this._esp32Log('wifi', `connecting to "${a}"…`)
+      const delayMs = 900 + Math.random() * 900
+      clearTimeout(this._wifiTimer)
+      this._wifiTimer = setTimeout(() => {
+        if (!this._running) return
+        // An empty SSID can never associate — everything else "finds" the network.
+        if (!a) { w.status = 1 /* WL_NO_SSID_AVAIL */; w.connecting = false; this._esp32Log('wifi', 'no such network'); return }
+        w.status = 3 /* WL_CONNECTED */
+        w.connecting = false
+        w.ip = `192.168.1.${40 + Math.floor(Math.random() * 180)}`
+        w.rssi = -(45 + Math.floor(Math.random() * 35))
+        this._esp32Log('wifi', `connected · ${w.ip} · ${w.rssi} dBm (simulated)`)
+      }, delayMs)
+      return
+    }
+    if (action === 'softAP') {
+      w.ssid = a || 'ESP32-AP'; w.ap = true; w.status = 3; w.connecting = false
+      w.apIp = '192.168.4.1'
+      this._esp32Log('wifi', `access point "${w.ssid}" started · ${w.apIp} (simulated)`)
+      this.esp32.rev++
+      return
+    }
+    if (action === 'disconnect') {
+      clearTimeout(this._wifiTimer)
+      w.status = 6; w.connecting = false; w.ap = false; w.ip = '0.0.0.0'
+      this._esp32Log('wifi', 'disconnected')
+    }
+  }
+
+  /** SIMULATED Bluetooth (BLE UART or Classic SPP). */
+  _esp32Ble([kind, action, arg]) {
+    const b = this.esp32.ble
+    if (action === 'begin') {
+      b.kind = kind; b.name = arg || 'ESP32'; b.connected = false
+      this._esp32Log('ble', `${kind === 'ble' ? 'BLE' : 'Bluetooth Classic'} "${b.name}" advertising (simulated)`)
+      return
+    }
+    if (action === 'end') { b.connected = false; b.kind = null; this._esp32Log('ble', 'bluetooth stopped'); return }
+    // Outgoing text arrives in print()-sized fragments; buffer until a newline
+    // so the log reads like a serial monitor ("speed=255", not "speed=" + "255").
+    if (action === 'tx') {
+      b.txBuf = (b.txBuf ?? '') + String(arg ?? '')
+      let i
+      while ((i = b.txBuf.indexOf('\n')) >= 0) {
+        const line = b.txBuf.slice(0, i).replace(/\\r$/, '')
+        b.txBuf = b.txBuf.slice(i + 1)
+        this._esp32Log('ble', `→ ${line}`)
+      }
+      if (b.txBuf.length > 200) { this._esp32Log('ble', `→ ${b.txBuf}`); b.txBuf = '' }
+      return
+    }
+    if (action === 'consume') { b.buf = b.buf.slice(arg); b.available = b.buf.length; this.esp32.rev++ }
+  }
+
+  _esp32Net([action, arg]) {
+    const n = this.esp32.net
+    if (action === 'connect') { n.open = this.esp32.wifi.status === 3; this._esp32Log('net', `connect ${arg} → ${n.open ? 'ok' : 'no network'}`); return }
+    if (action === 'tx') { this._esp32Log('net', `→ ${arg}`); return }
+    if (action === 'close') { n.open = false; this._esp32Log('net', 'closed') }
+  }
+
+  /** UI → simulated peer: deliver bytes the firmware will read. */
+  esp32Receive(channel, text) {
+    // A phone/terminal sends LINES: terminate the text so a sketch using
+    // readStringUntil('\n') sees a complete line (as it would on real hardware).
+    if (text != null && !String(text).endsWith('\n')) text = String(text) + '\n'
+    if (channel === 'ble') {
+      this.esp32.ble.buf = (this.esp32.ble.buf + text).slice(-1024)
+      this.esp32.ble.available = this.esp32.ble.buf.length
+      this.esp32.ble.connected = true
+      this._esp32Log('ble', `← ${text}`)
+    } else if (channel === 'net') {
+      this.esp32.net.buf = (this.esp32.net.buf + text).slice(-1024)
+      this.esp32.net.available = this.esp32.net.buf.length
+      this._esp32Log('net', `← ${text}`)
+    }
+  }
+
+  /** UI toggles a simulated BLE central connecting/disconnecting. */
+  esp32SetBleConnected(on) {
+    this.esp32.ble.connected = !!on
+    this._esp32Log('ble', on ? 'central connected (simulated)' : 'central disconnected')
   }
 
   /**
@@ -464,11 +643,22 @@ class SimulationManager {
       const e = roboticsHardware.encoder(servo.id)
       enc[Number(pin)] = e ? { deg: e.deg, degPerSec: e.degPerSec } : { deg: 90, degPerSec: 0 }
     }
+    // ESP32: touch pads read like a capacitive sensor (lower = touched); the
+    // board's own state and the user's control values ride along.
+    const E = this.esp32
+    const st = useElectronicsStore.getState()
+    const touch = {}
+    for (const p of ESP32_PINS) if (p.touch != null) touch[p.gpio] = E.touch[p.gpio] ?? 80
     return {
-      aread, dread, pulse, lib, enc,
+      aread, dread, pulse, lib, enc, touch,
       imu: roboticsHardware.imu() ?? null,
       battery: roboticsHardware.battery() ?? null,
       hwActive: !!roboticsHardware.active,
+      ctrl: st.esp32Controls,
+      serialIn: st.esp32SerialIn,
+      wifi: { status: E.wifi.status, ip: E.wifi.ip, apIp: E.wifi.apIp, ssid: E.wifi.ssid, rssi: E.wifi.rssi, mac: E.wifi.mac },
+      ble: { connected: E.ble.connected, available: E.ble.available, buf: E.ble.buf },
+      net: { available: E.net.available, buf: E.net.buf },
     }
   }
 
@@ -485,6 +675,17 @@ class SimulationManager {
     this._motorTerminals = {}
     this.ledBrightness   = {}
     this.servoAngles     = {}
+    // ESP32: drop any in-flight simulated connection and stop the radio state
+    // machine, so nothing keeps "connecting" after the sketch ends.
+    clearTimeout(this._wifiTimer)
+    this._wifiTimer = null
+    if (this.esp32.firmware !== 'idle') {
+      const defs = this.esp32.controlDefs
+      this.esp32 = freshEsp32State()
+      this.esp32.controlDefs = defs          // keep the UI's controls on screen
+      this.esp32.firmware = 'idle'
+    }
+
     // Tearing down the frame kills the sketch outright — no pending timer can
     // resume it, and nothing of it survives.
     if (this._sandbox) {
