@@ -227,6 +227,7 @@ class ObjectManager {
       holder.clear()
       holder.add(g)
       holder.traverse(ch => { ch.userData.rootId = obj.id })
+      holder.userData.modelReady = true      // real geometry in place (muzzle/aim can be measured)
     }
     const cached = cloneModel(obj.type)
     if (cached) { install(cached) }
@@ -241,6 +242,7 @@ class ObjectManager {
       loadWeaponModel(obj.type).then(() => {
         const g = cloneModel(obj.type)
         if (g && this.objects.get(obj.id) === holder) install(g)
+        else if (!g) holder.userData.modelReady = 'missing'   // no GLB: the placeholder barrel IS the weapon
       })
     }
     return holder
@@ -798,11 +800,23 @@ class ObjectManager {
   // Bonds are sorted topologically so A→B→C chains update in the right order.
   propagateAllBonds(bonds) {
     if (!bonds || bonds.length === 0) return
-    const childSet = new Set(bonds.map(b => b.childId))
-    // Bonds whose parent is itself a bond-child must be processed after their parent bond
-    const sorted = [...bonds].sort((a, b) =>
-      (childSet.has(a.parentId) ? 1 : 0) - (childSet.has(b.parentId) ? 1 : 0)
-    )
+    // Topological order: a bond runs only after the bond that places its parent.
+    // (A two-level "parent is/isn't a child" key is NOT enough: with chassis →
+    // body → plate → board, plate→board could run before body→plate and place
+    // the board from the plate's old pose. The frame loop hid that a frame
+    // later, but a single pass — the arena's capture — kept the board off its
+    // mount.) Depth = number of bonds above the parent; cycle-guarded.
+    const parentOf = new Map(bonds.map(b => [b.childId, b.parentId]))
+    const depthMemo = new Map()
+    const depth = (id) => {
+      if (depthMemo.has(id)) return depthMemo.get(id)
+      let d = 0, cur = id
+      const seen = new Set()
+      while (parentOf.has(cur) && !seen.has(cur)) { seen.add(cur); cur = parentOf.get(cur); d++ }
+      depthMemo.set(id, d)
+      return d
+    }
+    const sorted = [...bonds].sort((a, b) => depth(a.parentId) - depth(b.parentId))
     const _pos  = new THREE.Vector3()
     const _quat = new THREE.Quaternion()
     const _scl  = new THREE.Vector3()
@@ -1202,6 +1216,33 @@ class ObjectManager {
       position: { x: pos.x,   y: pos.y,   z: pos.z   },
       rotation: { x: euler.x, y: euler.y, z: euler.z },
     }
+  }
+
+  // After `moverId`'s mesh has been put at its new pose, carry EVERY part bonded
+  // below it (children, grandchildren, …) and return [[id, {position, rotation}]]
+  // store patches so each part's logical pose equals its rendered one. The frame
+  // loop (propagateAllBonds) only moves meshes; without this a board mounted on
+  // a plate on the chassis kept a stale store pose, and the next edit that
+  // starts from the store (gizmo release, arrow nudge, Properties) re-derived its
+  // bond from that stale spot — the board jumped off the robot.
+  cascadeBondDescendants(moverId, bonds) {
+    const list = Array.isArray(bonds) ? bonds : Object.values(bonds || {})
+    const out = []
+    const seen = new Set([moverId])
+    const queue = [moverId]
+    while (queue.length) {
+      const pid = queue.shift()
+      for (const b of list) {
+        if (b.parentId !== pid || seen.has(b.childId)) continue
+        seen.add(b.childId)
+        // A rotor-riding part's transform is owned by its motor (rotor-local).
+        if (this.attachedObjects.has(b.childId)) continue
+        const r = this.propagateBond(pid, b.relativeMatrix, true, b.childId)
+        if (r) out.push([b.childId, r])
+        queue.push(b.childId)
+      }
+    }
+    return out
   }
 
   // Rotate selectedId by angleDeg degrees around the bond's contact-surface normal,

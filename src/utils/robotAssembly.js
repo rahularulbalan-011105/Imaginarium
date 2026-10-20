@@ -41,6 +41,11 @@ export function buildAssemblies() {
   return result
 }
 
+// Root id of the assembly that contains `id` (the id itself when it is loose).
+export function assemblyRootOf(id) {
+  return buildAssemblies().find(g => g.rootId === id || g.memberIds.includes(id))?.rootId ?? id
+}
+
 // All member ids of the assembly that contains `rootId` (for whole-robot bounds).
 export function assemblyMembers(rootId) {
   const a = buildAssemblies().find(g => g.rootId === rootId || g.memberIds.includes(rootId))

@@ -66,6 +66,16 @@ function resyncChildBond(id, position, rotation) {
   if (rel) rigid.updateBond(bond.id, { relativeMatrix: rel })
 }
 
+// `id` was just moved/turned (its mesh is at the new pose): carry every part
+// bonded below it and write their poses to the store, so the logical data
+// matches what's rendered (see ObjectManager.cascadeBondDescendants).
+function cascadeBondsToStore(id) {
+  const scene = useSceneStore.getState()
+  for (const [cid, r] of objectManager.cascadeBondDescendants(id, useRigidStore.getState().getBonds())) {
+    scene.updateObject(cid, r)
+  }
+}
+
 function LoadingScreen({ progress = 0 }) {
   const pct = Math.max(4, Math.min(100, Math.round(progress * 100)))   // min 4% so the bar is visible
   // Plays public/loading.mp4 (drop your promo/demo clip there). Falls back to the
@@ -255,6 +265,8 @@ function AppEditor() {
   // ── Enter / exit drive mode when simActive toggles ───────────────────────
   useEffect(() => {
     if (simActive) {
+      // A battle owns the robot meshes; the simulation can't start on top of it.
+      if (useCombatStore.getState().arenaActive || useGameStore.getState().battleActive) { useUiStore.getState().setSimActive(false); return }
       objectManager.resetGearAngles()
       driveManager.enter(useSceneStore.getState().objects)
     } else {
@@ -435,7 +447,11 @@ function AppEditor() {
           if (!sel) break
           e.preventDefault()
           const step = (useUiStore.getState().snapTranslate || 1)
-          const p = { ...sel.position }
+          // Start from the RENDERED pose: a bonded part follows its parent on
+          // screen, so its mesh — not an older store copy — is where it really is.
+          const selMesh = objectManager.getMesh(selectedId)
+          const onRotor = objectManager.attachedObjects.has(selectedId)
+          const p = (selMesh && !onRotor) ? { x: selMesh.position.x, y: selMesh.position.y, z: selMesh.position.z } : { ...sel.position }
           if (e.shiftKey) { if (e.key === 'ArrowUp') p.y += step; if (e.key === 'ArrowDown') p.y -= step }
           else {
             if (e.key === 'ArrowLeft')  p.x -= step
@@ -446,7 +462,9 @@ function AppEditor() {
           st.updateObject(selectedId, { position: p })
           const mesh = objectManager.getMesh(selectedId)
           if (mesh) mesh.position.set(p.x, p.y, p.z)
-          resyncChildBond(selectedId, p, sel.rotation)
+          const rot = (selMesh && !onRotor) ? { x: selMesh.rotation.x, y: selMesh.rotation.y, z: selMesh.rotation.z } : sel.rotation
+          resyncChildBond(selectedId, p, rot)
+          cascadeBondsToStore(selectedId)
           snapshot()
           break
         }
@@ -462,11 +480,14 @@ function AppEditor() {
           if (e.shiftKey && selectedId) {
             const obj = useSceneStore.getState().objects.find(o => o.id === selectedId)
             if (obj) {
-              const snapped = snapRotationToAxes(obj.rotation)
-              useSceneStore.getState().updateObject(selectedId, { rotation: snapped })
               const mesh = objectManager.getMesh(selectedId)
+              const live = mesh && !objectManager.attachedObjects.has(selectedId)
+              const snapped = snapRotationToAxes(live ? { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z } : obj.rotation)
+              const pos = live ? { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z } : obj.position
+              useSceneStore.getState().updateObject(selectedId, { position: pos, rotation: snapped })
               if (mesh) mesh.rotation.set(snapped.x, snapped.y, snapped.z)
-              resyncChildBond(selectedId, obj.position, snapped)
+              resyncChildBond(selectedId, pos, snapped)
+              cascadeBondsToStore(selectedId)
               snapshot()
             }
           }

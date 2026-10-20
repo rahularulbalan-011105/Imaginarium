@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { expandByRobust } from '../../utils/robustBounds.js'
 import { physicsManager } from '../physics/PhysicsManager.js'
 import { raycastFirst, prepareSurfaceRaycast } from '../../utils/surfaceRaycast.js'
 import { useRigidStore } from '../../stores/rigidStore.js'
@@ -6,11 +7,25 @@ import { useSceneStore } from '../../stores/sceneStore.js'
 import { isWeaponType } from '../../combat/weaponRegistry.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// RobotDamageView — how combat damage LOOKS and MOVES on each robot.
+// RobotDamageView — the COMPONENT model of every robot in a match: which parts
+// it is made of, how they hang on each other, how damaged each one and each mount
+// is, and how that looks and moves. It is the single authority for component
+// identity + structural state; the renderer (marks, sag, glow), the weapons
+// (WeaponManager asks partHealth / resolve) and the drive (CombatManager asks
+// driveState) all read THIS, never a copy.
 //
-// The combat state (armor / core / stagger / overheat / destroyed) stays owned by
-// DamageManager + the combat systems. This layer only reacts to it:
+// Robot-level health (armor / core / stagger / overheat / destroyed) stays owned
+// by DamageManager. A component being wrecked does NOT zero the robot.
 //
+// Component identity = the scene object id (the Robot-Builder part: one logical
+// component even when its model has many meshes; motor-riding wheels belong to
+// their motor's drive unit). Attachments = the saved bonds (+ surface contact
+// frames). Optional author metadata on a scene object: `breakable: false` keeps
+// a part from ever detaching (old files: everything except the root may break).
+//
+//   resolve()   – the exact component a SHOT meets along its real path (before any
+//                 damage is applied) → part, point, normal; null = the shot passed
+//                 the robot's collision box without touching its geometry
 //   locate()    – which real part of the robot a hit landed on (raycast against
 //                 the robot's actual Robot-Builder meshes → part, point, normal)
 //   hit()       – an impact mark exactly where the hit landed, per-part damage
@@ -56,6 +71,17 @@ const TUNE = {
   kickK: 300, kickC: 20, kickMax: 0.35,     // per-part jolt (su)
 }
 
+// Component roles (from the part's type, never its index or mesh names) and how
+// much of a hit each one's structure takes. Deterministic.
+const ELECTRONICS = /^(arduino|subo|led|oled|buzzer|ldr|dht11|ultrasonic|ir_sensor|gas_sensor|color_sensor|servo)$/
+const DRIVE = /^(motor|motor_bo|motor_dc)$/
+const ROLE_TOUGHNESS = { chassis: 0.85, armor: 0.8, drive: 1.0, weapon: 1.1, electronics: 1.25, part: 1.0 }
+// Functional health by component state / mount state (1 = full function).
+const STATE_HEALTH = [1, 0.85, 0.6, 0]
+const MOUNT_HEALTH = [1, 1, 0.9, 0.7, 0]
+// Deterministic 0..1 from a string (stable per component — no per-hit dice).
+const hash01 = (str, salt = 0) => { let h = 2166136261 ^ salt; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) } return ((h >>> 0) % 10000) / 10000 }
+
 const UP = new THREE.Vector3(0, 1, 0)
 const _v = new THREE.Vector3()
 const _v2 = new THREE.Vector3()
@@ -96,14 +122,27 @@ export class RobotDamageView {
           if (c.isMesh && c.geometry && !c.userData.isPinSphere && !c.userData.isPinLabel && !c.userData.isAttachMarker) meshes.push(c)
         })
         mesh.updateWorldMatrix(true, true)
-        _box.setFromObject(mesh)
+        _box.makeEmpty(); expandByRobust(_box, mesh)
+        if (_box.isEmpty()) _box.setFromObject(mesh)
         const size = _box.getSize(new THREE.Vector3())
         const vol = Math.max(0.05, size.x * size.y * size.z)
         volSum += vol
+        const obj = objs.get(id)
+        const type = obj?.type || ''
+        const isWeapon = isWeaponType(type)
+        // A drive unit: a motor (its wheel rides its rotor, so hitting the wheel
+        // hits the unit), else a part the author named as a wheel/track.
+        const carriesWheel = mesh.userData.rotorGroup?.children?.length > 0
+        const role = id === robot.id ? 'chassis' : isWeapon ? 'weapon' : (DRIVE.test(type) || carriesWheel) ? 'drive'
+          : ELECTRONICS.test(type) ? 'electronics' : /wheel|tyre|tire|track/i.test(obj?.name || '') ? 'drive' : 'armor'
         parts.push({
-          mesh, id, meshes, vol,
+          mesh, id, meshes, vol, type, role,
+          toughness: ROLE_TOUGHNESS[role] ?? 1,
+          breakable: obj?.breakable !== false,
+          side: Math.sign(Math.round((mv.off?.x ?? 0) * 10) / 10),   // robot frame: +x = left of the nose
+          mass: 0,
           isRoot: id === robot.id,
-          isWeapon: isWeaponType(objs.get(id)?.type),
+          isWeapon,
           children: new Set(bonds.filter(b => b.parentId === id && ids.has(b.childId)).map(b => b.childId)),
           top: mesh.worldToLocal(new THREE.Vector3(_box.min.x + size.x / 2, _box.max.y, _box.min.z + size.z / 2)),
           damage: 0, cap: 1, state: PART_STATE.HEALTHY,
@@ -148,6 +187,9 @@ export class RobotDamageView {
         parent.children.add(p.id)
       }
       for (const p of parts) {
+        // Mass share: a part weighs its volume share of the robot (bounded), so
+        // what it takes away when it breaks off — and how it flies — follow its size.
+        p.mass = Math.max(0.03, (robot.mass || 1) * clamp(p.vol / volSum, 0.01, 0.6))
         p.cap = totalHp * (p.isRoot ? 0.6 : clamp(TUNE.partCapMin + 0.5 * (p.vol / volSum), TUNE.partCapMin, TUNE.partCapMax))
         if (p.mount) {
           p.mount.cap = totalHp * (p.isWeapon ? TUNE.weaponMount
@@ -213,7 +255,10 @@ export class RobotDamageView {
     const view = this._views.get(robotId)
     if (!view || !part) return null
     const { dir, point, normal } = info
-    part.damage += info.dealt || 0
+    // The part's own structure takes the hit scaled by its role's toughness
+    // (a sensor board is more fragile than a chassis plate) — deterministic.
+    const pd = (info.dealt || 0) * (part.toughness || 1)
+    part.damage += pd
     if (info.surface !== false) part.last = part.mesh.worldToLocal(_v.copy(point)).clone()
 
     // Mechanical reaction: the struck part jolts along the hit, the chassis rocks
@@ -249,7 +294,7 @@ export class RobotDamageView {
     // Structure: the hit strains this part's own mount (more the closer it landed
     // to it) and any mount on this part that sits right next to the impact.
     const mounts = []
-    const dealt = info.dealt || 0
+    const dealt = pd
     if (dealt > 0 && info.surface !== false) {
       if (part.mount) this._strain(view, part, dealt * this._transfer(part, point), info, mounts)
       for (const cid of part.children) {
@@ -288,11 +333,13 @@ export class RobotDamageView {
       if (dir.lengthSq() < 1e-4) dir.set(1, 0, 0)
       if (!this._detach(view, part, dir.normalize(), info.force ?? 0.5, anchor)) { m.state = MOUNT_STATE.CRITICAL; return }
     } else if (next === MOUNT_STATE.WEAKENED) {
-      part.sag = new THREE.Quaternion().setFromEuler(_e.set(rand(-0.035, 0.035), rand(-0.02, 0.02), rand(-0.045, 0.045)))
+      const h = (k) => hash01(part.id, k) * 2 - 1
+      part.sag = new THREE.Quaternion().setFromEuler(_e.set(0.035 * h(1), 0.02 * h(2), 0.045 * h(3)))
       this._fx.sparks(anchor, out, { count: 7, speed: 7, spread: 1.1, color: 0xa8d8ff, life: 0.2, size: 0.05 })
     } else if (next === MOUNT_STATE.CRITICAL) {
       // Barely holding: the part hangs visibly off true and the joint is exposed.
-      part.sag = new THREE.Quaternion().setFromEuler(_e.set(rand(0.06, 0.11) * (Math.random() < 0.5 ? -1 : 1), rand(-0.05, 0.05), rand(0.08, 0.14) * (Math.random() < 0.5 ? -1 : 1)))
+      const h = (k) => hash01(part.id, k)
+      part.sag = new THREE.Quaternion().setFromEuler(_e.set((0.06 + 0.05 * h(4)) * (h(5) < 0.5 ? -1 : 1), 0.05 * (h(6) * 2 - 1), (0.08 + 0.06 * h(7)) * (h(8) < 0.5 ? -1 : 1)))
       this._fx.flash(anchor, { size: 0.35, color: 0xbfe4ff, life: 0.06 })
       this._fx.sparks(anchor, out, { count: 12, speed: 9, spread: 1.1, color: 0xa8d8ff, life: 0.25, size: 0.05 })
       this._fx.debris(anchor, out, { count: 2, speed: 4, size: 0.08, life: 0.9, up: 3 })
@@ -303,7 +350,7 @@ export class RobotDamageView {
   }
 
   _canFail(view, part) {
-    if (part.isRoot) return false
+    if (part.isRoot || !part.breakable) return false
     if (part.isWeapon && !TUNE.weaponBreakoff) return false
     for (const cid of part.children) if (view.byId.get(cid)?.state !== PART_STATE.DETACHED) return false   // still carries other parts
     return true
@@ -340,7 +387,7 @@ export class RobotDamageView {
   _detach(view, part, dir, force, anchor = null) {
     const mesh = part.mesh
     mesh.updateWorldMatrix(true, true)
-    _box.setFromObject(mesh, true)
+    _box.makeEmpty(); expandByRobust(_box, mesh)   // same robust bounds as the robot body
     if (_box.isEmpty()) return false
     const center = _box.getCenter(new THREE.Vector3())
     const half = _box.getSize(new THREE.Vector3()).multiplyScalar(0.5)
@@ -348,16 +395,27 @@ export class RobotDamageView {
     const body = physicsManager.createDebrisBody(
       bodyId, { x: center.x, y: Math.max(center.y, half.y + 0.05), z: center.z },
       { x: Math.max(0.12, half.x), y: Math.max(0.12, half.y), z: Math.max(0.12, half.z) },
+      part.mass || 0.35,
     )
     if (!body) return false                                      // no physics → it stays on (never fake it)
-    const rv = physicsManager.getLinvel(view.robot.bodyId) || { x: 0, y: 0, z: 0 }
-    // Thrown by the impact that broke the mount: a bullet tips the part off, a
-    // heavy blow flings it. (The arena world runs scene-unit gravity, ~196 su/s²,
-    // so even a small hop needs a firm upward speed.)
+    // It leaves with the robot's motion at that point (linear + the yaw spin's
+    // tangential speed), plus the impulse of the impact that broke it — a bounded
+    // impulse, so a light board flies further than a heavy wheel assembly. (The
+    // arena runs scene-unit gravity, ~196 su/s², so a hop needs real upward speed.)
+    const rb = physicsManager.getBody(view.robot.bodyId)
+    const rv = rb ? rb.linvel() : { x: 0, y: 0, z: 0 }
+    const rw = rb ? rb.angvel() : { x: 0, y: 0, z: 0 }
+    const rc = rb ? rb.translation() : center
+    const rx = center.x - rc.x, rz = center.z - rc.z
     const k = clamp(force, 0.15, 1)
-    const speed = 4 + 12 * k + rand(0, 2)
-    body.setLinvel({ x: rv.x + dir.x * speed, y: 8 + 13 * k + rand(0, 3), z: rv.z + dir.z * speed }, true)
-    body.setAngvel({ x: rand(-1, 1) * (3 + 7 * k), y: rand(-1, 1) * (2 + 4 * k), z: rand(-1, 1) * (3 + 7 * k) }, true)
+    const light = clamp(Math.sqrt(0.35 / Math.max(0.03, part.mass || 0.35)), 0.45, 1.8)   // ∝ 1/√m (bounded)
+    const speed = (4 + 12 * k) * light
+    const up = (8 + 13 * k) * Math.sqrt(light)
+    body.setLinvel({ x: rv.x + rw.y * rz + dir.x * speed, y: Math.max(0, rv.y) + up, z: rv.z - rw.y * rx + dir.z * speed }, true)
+    // Tumble about the axis the impact pushes it over (dir × up), deterministic.
+    const spin = clamp((3 + 7 * k) * light, 1.5, 14)
+    const axis = new THREE.Vector3().crossVectors(UP, dir).normalize()
+    body.setAngvel({ x: axis.x * spin, y: rw.y + spin * 0.3 * (hash01(part.id, 9) * 2 - 1), z: axis.z * spin }, true)
 
     part.state = PART_STATE.DETACHED
     if (part.mount) part.mount.state = MOUNT_STATE.FAILED
@@ -387,6 +445,63 @@ export class RobotDamageView {
     }
     this._host.onEvent('part_break', { robotId: view.robot.id, part, pos: at })
     return true
+  }
+
+  // ── Shot resolution (BEFORE damage) ─────────────────────────────────────────
+  // A shot travelling `dir` (unit) entered the robot's collision box at `entry`.
+  // Which component does it actually meet? Casts along the shot's own line
+  // through the robot's visible, still-attached geometry (nested meshes, any
+  // pose / scale). null = it passes through the box without touching anything
+  // (the caller lets it fly on).
+  resolve(robotId, entry, dir) {
+    const view = this._views.get(robotId)
+    if (!view || !view.meshes.length) return null
+    const reach = (view.robot.radius || 2) * 2.4 + 2
+    _rc.ray.origin.copy(entry).addScaledVector(dir, -0.6)
+    _rc.ray.direction.copy(dir)
+    _rc.near = 0; _rc.far = reach + 0.6
+    const hit = raycastFirst(_rc, view.meshes)
+    if (!hit) return null
+    const normal = hit.face.normal.clone().applyMatrix3(_nm.getNormalMatrix(hit.object.matrixWorld)).normalize()
+    if (normal.dot(dir) > 0) normal.negate()
+    const part = view.partOf.get(hit.object)
+    return part ? { part, partId: part.id, role: part.role, toughness: part.toughness, point: hit.point.clone(), normal, surface: true } : null
+  }
+
+  // Exit point of a ray through a robot (for a shot that missed its geometry):
+  // past the robot's far side along `dir`.
+  exitPoint(robotId, entry, dir, out = new THREE.Vector3()) {
+    const view = this._views.get(robotId)
+    return out.copy(entry).addScaledVector(dir, (view?.robot.radius || 2) * 2.2 + 0.5)
+  }
+
+  // ── Function from structure (read by weapons + drive) ──────────────────────
+  // 0..1: how well a component still does its job (state × mount condition).
+  partHealth(part) {
+    if (!part || part.state === PART_STATE.DETACHED) return 0
+    return STATE_HEALTH[part.state] * (part.mount ? MOUNT_HEALTH[part.mount.state] : 1)
+  }
+
+  partForId(robotId, id) { return this._views.get(robotId)?.byId.get(id) ?? null }
+
+  partForMesh(robotId, mesh) { return this._views.get(robotId)?.parts.find(p => p.mesh === mesh) ?? null }
+
+  // Drivetrain from the robot's real drive units. { units, left, right, mean }:
+  // left / right = mean health of the units on each side (centre units count for
+  // both); units = 0 → the design has no drive components (caller falls back).
+  driveState(robotId) {
+    const view = this._views.get(robotId)
+    if (!view) return { units: 0, left: 1, right: 1, mean: 1 }
+    let n = 0, l = 0, ln = 0, r = 0, rn = 0, sum = 0
+    for (const p of view.parts) {
+      if (p.role !== 'drive') continue
+      const h = this.partHealth(p)
+      n++; sum += h
+      if (p.side >= 0) { l += h; ln++ }
+      if (p.side <= 0) { r += h; rn++ }
+    }
+    if (!n) return { units: 0, left: 1, right: 1, mean: 1 }
+    return { units: n, left: ln ? l / ln : sum / n, right: rn ? r / rn : sum / n, mean: sum / n }
   }
 
   // ── Self-inflicted motion ───────────────────────────────────────────────────
@@ -500,7 +615,21 @@ export class RobotDamageView {
         mesh.position.add(p.kick)
       }
       if (p.sag) mesh.quaternion.multiply(p.sag)
+      // A badly damaged drive unit wobbles while the robot moves.
+      if (p.role === 'drive' && this.partHealth(p) < 0.65 && !view.dead) {
+        const sp = body.linvel(), v = Math.hypot(sp.x, sp.z)
+        if (v > 1) mesh.quaternion.multiply(_q2.setFromEuler(_e.set(Math.sin(this._t * (6 + v)) * 0.06 * (1 - this.partHealth(p)), 0, 0)))
+      }
       this._stepGlow(p, dt)
+    }
+    // Wrecked weapons and drive units smoulder.
+    view.partSmokeIn = (view.partSmokeIn ?? 0.5) - dt
+    if (view.partSmokeIn <= 0) {
+      view.partSmokeIn = 0.35
+      for (const p of view.parts) {
+        if (p.state !== PART_STATE.SEVERE || (p.role !== 'weapon' && p.role !== 'drive')) continue
+        this._fx.smoke(this._emitPoint(p, _v), { size: 0.22, rise: 1.8, life: 0.8, color: 0x7a7e85, opacity: 0.28, grow: 1.6 })
+      }
     }
 
     // Failing mounts show it: arcing at the joint, more as they get worse.
@@ -660,7 +789,8 @@ export class RobotDamageView {
       dead: !!view.dead, decals: view.decals.length,
       tilt: Math.hypot(view.tilt.x, view.tilt.z),
       parts: view.parts.map(p => ({
-        id: p.id, isRoot: p.isRoot, isWeapon: p.isWeapon, state: p.state, damage: +p.damage.toFixed(1), cap: +p.cap.toFixed(1),
+        id: p.id, isRoot: p.isRoot, isWeapon: p.isWeapon, role: p.role, breakable: p.breakable, side: p.side, mass: +p.mass.toFixed(3), health: +this.partHealth(p).toFixed(3),
+        state: p.state, damage: +p.damage.toFixed(1), cap: +p.cap.toFixed(1), hits: p.hits.length,
         wear: p.wear.map(w => w.level),
         mount: p.mount ? { state: p.mount.state, damage: +p.mount.damage.toFixed(1), cap: +p.mount.cap.toFixed(1), parent: p.mount.parent.id, anchor: p.state === PART_STATE.DETACHED ? null : p.mesh.localToWorld(new THREE.Vector3().copy(p.mount.aChild)).toArray() } : null,
       })),

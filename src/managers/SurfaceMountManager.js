@@ -8,16 +8,28 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { weaponForType, isWeaponType } from '../combat/weaponRegistry.js'
 import { loadWeaponModel } from '../utils/modelLoader.js'
 import { raycastFirst, prepareSurfaceRaycast } from '../utils/surfaceRaycast.js'
+import { assemblyRootOf } from '../utils/robotAssembly.js'
+import { robotFrame } from '../combat/robotFront.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SurfaceMountManager — drag a part onto a robot and snap it flush to the
 // actual surface under the cursor (CAD-style), then weld it with a rigid bond.
 //
 //   pointer → SceneManager.pickSurfaceHit (real mesh, point + world normal)
-//           → target validation → solve(): orientation + flush offset
-//           → support probes (base must rest on the surface, nothing in the way)
+//           → no robot surface under the pointer? proximity snap: the nearest
+//             robot surface within SNAP_PX (how undersides / near-misses work)
+//           → target validation → solve(): surface alignment × manual offset
+//             + flush offset
+//           → support probes (base must rest on the surface, nothing in the
+//             way); a base hanging off an edge is slid back onto the face
 //           → ghost + footprint preview (transient, no store writes)
 //           → commit: rigidStore bond { attach: 'surface' } + one undo step
+//
+// Manual rotation (pointer sessions — click-to-place and the re-mount drag;
+// an HTML5 drag gets no key/wheel events): Q/E or the wheel spin the part about
+// the surface normal, Z/C tilt it, X resets. It's an OFFSET on top of the
+// automatic alignment, so it survives moving to another face; a re-mount
+// starts from the part's current hand-set offset.
 //
 // Persistence is the existing bond system: relativeMatrix = the part's pose in
 // its parent's local space, propagated every frame (so it follows the robot),
@@ -71,6 +83,11 @@ const EPS = 0.002                        // hairline lift so coplanar faces don'
 const SUPPORT_NORMAL_DOT = Math.cos(THREE.MathUtils.degToRad(30))
 const REF_ENTER_UP = 0.97                // hysteresis for the roll reference (see solve)
 const REF_LEAVE_UP = 0.93
+const SNAP_PX = 36                       // proximity snap reach, screen pixels
+const SNAP_KEEP_PX = 52                  // …and the reach to KEEP a proximity target (hysteresis)
+const SPIN_STEP = Math.PI / 12           // Q/E / wheel: 15° (Shift: 5°)
+const FINE_STEP = Math.PI / 36
+const FIT_STEPS = 8                      // edge fitting: slide attempts
 
 const v3 = (o) => new THREE.Vector3(o.x, o.y, o.z)
 const xyz = (v) => ({ x: v.x, y: v.y, z: v.z })
@@ -100,18 +117,21 @@ function localPreciseBox(preview) {
 // Offset: the part's lowest point along -up (from its bounds, scaled) sits on
 // the surface, and its footprint centre sits under the cursor — independent of
 // where the model's origin happens to be.
-export function solveMount({ point, normal, refQuat, spec, box, scale, keepForward = null, refState = {} }) {
+export function solveMount({ point, normal, refQuat, spec, box, scale, keepForward = null, refState = {}, manual = null }) {
   const n = normal.clone().normalize()
   let ref
   if (keepForward) {
     ref = keepForward.clone()
   } else {
+    // On faces that look along the robot's forward axis (front / rear) the
+    // forward projection vanishes; lay the part ACROSS the face (robot right)
+    // there — a barrel standing upright on a short front plate never fits.
     const fz = new THREE.Vector3(0, 0, 1).applyQuaternion(refQuat)
-    const fy = new THREE.Vector3(0, 1, 0).applyQuaternion(refQuat)
+    const fx = new THREE.Vector3(1, 0, 0).applyQuaternion(refQuat)
     const a = Math.abs(n.dot(fz))
     if (refState.useUp) { if (a < REF_LEAVE_UP) refState.useUp = false }
     else if (a > REF_ENTER_UP) refState.useUp = true
-    ref = refState.useUp ? fy : fz
+    ref = refState.useUp ? fx : fz
   }
   const f = ref.addScaledVector(n, -ref.dot(n))
   if (f.lengthSq() < 1e-8) {                       // degenerate: any tangent will do
@@ -122,27 +142,38 @@ export function solveMount({ point, normal, refQuat, spec, box, scale, keepForwa
   const s = new THREE.Vector3().crossVectors(f, n)
   const R = new THREE.Matrix4().makeBasis(f, n, s)
     .multiply(new THREE.Matrix4().makeBasis(spec.forward, spec.up, spec.side).transpose())
-  const quaternion = new THREE.Quaternion().setFromRotationMatrix(R)
+  const auto = new THREE.Quaternion().setFromRotationMatrix(R)
 
   const S = new THREE.Vector3(Math.abs(scale.x), Math.abs(scale.y), Math.abs(scale.z))
   const min = box.min.clone().multiply(S), max = box.max.clone().multiply(S)
   const size = max.clone().sub(min)
   const center = min.clone().add(max).multiplyScalar(0.5)
+  const out = {
+    autoQuaternion: auto, normal: n, forward: f, side: s,
+    halfForward: Math.abs(size.dot(spec.forward)) / 2,
+    halfSide: Math.abs(size.dot(spec.side)) / 2,
+    height: Math.abs(size.dot(spec.up)),
+  }
+  if (manual && Math.abs(manual.w) < 1 - 1e-9) {
+    // Final = surface alignment × manual offset (offset in the part's frame).
+    // Seat: lowest corner along the normal on the surface, centre over the point.
+    seatWithOrientation(out, auto.clone().multiply(manual), point, n, box, scale)
+    // Footprint follows the spin about the normal (tilt keeps the same pad).
+    const fw = spec.forward.clone().applyQuaternion(out.quaternion)
+    fw.addScaledVector(n, -fw.dot(n))
+    if (fw.lengthSq() > 1e-6) { out.forward = fw.normalize(); out.side = new THREE.Vector3().crossVectors(out.forward, n) }
+    return out
+  }
   // support of the scaled box along -up (up is a signed unit axis)
   const lowUp = spec.up.dot(new THREE.Vector3(
     spec.up.x >= 0 ? min.x : max.x, spec.up.y >= 0 ? min.y : max.y, spec.up.z >= 0 ? min.z : max.z))
   const drop = -lowUp                                           // origin height above contact
   const lateral = center.clone().addScaledVector(spec.up, -center.dot(spec.up))
-  const position = point.clone()
+  out.quaternion = auto
+  out.position = point.clone()
     .addScaledVector(n, drop + EPS)
-    .sub(lateral.applyQuaternion(quaternion))
-
-  return {
-    position, quaternion, normal: n, forward: f, side: s,
-    halfForward: Math.abs(size.dot(spec.forward)) / 2,
-    halfSide: Math.abs(size.dot(spec.side)) / 2,
-    height: Math.abs(size.dot(spec.up)),
-  }
+    .sub(lateral.applyQuaternion(auto))
+  return out
 }
 
 const USER_TURN_EPS = 0.01   // rad — below this a part is still in its auto-snap pose
@@ -166,8 +197,8 @@ function seatWithOrientation(sol, quaternion, point, normal, box, scale) {
 }
 
 const STATUS_TEXT = {
-  attach: (t) => `Release to mount on ${t}`,
-  free: () => 'Release to place it on the ground',
+  attach: (t, click) => `${click ? 'Click' : 'Release'} to mount on ${t}`,
+  free: (t, click) => `${click ? 'Click' : 'Release'} to place it on the ground`,
   overhang: () => 'Too close to the edge — the base would hang off',
   blocked: () => 'Something is already in that spot',
   reject: (t) => `Can't mount on ${t} — pick a structural part`,
@@ -234,6 +265,24 @@ class SurfaceMountManager {
       box: new THREE.Box3().setFromObject(m),
       meshes: sceneManager.surfaceCandidates([m]),
     }))
+    // Proximity-snap hosts: valid structural parts, each with its precise box in
+    // its own frame (oriented box in world → follows any robot rotation).
+    const hosts = []
+    for (const r of rootInfo) {
+      if (!r.meshes.length || this._verdict(r.id) !== 'ok') continue
+      const root = objectManager.getMesh(r.id)
+      if (!root) continue
+      root.updateMatrixWorld(true)
+      const inv = root.matrixWorld.clone().invert()
+      const lb = new THREE.Box3()
+      for (const m of r.meshes) {
+        const g = m.geometry
+        if (!g.boundingBox) g.computeBoundingBox()
+        if (!g.boundingBox || g.boundingBox.isEmpty()) continue
+        lb.union(g.boundingBox.clone().applyMatrix4(inv.clone().multiply(m.matrixWorld)))
+      }
+      if (!lb.isEmpty()) hosts.push({ id: r.id, meshes: r.meshes, box: lb, world: root.matrixWorld.clone(), inv, normalMat: new THREE.Matrix3().getNormalMatrix(root.matrixWorld) })
+    }
 
     prepareSurfaceRaycast(rootInfo.flatMap(r => r.meshes))   // one-time per geometry
 
@@ -247,8 +296,10 @@ class SurfaceMountManager {
       realWasVisible: realMesh ? realMesh.visible : true,
       scale: obj ? { ...obj.scale } : { x: 1, y: 1, z: 1 },
       candidates: rootInfo.flatMap(r => r.meshes),
-      rootInfo,
+      rootInfo, hosts,
       refState: {},
+      manual: objectId ? this._currentOffset(objectId, spec) : new THREE.Quaternion(),
+      near: null,                 // sticky proximity target { id }
       ghost: null, box: null, indicator: this._makeIndicator(),
       last: null, result: null, statusKey: null,
       ready: this._prepare(type),
@@ -264,6 +315,58 @@ class SurfaceMountManager {
       })
     }
     return true
+  }
+
+  // Click-to-place: the part follows the pointer over the viewport (same solver
+  // and preview as a drag), keys rotate it, a click confirms (the Viewport
+  // routes pointer/keys while `placing`).
+  async startPlacement(type) {
+    if (!mountSpecFor(type)) return false
+    this.prepare(type)
+    const canvas = sceneManager.renderer?.domElement
+    if (!canvas) return false
+    const ok = this.begin({ type, bounds: canvas.getBoundingClientRect() })
+    if (ok) { this.active.placing = true; this.active.statusKey = null; this._process() }
+    return ok
+  }
+
+  get placing() { return !!this.active?.placing }
+  get pointerSession() { return !!this.active && (this.active.placing || !!this.active.objectId) }
+
+  /** Manual rotation offset: 'spin' (about the surface normal) | 'tilt' | 'reset'. */
+  rotate(kind, dir = 1, fine = false) {
+    const a = this.active
+    if (!a) return
+    if (kind === 'reset') a.manual.identity()
+    else {
+      const axis = kind === 'tilt' ? a.spec.side : a.spec.up
+      a.manual.premultiply(new THREE.Quaternion().setFromAxisAngle(axis, dir * (fine ? FINE_STEP : SPIN_STEP))).normalize()
+    }
+    // a.manual is in the part frame (final = auto × manual): premultiplying a
+    // turn about the part's up / side axis = a world turn about the surface
+    // normal / tangent, whatever the current offset is.
+    if (a.last) this._process()
+  }
+
+  // The part's current hand-set rotation relative to where the auto alignment
+  // would put it on its present mount — so a re-mount keeps it.
+  _currentOffset(objectId, spec) {
+    const mesh = objectManager.getMesh(objectId)
+    if (!mesh) return new THREE.Quaternion()
+    mesh.updateMatrixWorld(true)
+    const cur = mesh.getWorldQuaternion(new THREE.Quaternion())
+    const b = useRigidStore.getState().getBonds().find(x => x.childId === objectId && x.contactLocalNormal)
+    const parent = b ? objectManager.getMesh(b.parentId) : null
+    let n, refQuat
+    if (parent) {
+      parent.updateMatrixWorld(true)
+      refQuat = parent.getWorldQuaternion(new THREE.Quaternion())
+      n = v3(b.contactLocalNormal).applyQuaternion(refQuat).normalize()
+    } else { n = spec.up.clone().applyQuaternion(cur); refQuat = new THREE.Quaternion() }
+    const unit = new THREE.Box3(new THREE.Vector3(-0.5, -0.5, -0.5), new THREE.Vector3(0.5, 0.5, 0.5))
+    const auto = solveMount({ point: new THREE.Vector3(), normal: n, refQuat, spec, box: unit, scale: { x: 1, y: 1, z: 1 }, refState: {} }).autoQuaternion
+    const off = auto.invert().multiply(cur).normalize()
+    return off
   }
 
   update(clientX, clientY) {
@@ -307,6 +410,7 @@ class SurfaceMountManager {
       this._process()
     }
     const res = a.result
+    this.lastManualAngle = 2 * Math.acos(Math.min(1, Math.abs(a.manual.w)))
     this._teardown()
     this.pendingType = null
     this._notify(null)
@@ -325,42 +429,155 @@ class SurfaceMountManager {
     if (!a) return
     let res = { status: 'none' }
     if (a.last) {
-      const hit = sceneManager.pickSurfaceHit(a.last, a.bounds, a.candidates)
+      let hit = sceneManager.pickSurfaceHit(a.last, a.bounds, a.candidates)
+      let verdict = hit?.rootId ? this._verdict(hit.rootId) : null
+      // Nothing mountable under the pointer (floor, empty space, the gap under
+      // the chassis): snap to the nearest robot surface if it's close on screen.
+      if (verdict !== 'ok' && hit?.ray) {
+        const near = this._nearSurface(a, hit.ray, hit.rootId ? hit.distance : Infinity)
+        if (near) { hit = near; verdict = 'ok' }
+      }
       if (hit?.rootId) {
-        const verdict = this._verdict(hit.rootId)
         const target = objectManager.getMesh(hit.rootId)
         if (verdict === 'ground' || !target) {
           res = this._solveFree(a, hit.point, hit.normal)
         } else {
-          const refQuat = target.getWorldQuaternion(new THREE.Quaternion())
-          const sol = solveMount({ point: hit.point, normal: hit.normal, refQuat, spec: a.spec, box: a.box, scale: a.scale, refState: a.refState })
-          const probe = verdict === 'ok' ? this._probe(a, sol, hit.point, hit.rootId) : 'reject'
-          const status = probe === 'ok' ? 'attach' : probe
-          res = { status, sol, point: hit.point, targetId: hit.rootId }
+          res = this._mountOn(a, hit, verdict)
+          // The part under the pointer can't take it (a wheel, a too-small
+          // face, …): the nearest surface within reach that CAN wins.
+          if (res.status !== 'attach' && !hit.proximity && hit.ray) {
+            const near = this._nearSurface(a, hit.ray, Infinity, hit.rootId)
+            const alt = near ? this._mountOn(a, near, 'ok') : null
+            if (alt?.status === 'attach') { res = alt; hit = near }
+          }
         }
       } else if (hit?.ray) {
         const p = hit.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), new THREE.Vector3())
         if (p) res = this._solveFree(a, p, new THREE.Vector3(0, 1, 0))
       }
     }
+    a.near = res.proximity ? { id: res.targetId } : null
     a.result = res
     this._render(a, res)
     const name = res.targetId ? (useSceneStore.getState().objects.find(o => o.id === res.targetId)?.name ?? 'part') : ''
-    const key = res.status + '|' + name
+    const ptr = !!(a.placing || a.objectId)
+    const key = res.status + '|' + name + '|' + ptr
     if (key !== a.statusKey) {
       a.statusKey = key
+      const hint = ptr ? ' · Q/E spin · Z/C tilt · X reset · Esc cancel' : ''
       this._notify({
         status: res.status,
         ok: res.status === 'attach' || res.status === 'free',
-        text: STATUS_TEXT[res.status](name),
+        text: STATUS_TEXT[res.status](name, !!a.placing) + hint,
       })
     }
     sceneManager.requestRender()
   }
 
+  // Solve + validate a mount on `hit` (point, normal, rootId); edge fitting
+  // slides an overhanging base back onto the face.
+  _mountOn(a, hit, verdict) {
+    const target = objectManager.getMesh(hit.rootId)
+    // Reference frame for the auto alignment: the ROBOT's frame (its declared
+    // front = +Z, roll/pitch kept — robotFront.js), so a weapon lands pointing
+    // down the nose, not along whichever way the host part happens to face.
+    const refQuat = robotFrame(assemblyRootOf(hit.rootId)) ?? target.getWorldQuaternion(new THREE.Quaternion())
+    const solve = (point) => solveMount({ point, normal: hit.normal, refQuat, spec: a.spec, box: a.box, scale: a.scale, refState: a.refState, manual: a.manual })
+    let point = hit.point, sol = solve(point)
+    let probe = verdict === 'ok' ? this._probe(a, sol, point, hit.rootId) : { status: 'reject' }
+    if (probe.status === 'overhang') {
+      const fit = this._fit(a, sol, point, hit.rootId, probe, solve)
+      if (fit) { point = fit.point; sol = fit.sol; probe = fit.probe }
+    }
+    return { status: probe.status === 'ok' ? 'attach' : probe.status, sol, point, targetId: hit.rootId, proximity: !!hit.proximity }
+  }
+
   _solveFree(a, point, normal) {
-    const sol = solveMount({ point, normal, refQuat: new THREE.Quaternion(), spec: a.spec, box: a.box, scale: a.scale, refState: {} })
+    const sol = solveMount({ point, normal, refQuat: new THREE.Quaternion(), spec: a.spec, box: a.box, scale: a.scale, refState: {}, manual: a.manual })
     return { status: 'free', sol, point, targetId: null }
+  }
+
+  // Nearest robot surface to a ray that missed every robot: per host, the point
+  // of its oriented box closest to the ray (convex in t → ternary search), the
+  // box face it lies on, then a ray back onto the REAL mesh there for the true
+  // point + normal. Only within SNAP_PX on screen (SNAP_KEEP_PX for the host
+  // already snapped to, so the target doesn't flicker). `before` = distance to
+  // a non-mountable hit (floor plane) — a surface must be no farther away.
+  _nearSurface(a, ray, before = Infinity, excludeId = null) {
+    const cam = sceneManager.camera
+    if (!cam || !a.hosts?.length) return null
+    const B = a.bounds, toPx = (v) => { const p = v.clone().project(cam); return new THREE.Vector2((p.x + 1) / 2 * B.width, (1 - p.y) / 2 * B.height) }
+    const tMax = Math.min(400, Number.isFinite(before) ? before + 2 : 400)
+    let best = null
+    for (const h of a.hosts) {
+      if (h.id === excludeId) continue
+      const o = ray.origin.clone().applyMatrix4(h.inv)
+      const d = ray.origin.clone().add(ray.direction).applyMatrix4(h.inv).sub(o)
+      const pAt = (t) => o.clone().addScaledVector(d, t)
+      const gapW = (t) => { const p = pAt(t), q = p.clone().clamp(h.box.min, h.box.max); return p.applyMatrix4(h.world).distanceTo(q.applyMatrix4(h.world)) }
+      let lo = 0, hi = tMax
+      for (let i = 0; i < 48; i++) {
+        const m1 = lo + (hi - lo) / 3, m2 = hi - (hi - lo) / 3
+        if (gapW(m1) < gapW(m2)) hi = m2; else lo = m1
+      }
+      const t = (lo + hi) / 2
+      const p = pAt(t)
+      const q = p.clone().clamp(h.box.min, h.box.max)
+      if (p.distanceToSquared(q) < 1e-10) continue        // ray passes through the box but missed the mesh
+      const px = toPx(p.clone().applyMatrix4(h.world)).distanceTo(toPx(q.clone().applyMatrix4(h.world)))
+      const reach = a.near?.id === h.id ? SNAP_KEEP_PX : SNAP_PX
+      if (px > reach || (best && px >= best.px)) continue
+      // Which face: the axis the ray point lies furthest outside on (in world units).
+      let axis = 0, sign = 1, far = -1
+      for (let i = 0; i < 3; i++) {
+        const k = 'xyz'[i], out = p[k] < h.box.min[k] ? p[k] - h.box.min[k] : p[k] > h.box.max[k] ? p[k] - h.box.max[k] : 0
+        const w = Math.abs(out) * new THREE.Vector3().setComponent(i, 1).applyMatrix3(h.normalMat).length()
+        if (out !== 0 && w > far) { far = w; axis = i; sign = Math.sign(out) }
+      }
+      const nLocal = new THREE.Vector3().setComponent(axis, sign)
+      const nWorld = nLocal.clone().applyMatrix3(h.normalMat).normalize()
+      const qWorld = q.clone().applyMatrix4(h.world)
+      const reachW = a.box.getSize(new THREE.Vector3()).length() + 1
+      const rc = new THREE.Raycaster(qWorld.clone().addScaledVector(nWorld, reachW), nWorld.clone().negate(), 0, reachW * 2)
+      const hit = raycastFirst(rc, h.meshes)
+      if (!hit) continue
+      const fn = hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize()
+      if (fn.dot(nWorld) < 0) fn.negate()
+      best = { px, rootId: h.id, object: hit.object, point: hit.point.clone(), normal: fn, faceNormal: fn.clone(), ray, proximity: true }
+    }
+    return best
+  }
+
+  // Slide an overhanging footprint back onto the face: step away from the
+  // probes that found no support, re-resolving the surface point under the
+  // footprint centre each time. Bounded to about half the footprint so the
+  // part never wanders far from the pointer.
+  _fit(a, sol, point, targetId, probe, solve) {
+    const maxShift = Math.max(sol.halfForward, sol.halfSide) * a.spec.base * 1.6
+    const n = sol.normal
+    let p = point.clone(), s = sol, pr = probe
+    const target = a.rootInfo.find(r => r.id === targetId)
+    if (!target) return null
+    let len = Math.max(0.05, Math.max(s.halfForward, s.halfSide) * a.spec.base * 0.3)
+    let prev = null
+    for (let i = 0; i < FIT_STEPS && pr.status === 'overhang'; i++) {
+      if (!pr.away || pr.away.lengthSq() < 1e-8) return null
+      const dirAway = pr.away.clone().normalize()
+      if (prev && dirAway.dot(prev) < 0) len *= 0.5        // overshot a narrow face → finer steps
+      prev = dirAway
+      const cand = p.clone().addScaledVector(dirAway, len)
+      if (cand.distanceTo(point) > maxShift) return null
+      // the surface point under the shifted centre, on the same face
+      const rc = new THREE.Raycaster(cand.clone().addScaledVector(n, 0.5), n.clone().negate(), 0, 1)
+      const h = raycastFirst(rc, target.meshes)
+      if (!h) return null
+      const fn = h.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(h.object.matrixWorld)).normalize()
+      if (Math.abs(fn.dot(n)) < SUPPORT_NORMAL_DOT) return null
+      p = h.point.clone()
+      s = solve(p)
+      pr = this._probe(a, s, p, targetId)
+    }
+    return pr.status === 'ok' ? { point: p, sol: s, probe: pr } : null
   }
 
   // Which scene objects a part may mount on: structure only. Electronics boards,
@@ -401,18 +618,27 @@ class SurfaceMountManager {
 
     const rc = new THREE.Raycaster()
     rc.far = lift + tol
-    for (const o of origins) {
+    const away = new THREE.Vector3()      // direction back onto the face (from unsupported probes)
+    let overhang = false
+    for (let i = 0; i < origins.length; i++) {
+      const o = origins[i]
       rc.set(o, dir)
       const hit = raycastFirst(rc, meshes)
-      if (!hit) return 'overhang'
-      if (hit.distance < lift - tol) return 'blocked'
-      const fn = hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize()
-      if (fn.dot(dir) > 0) fn.negate()
-      if (fn.dot(sol.normal) < SUPPORT_NORMAL_DOT) return 'overhang'
-      const id = objectManager.resolveId(hit.object)
-      if (id !== targetId && this._verdict(id) !== 'ok') return 'blocked'
+      const off = o.clone().addScaledVector(sol.normal, -lift).sub(point)
+      let supported = !!hit
+      if (hit) {
+        if (hit.distance < lift - tol) return { status: 'blocked' }
+        const fn = hit.face.normal.clone().applyMatrix3(new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld)).normalize()
+        if (fn.dot(dir) > 0) fn.negate()
+        if (fn.dot(sol.normal) < SUPPORT_NORMAL_DOT) supported = false
+        else {
+          const id = objectManager.resolveId(hit.object)
+          if (id !== targetId && this._verdict(id) !== 'ok') return { status: 'blocked' }
+        }
+      }
+      if (!supported) { overhang = true; away.sub(off) }
     }
-    return 'ok'
+    return overhang ? { status: 'overhang', away } : { status: 'ok' }
   }
 
   // ── Preview visuals ───────────────────────────────────────────────────────

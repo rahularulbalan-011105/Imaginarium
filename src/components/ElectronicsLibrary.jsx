@@ -72,10 +72,17 @@ export default function ElectronicsLibrary() {
   const { snapshot } = useHistory()
   const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true, weapons: true })
   const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
-  const addPart = (type) => { addObject(type); snapshot() }
+  // Mountable parts (weapons): a click starts a placement session — the part
+  // follows the pointer over the viewport, snaps to robot surfaces, Q/E/Z/C
+  // rotate it, a click confirms. Everything else is added as before.
+  const addPart = (type) => {
+    if (isSurfaceMountable(type)) { surfaceMountManager.startPlacement(type); return }
+    addObject(type); snapshot()
+  }
 
   // Mountable parts (weapons) can also be DRAGGED onto a robot surface; the
-  // viewport routes the drag to SurfaceMountManager. Click still adds as before.
+  // viewport routes the drag to SurfaceMountManager. A click starts a
+  // pointer placement session (see addPart).
   const dragProps = (type) => isSurfaceMountable(type) ? {
     draggable: true,
     onDragStart: (e) => {
@@ -114,7 +121,7 @@ export default function ElectronicsLibrary() {
                         data-tour={`elec-${type}`}
                         onClick={() => addPart(type)}
                         {...dragProps(type)}
-                        title={`${label}\n${purpose}\nCommonly used for: ${usage}${isSurfaceMountable(type) ? '\nDrag onto a robot to mount it on that surface.' : ''}`}
+                        title={`${label}\n${purpose}\nCommonly used for: ${usage}${isSurfaceMountable(type) ? '\nClick, then point at a robot surface (Q/E spin · Z/C tilt) and click to mount — or drag it onto the robot.' : ''}`}
                         className="group flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg bg-gray-800/70 border border-transparent hover:border-green-500/40 hover:bg-green-500/10 transition-all duration-150 text-left"
                       >
                         <span className="text-lg leading-none shrink-0">{icon}</span>

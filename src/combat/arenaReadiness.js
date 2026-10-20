@@ -5,6 +5,7 @@ import { objectManager } from '../managers/ObjectManager.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { computeRobotStats } from './CombatStats.js'
 import { weaponForType, isWeaponType } from './weaponRegistry.js'
+import { resolveFront } from './robotFront.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Arena readiness — what the Battle panel shows before a match and what gates
@@ -32,6 +33,7 @@ export function assessRobot(rootId) {
   const root = byId.get(rootId)
   if (!root) { bad('The selected robot is no longer in the scene'); out.level = 'invalid'; return out }
   out.name = root.name || 'Robot'
+  { const r = resolveFront(rootId); out.front = r.front; out.frontAuto = r.auto }
 
   const members = assemblyMembers(rootId)
   out.parts = members.length
@@ -85,10 +87,11 @@ export function assessRobot(rootId) {
 export function assessMatch(playerId, opponentId) {
   const issues = []
   const player = assessRobot(playerId)
-  const opponent = opponentId === 'stock' ? null : assessRobot(opponentId)
+  const builtIn = opponentId === 'stock' || opponentId === 'file'   // spawned for the match (stock bot / opponent file)
+  const opponent = builtIn ? null : assessRobot(opponentId)
   if (!playerId) issues.push({ level: 'invalid', msg: 'Pick your robot' })
   if (!opponentId) issues.push({ level: 'invalid', msg: 'Pick an opponent' })
-  if (playerId && opponentId && opponentId !== 'stock') {
+  if (playerId && opponentId && !builtIn) {
     if (playerId === opponentId) issues.push({ level: 'invalid', msg: 'Pick two different robots' })
     else if (assemblyMembers(playerId).includes(opponentId) || assemblyMembers(opponentId).includes(playerId)) issues.push({ level: 'invalid', msg: 'Both picks are parts of the same robot' })
   }

@@ -14,6 +14,9 @@ import { r3, radToDeg, degToRad, snapRotationToAxes } from '../utils/helpers.js'
 import DimensionEditorPanel from './DimensionEditorPanel.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
 import FilletPanel from './FilletPanel.jsx'
+import { buildAssemblies } from '../utils/robotAssembly.js'
+import { FRONTS, FRONT_LABEL, resolveFront } from '../combat/robotFront.js'
+import { frontIndicator } from '../managers/FrontIndicator.js'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
   const handleChange = (axis) => (e) => {
@@ -188,11 +191,7 @@ export default function PropertiesPanel() {
 
   // Recursively propagate a parent-move to all bonded children (and their children).
   const cascadeBonds = (parentId, currentBonds) => {
-    Object.values(currentBonds).forEach(bond => {
-      if (bond.parentId !== parentId) return
-      const r = objectManager.propagateBond(parentId, bond.relativeMatrix, true, bond.childId)
-      if (r) { updateObject(bond.childId, r); cascadeBonds(bond.childId, currentBonds) }
-    })
+    for (const [cid, r] of objectManager.cascadeBondDescendants(parentId, currentBonds)) updateObject(cid, r)
   }
 
   const handleRigidAttach = () => {
@@ -300,17 +299,26 @@ export default function PropertiesPanel() {
     (updates) => {
       if (!selectedId) return
       updateObject(selectedId, updates)
-      // Keep bond relativeMatrix in sync when the bonded child is repositioned
       if (updates.position || updates.rotation) {
+        const mesh = objectManager.getMesh(selectedId)
+        const live = mesh && !objectManager.attachedObjects.has(selectedId)
+        const cur  = objects.find(o => o.id === selectedId)
+        // The untouched half of the pose comes from what's rendered (a bonded
+        // part follows its parent on screen), never an older store copy.
+        const pos  = updates.position ?? (live ? { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z } : cur?.position)
+        const rot  = updates.rotation ?? (live ? { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z } : cur?.rotation)
+        // Keep bond relativeMatrix in sync when the bonded child is repositioned
         const childBond = Object.values(bonds).find(b => b.childId === selectedId)
-        if (childBond) {
-          const cur  = objects.find(o => o.id === selectedId)
-          const pos  = updates.position ?? cur?.position
-          const rot  = updates.rotation ?? cur?.rotation
-          if (pos && rot) {
-            const relMat = objectManager.computeChildRelativeMatrix(childBond.parentId, pos, rot)
-            if (relMat) updateBond(childBond.id, { relativeMatrix: relMat })
-          }
+        if (childBond && pos && rot) {
+          const relMat = objectManager.computeChildRelativeMatrix(childBond.parentId, pos, rot)
+          if (relMat) updateBond(childBond.id, { relativeMatrix: relMat })
+        }
+        // …and carry everything bonded below it (mesh + store together).
+        if (live && pos && rot) {
+          mesh.position.set(pos.x, pos.y, pos.z)
+          mesh.rotation.set(rot.x, rot.y, rot.z)
+          if (!updates.position || !updates.rotation) updateObject(selectedId, { position: pos, rotation: rot })
+          for (const [cid, r] of objectManager.cascadeBondDescendants(selectedId, bonds)) updateObject(cid, r)
         }
       }
       // Rescaling a host: re-seat its surface-mounted parts flush (the mesh is
@@ -1182,6 +1190,40 @@ export default function PropertiesPanel() {
             Axis = which direction the object extends · angle = total arc
           </div>
         </div>
+      )}
+
+      {/* ── Robot front (which side drives forward / faces the enemy) ─────────── */}
+      {!isElectronics && (() => {
+        const asm = buildAssemblies().find(a => a.rootId === selectedId)
+        if (!asm || (asm.memberIds.length < 2 && obj.front === undefined)) return null
+        const { front, auto } = resolveFront(selectedId)
+        return (
+          <div className="mb-3" data-testid="robot-front">
+            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1.5">Robot front{auto && <span className="normal-case tracking-normal text-gray-500"> · auto (from weapons) — click to set</span>}</div>
+            <div className="flex gap-1">
+              {FRONTS.map(f => (
+                <button key={f} data-testid={`robot-front-${f}`}
+                  onClick={() => { updateObject(selectedId, { front: f }); frontIndicator.update(); snapshot() }}
+                  title={`The robot's ${FRONT_LABEL[f]} side (its own axis) is the nose: it drives forward and faces the enemy in Battle`}
+                  className={`flex-1 py-1 rounded text-[11px] font-semibold border transition-colors ${front === f ? 'bg-cyan-700/60 border-cyan-400 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900'}`}>
+                  {FRONT_LABEL[f]}
+                </button>
+              ))}
+            </div>
+            <div className="text-[10px] text-gray-500 mt-1 leading-snug">The cyan arrow shows the nose. It follows the robot when you rotate it; weapons aim along their own barrels.</div>
+          </div>
+        )
+      })()}
+
+      {/* ── Battle: can this attached part be shot off? (author metadata) ─────── */}
+      {Object.values(bonds).some(b => b.childId === selectedId) && (
+        <label className="mb-3 flex items-center gap-2 text-[11px] text-gray-300 cursor-pointer select-none" data-testid="part-breakable"
+          title="In Battle, an attached part whose mount takes enough damage breaks off and falls. Untick to make this part's mount unbreakable (it still takes marks and loses function).">
+          <input type="checkbox" checked={obj.breakable !== false}
+            onChange={(e) => { updateObject(selectedId, { breakable: e.target.checked ? undefined : false }); snapshot() }} />
+          Breakable in battle
+          <span className="text-[10px] text-gray-500">— can be shot off its mount</span>
+        </label>
       )}
 
       {/* ── Dimensions (editable W/H/D with one-sided scaling) ──────────────── */}

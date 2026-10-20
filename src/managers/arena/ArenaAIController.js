@@ -238,7 +238,7 @@ export class ArenaAIController {
     // ── Execute the current tactic ────────────────────────────────────────────
     // Aim point: perceived position + lead (projectile flight / reaction), with
     // the decision's persistent aim error. The lead can be wrong (leadSign).
-    const flight = pDef?.strategy === 'rocket' ? dist / (pDef.projectileSpeed || 55) : 0.12
+    const flight = pDef?.projectileSpeed ? dist / pDef.projectileSpeed : 0.12   // rockets + shells travel
     const lead = d.predict * flight * this._leadSign
     const ax = s.x + s.vx * lead, az = s.z + s.vz * lead
     const aimYaw = Math.atan2(ax - P.x, az - P.z) + this._aimError
@@ -296,7 +296,10 @@ export class ArenaAIController {
       fwd = dist < env.ideal + 6 && !this._wallBehind ? -0.8 : 0.25
     }
 
-    const yawErr = wrapAngle(desiredYaw - heading)
+    // The gun may not point down the nose (a weapon turned on its mount): steer
+    // so the GUN bears where the nose was meant to — and judge "aimed" on it.
+    const gunOff = weaponManager.weaponYawOffset(self.id)
+    const yawErr = wrapAngle(desiredYaw - heading - gunOff)
     // Positive yaw error = target to the LEFT; turn input +1 steers RIGHT
     // (CombatManager._drive: yaw rate = -turn · rate), so steer with the negative.
     out.turn = clamp(-yawErr * d.turnGain, -1, 1)
@@ -307,7 +310,7 @@ export class ArenaAIController {
     // ── Fire discipline ───────────────────────────────────────────────────────
     // "Aimed" is judged against where the AI BELIEVES the target is (aim error
     // and a small hand wobble included), so a bad read produces real misses.
-    const aimErrNow = Math.abs(wrapAngle(aimYaw + Math.sin(t * 3.1 + this._weavePhase) * d.wobble - heading))
+    const aimErrNow = Math.abs(wrapAngle(aimYaw + Math.sin(t * 3.1 + this._weavePhase) * d.wobble - heading - gunOff))
     const angularSize = Math.atan2((targetRobot.radius || 1.5) * 0.9, dist)
     const spread = ((pDef?.spreadDeg ?? 2) * Math.PI) / 180
     const tol = Math.max(0.03, d.aimTol * 0.5 + angularSize + spread * 0.4 + this._fireLoose)

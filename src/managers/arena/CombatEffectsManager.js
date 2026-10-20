@@ -147,7 +147,12 @@ export class CombatEffectsManager {
     }
     if (!point) point = center.clone().addScaledVector(dir, -((robot?.radius || 2) + 0.5))
 
-    let loc = this._damage.locate(targetId, point, dir)
+    // A shot already resolved to its component BEFORE damage (WeaponManager →
+    // resolveShot): use exactly that part / point / normal — never re-guess.
+    const pre = evt?.partId ? this._damage.partForId(targetId, evt.partId) : null
+    let loc = pre && evt.hitPoint && evt.hitNormal
+      ? { part: pre, point: new THREE.Vector3(evt.hitPoint.x, evt.hitPoint.y, evt.hitPoint.z), normal: new THREE.Vector3(evt.hitNormal.x, evt.hitNormal.y, evt.hitNormal.z), surface: true }
+      : this._damage.locate(targetId, point, dir)
     // Contact-type hits (a blast wave, a melee blow, a ram) strike the robot's
     // near side as a whole: if the registered line passed over the hull, find
     // where that side actually is. Bullets/pellets/flame get no such help — if
@@ -178,13 +183,19 @@ export class CombatEffectsManager {
     const hot = crit ? 0xfff2a0 : 0xffc879
     _bias.copy(dir).reflect(N)                                   // ricochet direction
     const info = { dealt, dir, point: P, normal: N, kick: 0, rock: 0 }
+    // A grazing round glanced off: a bright streak along the surface, a scratch
+    // instead of a hole (its reduced damage was already applied upstream).
+    if (evt?.ricochet && (kind === 'kinetic' || kind === 'pellet')) {
+      fx.sparks(P, _bias, { count: 7, speed: 18, spread: 0.25, color: 0xfff2c0, life: 0.22, bias: _bias })
+      arenaAudio.play('impact_light', { minGap: 0.08, level: 1 })
+    }
     let sound = null, gap = 0.04
     switch (kind) {
       case 'kinetic':
         fx.flash(P, { size: 0.24 * s, life: 0.05 })
         fx.sparks(P, N, { count: Math.round((crit ? 10 : 6) * s), speed: 15, spread: 0.55, color: hot, life: 0.2, bias: _bias })
         if (level >= 2 && Math.random() < 0.6) fx.debris(P, N, { count: 1, speed: 5, size: 0.07, life: 0.8, up: 2 })
-        info.mark = { type: 'bullet', size: 0.34 * s }; info.force = 0.3
+        info.mark = { type: evt?.ricochet ? 'wear' : 'bullet', size: (evt?.ricochet ? 0.22 : 0.34) * s }; info.force = 0.3
         info.kick = 0.3 * s; info.rock = 0.12 * s
         sound = 'impact_light'; gap = 0.05
         break
@@ -272,7 +283,7 @@ export class CombatEffectsManager {
     if (isPlayerTarget) this._addShake(armorBreak ? 0.22 : level === 1 ? 0.025 : level === 2 ? 0.07 : 0.2)
     else if (evt?.sourceId === this._playerId && level === 3) this._addShake(0.05)
 
-    this.lastImpact = { attackerId: evt?.sourceId ?? null, targetId, weapon: evt?.weaponKey ?? null, kind, dealt, level, point: P, normal: N, dir, partId: loc?.part?.id ?? null, onSurface: !!loc?.surface, state: res?.state ?? null, detached: !!res?.detached, mounts: (res?.mounts ?? []).map(m => ({ partId: m.part.id, state: m.state, failed: m.failed })) }
+    this.lastImpact = { attackerId: evt?.sourceId ?? null, targetId, weapon: evt?.weaponKey ?? null, kind, dealt, level, ricochet: !!evt?.ricochet, point: P, normal: N, dir, partId: loc?.part?.id ?? null, onSurface: !!loc?.surface, state: res?.state ?? null, detached: !!res?.detached, mounts: (res?.mounts ?? []).map(m => ({ partId: m.part.id, state: m.state, failed: m.failed })) }
     if (globalThis.__ARENA_DEBUG) console.debug('[impact]', this.lastImpact)
   }
 
@@ -316,6 +327,12 @@ export class CombatEffectsManager {
     this._hits.step(dt)
     this._numbers.update(this._camera, this._canvas)
   }
+
+  // ── Component model queries (RobotDamageView is the authority) ─────────────
+  resolveShot(robotId, entry, dir) { return this._damage.resolve(robotId, entry, dir) }
+  exitPoint(robotId, entry, dir) { return this._damage.exitPoint(robotId, entry, dir) }
+  partHealthForMesh(robotId, mesh) { const p = this._damage.partForMesh(robotId, mesh); return p ? this._damage.partHealth(p) : 1 }
+  driveState(robotId) { return this._damage.driveState(robotId) }
 
   // Dev/test introspection.
   stats() { return { ...this._hits.stats(), loose: this._damage.looseCount } }

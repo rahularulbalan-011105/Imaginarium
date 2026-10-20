@@ -18,6 +18,14 @@
 //   statusEffects: [{type,magnitude,durationMs,dps}]   // applied to the TARGET
 //   selfStatus:    [{type,magnitude,durationMs}]       // applied to the SHOOTER
 //   crit, critMul, muzzleY             // crit on exposed core / weapon mount height
+//   gravity                            // shells: drop (su/s²) — a gameplay value, not 1 g
+//   aim: { yawDeg, upDeg, downDeg, traverseDps, elevateDps }
+//                                      // how far / fast a MOUNTED weapon can swivel on its
+//                                      // mount toward the player's mouse aim point (left/right
+//                                      // about its mount-up axis, elevation/depression), in
+//                                      // degrees and degrees/second. A target outside the arc
+//                                      // is clamped (the HUD shows OUT OF ARC). No `aim` =
+//                                      // fixed weapon (fires straight down its barrel).
 //   mount: { up, forward, base }       // editor surface-mount spec (SurfaceMountManager):
 //                                      //   up/forward = model-local axes ('+x'…'-z'); the
 //                                      //   weapon sits on its -up side, barrel along forward.
@@ -45,7 +53,10 @@ export function weaponTypes() { return allWeapons().map(w => 'weapon_' + w.key) 
 registerWeapon({
   key: 'autocannon', name: 'Auto Cannon', class: 'sustained', model: 'weapon_autocannon',
   mount: { up: '+y', forward: '+x', base: 0.5 },
-  strategy: 'ray',
+  // Fast physical shells (travel time + slight drop; swept collision, damage
+  // only on an actual hit) — not an instant ray.
+  strategy: 'shell', projectileSpeed: 150, gravity: 12,
+  aim: { yawDeg: 40, upDeg: 22, downDeg: 12, traverseDps: 140, elevateDps: 90 },
   damage: { armor: 5, core: 3, stability: 1, heat: 0 },
   range: 70, fireRateHz: 8, magSize: 45, reloadMs: 1600,
   pellets: 1, spreadDeg: 1.6,          // progressive recoil grows this while firing
@@ -58,7 +69,8 @@ registerWeapon({
 registerWeapon({
   key: 'shotgun', name: 'Shotgun', class: 'burst', model: 'weapon_shotgun',
   mount: { up: '+y', forward: '+z', base: 0.5 },
-  strategy: 'ray',
+  strategy: 'ray',                     // hitscan pellets (short range)
+  aim: { yawDeg: 25, upDeg: 15, downDeg: 10, traverseDps: 160, elevateDps: 110 },
   damage: { armor: 6, core: 2, stability: 3, heat: 0 },   // per pellet
   range: 24, fireRateHz: 1.2, magSize: 6, reloadMs: 1800,
   pellets: 9, spreadDeg: 16,
@@ -72,7 +84,8 @@ registerWeapon({
 registerWeapon({
   key: 'rocket', name: 'Rocket Pod', class: 'area', model: 'weapon_rocket',
   mount: { up: '+y', forward: '+x', base: 0.5 },
-  strategy: 'rocket',
+  strategy: 'rocket',                  // self-propelled: straight flight, no drop
+  aim: { yawDeg: 30, upDeg: 30, downDeg: 10, traverseDps: 75, elevateDps: 60 },
   damage: { armor: 20, core: 14, stability: 20, heat: 6 },   // explosion, at centre
   range: 90, fireRateHz: 2.5, magSize: 3, reloadMs: 3200,
   burst: 3, spreadDeg: 3,
@@ -101,6 +114,7 @@ registerWeapon({
   key: 'flame', name: 'Flamethrower', class: 'denial', model: 'weapon_flame',
   mount: { up: '+y', forward: '+z', base: 0.5 },
   strategy: 'flame',
+  aim: { yawDeg: 35, upDeg: 15, downDeg: 15, traverseDps: 170, elevateDps: 120 },
   damage: { armor: 1, core: 1, stability: 1, heat: 0 },      // per tick per target
   range: 15, fireRateHz: 14, magSize: 140, reloadMs: 2600,
   pellets: 4, spreadDeg: 26,           // cone rays

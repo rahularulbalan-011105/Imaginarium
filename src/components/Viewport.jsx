@@ -25,6 +25,8 @@ import ExtrudePanel from './ExtrudePanel.jsx'
 import ViewGizmo from './ViewGizmo.jsx'
 import ViewportToolbox from './ViewportToolbox.jsx'
 import CombatHUD from './combat/CombatHUD.jsx'
+import { frontIndicator } from '../managers/FrontIndicator.js'
+import { buildAssemblies } from '../utils/robotAssembly.js'
 import DrivePanel from './DrivePanel.jsx'
 import { useHistory } from '../hooks/useHistory.js'
 import { driveManager } from '../managers/DriveManager.js'
@@ -60,6 +62,14 @@ export default function Viewport() {
   const extrudeState      = useUiStore((s) => s.extrudeState)
   const simActive         = useUiStore((s) => s.simActive)
   const arenaActive       = useCombatStore((s) => s.arenaActive)   // Battle arena owns the viewport chrome
+  // FRONT arrow: on the selected robot root (an assembly of 2+ parts, or any
+  // root with an explicit front); hidden while simulation / battle run.
+  useEffect(() => {
+    frontIndicator.suppress(simActive || arenaActive)
+    const asm = selectedId ? buildAssemblies().find(a => a.rootId === selectedId) : null
+    const obj = selectedId ? objects.find(o => o.id === selectedId) : null
+    frontIndicator.select(asm && (asm.memberIds.length >= 2 || obj?.front !== undefined) ? selectedId : null)
+  }, [selectedId, objects, simActive, arenaActive])
   const patches           = useSurfaceStore((s) => s.patches)
   const selectedPatchIds  = useSurfaceStore((s) => s.selectedIds)
   const addPatch          = useSurfaceStore((s) => s.addPatch)
@@ -86,6 +96,7 @@ export default function Viewport() {
 
   // Surface-mount drag (library drag-in or re-mounting a selected weapon).
   const [mountStatus, setMountStatus] = useState(null)   // { status, ok, text } | null
+  const [, setPlacing] = useState(false)                  // re-render hook for click-to-place
   const mountDragRef = useRef(null)                       // { id, x, y, started } while pressed
   const suppressClickRef = useRef(false)                  // swallow the click after a mount drag
 
@@ -159,6 +170,7 @@ export default function Viewport() {
       const tc = sceneManager.transformControls
       const mesh = tc?.object
       if (!mesh) return
+      frontIndicator.update()
 
       // ── Smart alignment snap (translate only) ─────────────────────────────
       // Magnetically nudge mesh.position into alignment with nearby objects
@@ -180,48 +192,16 @@ export default function Viewport() {
       // Propagate rigid bonds — when moving the parent, drag the child with it.
       // Do NOT reverse-propagate when a bond-child is dragged directly; its
       // relativeMatrix is updated in onDraggingChanged after the drag ends.
-      // Moving: rigid bonds move as ONE welded unit — grabbing either part moves both.
-      const allBonds = useRigidStore.getState().getBonds()
-
-      // Forward: dragging a parent drags its children (and their children).
-      for (const bond of allBonds) {
-        if (bond.parentId !== id) continue
-        const result = objectManager.propagateBond(id, bond.relativeMatrix, true, bond.childId)
-        if (result) updateObject(bond.childId, result)
-      }
-
-      // Reverse: MOVING a child drags its parent up the chain, so the whole
-      // bonded group follows. parentWorld = childWorld · relativeMatrix⁻¹.
-      // Rotate / scale edit only the selected part's own transform (a weapon
-      // turns on its mount, the chassis stays put); its bond is re-synced when
-      // the drag ends.
-      if (tc.mode !== 'translate') return
-      mesh.updateMatrixWorld(true)
-      let curId = id
-      let curWorld = mesh.matrixWorld.clone()
-      const seen = new Set([id])
-      for (let i = 0; i < 32; i++) {
-        const cb = allBonds.find(b => b.childId === curId && !seen.has(b.parentId))
-        if (!cb) break
-        const parentMesh = objectManager.getMesh(cb.parentId)
-        if (!parentMesh) break
-        const relInv = new THREE.Matrix4().fromArray(cb.relativeMatrix).invert()
-        const parentWorld = curWorld.clone().multiply(relInv)
-        const pPos = new THREE.Vector3(), pQuat = new THREE.Quaternion(), pScl = new THREE.Vector3()
-        parentWorld.decompose(pPos, pQuat, pScl)
-        const pe = new THREE.Euler().setFromQuaternion(pQuat)
-        updateObject(cb.parentId, { position: { x: pPos.x, y: pPos.y, z: pPos.z }, rotation: { x: pe.x, y: pe.y, z: pe.z } })
-        parentMesh.position.copy(pPos); parentMesh.quaternion.copy(pQuat); parentMesh.updateMatrixWorld(true)
-        // Forward-propagate from this parent to ITS other children (the dragged
-        // child's siblings) so they move too, this same frame.
-        for (const sib of allBonds) {
-          if (sib.parentId !== cb.parentId || sib.childId === curId) continue
-          const r = objectManager.propagateBond(cb.parentId, sib.relativeMatrix, true, sib.childId)
-          if (r) updateObject(sib.childId, r)
-        }
-        seen.add(cb.parentId)
-        curId = cb.parentId
-        curWorld = parentWorld
+      // A gizmo drag edits ONLY the dragged part (and whatever is mounted on it):
+      // moving / rotating / scaling an attached weapon, wheel or board never
+      // drags its parent. Its bond is re-derived from the new pose when the drag
+      // ends. To move the whole robot, drag its root (the chassis) — its bond
+      // children follow below.
+      // Forward: dragging a parent drags its children AND their children — mesh
+      // and store together, so a board on a plate on the chassis never keeps a
+      // stale logical pose.
+      for (const [cid, r] of objectManager.cascadeBondDescendants(id, useRigidStore.getState().getBonds())) {
+        updateObject(cid, r)
       }
     }
 
@@ -259,8 +239,26 @@ export default function Viewport() {
         const allBonds = useRigidStore.getState().getBonds()
         for (const bond of allBonds) {
           if (bond.childId === objectId) {
-            const newRel = objectManager.computeChildRelativeMatrix(bond.parentId, movedObj.position, movedObj.rotation)
-            if (newRel) useRigidStore.getState().updateBond(bond.id, { relativeMatrix: newRel })
+            // From the RENDERED pose (what the user sees and just released), never
+            // the store copy — a click on an arrow with no movement fires no
+            // objectChange, so the store could still hold an older pose.
+            const newRel = objectManager.computeChildRelativeMatrix(bond.parentId, mesh.position, mesh.rotation)
+            if (newRel) {
+              const patch = { relativeMatrix: newRel }
+              // A surface mount's contact frame (parent-local point + normal: the
+              // mount anchor used by re-seating and battle damage) rides with the
+              // part, so the mount stays under the moved / turned weapon.
+              if (bond.contactLocalCenter && Array.isArray(bond.relativeMatrix)) {
+                const delta = new THREE.Matrix4().fromArray(newRel).multiply(new THREE.Matrix4().fromArray(bond.relativeMatrix).invert())
+                const c = new THREE.Vector3(bond.contactLocalCenter.x, bond.contactLocalCenter.y, bond.contactLocalCenter.z).applyMatrix4(delta)
+                patch.contactLocalCenter = { x: c.x, y: c.y, z: c.z }
+                if (bond.contactLocalNormal) {
+                  const n = new THREE.Vector3(bond.contactLocalNormal.x, bond.contactLocalNormal.y, bond.contactLocalNormal.z).transformDirection(delta)
+                  patch.contactLocalNormal = { x: n.x, y: n.y, z: n.z }
+                }
+              }
+              useRigidStore.getState().updateBond(bond.id, patch)
+            }
             break
           }
         }
@@ -340,9 +338,51 @@ export default function Viewport() {
         surfaceMountManager.cancel()
         d.cancelled = true
         e.stopPropagation()
+        return
       }
+      // Pointer placement (click-to-place / re-mount drag): rotate the part
+      // before confirming. Captured so W/E/R/G/… editor shortcuts don't fire.
+      if (!surfaceMountManager.pointerSession) return
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key
+      const fine = e.shiftKey
+      if (k === 'Escape') { surfaceMountManager.cancel(); setPlacing(false) }
+      else if (k === 'q') surfaceMountManager.rotate('spin', 1, fine)
+      else if (k === 'e') surfaceMountManager.rotate('spin', -1, fine)
+      else if (k === 'z') surfaceMountManager.rotate('tilt', 1, fine)
+      else if (k === 'c') surfaceMountManager.rotate('tilt', -1, fine)
+      else if (k === 'x') surfaceMountManager.rotate('reset')
+      else return
+      e.preventDefault(); e.stopPropagation()
     }
     window.addEventListener('keydown', onMountKey, { capture: true })
+
+    // ── Click-to-place session (a library card was clicked) ─────────────────
+    // The part follows the pointer; left-click confirms, right-click / Esc
+    // cancels, the wheel spins it. Capture phase so orbit/gizmo/selection
+    // never see these events while placing.
+    const onPlaceMove = (e) => { if (surfaceMountManager.placing) surfaceMountManager.update(e.clientX, e.clientY) }
+    const onPlaceLeave = () => { if (surfaceMountManager.placing) surfaceMountManager.hide() }
+    const onPlaceDown = (e) => {
+      if (!surfaceMountManager.placing) return
+      e.preventDefault(); e.stopImmediatePropagation()
+      if (e.button === 0) {
+        surfaceMountManager.update(e.clientX, e.clientY)
+        surfaceMountManager.commit().finally(() => setPlacing(false))
+      } else { surfaceMountManager.cancel(); setPlacing(false) }
+      suppressClickRef.current = true
+      setTimeout(() => { suppressClickRef.current = false }, 0)
+    }
+    const onPlaceWheel = (e) => {
+      if (!surfaceMountManager.pointerSession) return
+      e.preventDefault(); e.stopImmediatePropagation()
+      surfaceMountManager.rotate('spin', e.deltaY > 0 ? -1 : 1, e.shiftKey)
+    }
+    const onPlaceContext = (e) => { if (surfaceMountManager.placing) e.preventDefault() }
+    canvas.addEventListener('pointermove', onPlaceMove, { capture: true })
+    canvas.addEventListener('pointerleave', onPlaceLeave)
+    canvas.addEventListener('pointerdown', onPlaceDown, { capture: true })
+    canvas.addEventListener('wheel', onPlaceWheel, { capture: true, passive: false })
+    canvas.addEventListener('contextmenu', onPlaceContext)
 
     const tryBeginMountDrag = (e, bounds) => {
       if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return false
@@ -398,6 +438,11 @@ export default function Viewport() {
       canvas.removeEventListener('mousedown', captureDown, { capture: true })
       canvas.removeEventListener('mousemove', captureMove, { capture: true })
       window.removeEventListener('keydown', onMountKey, { capture: true })
+      canvas.removeEventListener('pointermove', onPlaceMove, { capture: true })
+      canvas.removeEventListener('pointerleave', onPlaceLeave)
+      canvas.removeEventListener('pointerdown', onPlaceDown, { capture: true })
+      canvas.removeEventListener('wheel', onPlaceWheel, { capture: true })
+      canvas.removeEventListener('contextmenu', onPlaceContext)
       canvas.removeEventListener('pointerdown', capturePointerDown, { capture: true })
       endMountDrag()
       surfaceMountManager.cancel()

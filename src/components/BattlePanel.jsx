@@ -10,6 +10,8 @@ import { useCombatStore } from '../stores/combatStore.js'
 import { assessMatch } from '../combat/arenaReadiness.js'
 import { readJSONFile } from '../utils/export.js'
 import { trackEvent } from '../utils/utmTracking.js'
+import { FRONTS as ROBOT_FRONTS, FRONT_LABEL } from '../combat/robotFront.js'
+import { frontIndicator } from '../managers/FrontIndicator.js'
 
 function HPBar({ side, name, hp, lives, color, you }) {
   return (
@@ -200,6 +202,9 @@ function ArenaSetup({ candidates }) {
   const [difficulty, setDifficulty] = useState(() => { try { return localStorage.getItem('arena.difficulty') || 'normal' } catch { return 'normal' } })
   const [importing, setImporting] = useState(false)
   const importRef = useRef(null)
+  // An opponent loaded from a robot JSON file (kept in memory, spawned per match).
+  const [fileOpp, setFileOpp] = useState(null)   // { name, parts, data }
+  const oppImportRef = useRef(null)
 
   // Keep the picks valid as the scene changes; default to the biggest robot.
   useEffect(() => {
@@ -208,15 +213,20 @@ function ArenaSetup({ candidates }) {
       const biggest = [...candidates].sort((a, b) => assemblyMembers(b.id).length - assemblyMembers(a.id).length)[0]
       setPlayerId(biggest.id)
     }
-    if (opponentId !== 'stock' && !candidates.find(c => c.id === opponentId)) setOpponentId('stock')
+    if (opponentId !== 'stock' && opponentId !== 'file' && !candidates.find(c => c.id === opponentId)) setOpponentId('stock')
   }, [candidates, playerId, opponentId])
 
   const match = useMemo(() => assessMatch(playerId, opponentId), [playerId, opponentId, candidates]) // eslint-disable-line react-hooks/exhaustive-deps
+  const updateObject = useSceneStore(s => s.updateObject)
+  // Show the FRONT arrow on the picked robot while this panel is open.
+  useEffect(() => { frontIndicator.pin(arenaActive ? null : playerId); return () => frontIndicator.pin(null) }, [playerId, arenaActive])
+  useEffect(() => { frontIndicator.update() }, [candidates])
   const canStart = match.level !== 'invalid' && !arenaActive
 
   const pickDifficulty = (d) => { setDifficulty(d); try { localStorage.setItem('arena.difficulty', d) } catch { /* private mode */ } }
   const start = () => {
     if (!canStart) return
+    if (opponentId === 'file' && fileOpp) { combatManager.startArena([playerId], { difficulty, opponentData: fileOpp.data }); return }
     const ids = opponentId === 'stock' ? [playerId] : [playerId, opponentId]
     combatManager.startArena(ids, { difficulty, stock: opponentId === 'stock' })
   }
@@ -236,6 +246,25 @@ function ArenaSetup({ candidates }) {
     } catch (err) {
       alert(`Couldn't import that file: ${err?.message || 'invalid JSON'}. Export a robot from Robot Builder (File → Export JSON) and try again.`)
     } finally { setImporting(false) }
+  }
+
+  // Load an OPPONENT from a robot JSON: your project is left as it is; the
+  // file's robot is added for each match only (like the stock bot).
+  const onImportOpponent = async (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    try {
+      const data = await readJSONFile(file)
+      if (!data || !Array.isArray(data.objects) || !data.objects.length) throw new Error('not a robot/project file')
+      const roots = data.objects.filter(o => !Object.values(data.rigid?.bonds || {}).some(b => b.childId === o.id) && !(data.electronics?.attachments || {})[o.id])
+      const name = (roots.find(o => Object.values(data.rigid?.bonds || {}).some(b => b.parentId === o.id)) || roots[0] || data.objects[0])?.name || data.name || file.name
+      setFileOpp({ name, parts: data.objects.length, data })
+      setOpponentId('file')
+      trackEvent('arena_import_opponent', { parts: data.objects.length })
+    } catch (err) {
+      alert(`Couldn't load that opponent: ${err?.message || 'invalid JSON'}. Use a robot exported from Robot Builder (File → Export JSON).`)
+    }
   }
 
   if (arenaActive) {
@@ -285,6 +314,13 @@ function ArenaSetup({ candidates }) {
             <Stat label="weapons" value={pr.weapons.length} />
             <Stat label="class" value={pr.stats ? `${pr.stats.class} · ${pr.stats.mass.toFixed(1)} kg` : '—'} />
           </div>
+          <div className="flex items-center gap-1" title="Which side of the robot is its nose (drives forward, faces the enemy). The cyan arrow in the viewport shows it.">
+            <span className="text-[9px] uppercase tracking-wider text-gray-500 w-10" title={pr.frontAuto ? 'Not set — inferred from the mounted weapons (click one to fix it)' : 'Set on the robot'}>front{pr.frontAuto ? '*' : ''}</span>
+            {ROBOT_FRONTS.map(f => (
+              <button key={f} data-testid={`arena-front-${f}`} onClick={() => { updateObject(playerId, { front: f }); frontIndicator.update() }}
+                className={`flex-1 py-0.5 rounded text-[10px] font-semibold border ${pr.front === f ? 'bg-cyan-700/60 border-cyan-400 text-white' : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900'}`}>{FRONT_LABEL[f]}</button>
+            ))}
+          </div>
           <div className="text-[10px] text-gray-300">
             <span className="text-gray-500">LMB</span> {pr.primary ? pr.primary.name : <span className="text-amber-300">none</span>}
             <span className="text-gray-600"> · </span>
@@ -307,8 +343,12 @@ function ArenaSetup({ candidates }) {
         <select value={opponentId ?? 'stock'} onChange={e => setOpponentId(e.target.value)} data-testid="arena-opponent"
           className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 px-2 py-1.5 focus:outline-none" style={{ borderColor: '#ef4444' }}>
           <option value="stock">Stock bot — Scrapper (AI, auto cannon)</option>
+          {fileOpp && <option value="file">{fileOpp.name} — from file (AI, {fileOpp.parts} parts)</option>}
           {candidates.filter(c => c.id !== playerId).map(o => <option key={o.id} value={o.id}>{o.name} (AI)</option>)}
         </select>
+        <button onClick={() => oppImportRef.current?.click()} data-testid="arena-import-opponent-btn" title="Fight a robot from a JSON file (Robot Builder export) — your own project is not replaced"
+          className="mt-1 w-full py-1 rounded text-[10px] font-semibold bg-gray-700 hover:bg-gray-600 text-gray-100">⬆ Import opponent JSON</button>
+        <input ref={oppImportRef} type="file" accept=".json,application/json" className="hidden" onChange={onImportOpponent} data-testid="arena-import-opponent" />
         {match.opponent && match.opponent.issues.filter(i => i.level === 'invalid').map((i, k) => (
           <div key={k} className="text-[10px] text-red-300 mt-1">✖ Opponent: {i.msg}</div>
         ))}

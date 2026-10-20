@@ -1,3 +1,4 @@
+import { robotSizeMetric } from '../../combat/robotScale.js'
 import * as THREE from 'three'
 import { physicsManager } from '../physics/PhysicsManager.js'
 import { ArenaCameraRig } from './ArenaCameraRig.js'
@@ -47,7 +48,12 @@ export class ArenaCameraManager {
     }
     if (orbitControls) orbitControls.enabled = false
 
-    this._rig.configure(camera, this._playerId, CAMERA_MODES[this._mode])
+    // Rig distances are tuned for a ~4 su robot; a bigger robot would fill the
+    // view (and hide what you aim at), so scale the arm / height / look points
+    // by its size. Never below 1 — normal robots keep the tuned framing.
+    const sz = playerRobot?.size
+    const k = sz ? Math.min(2.5, Math.max(1, Math.pow(robotSizeMetric(sz) / REF_ROBOT_SIZE, 0.75))) : 1
+    this._rig.configure(camera, this._playerId, CAMERA_MODES[this._mode], k)
 
     // Mode hotkeys + free-orbit mouse.
     this._onKey = (e) => {
@@ -119,5 +125,7 @@ export class ArenaCameraManager {
     this.shake.reset()
   }
 }
+
+const REF_ROBOT_SIZE = 4.2   // su — the robot size the camera modes were tuned on
 
 export const arenaCameraManager = new ArenaCameraManager()

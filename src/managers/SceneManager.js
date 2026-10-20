@@ -13,6 +13,10 @@ import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useJointStore } from '../stores/jointStore.js'
 import { useGearStore } from '../stores/gearStore.js'
 
+// Transform-gizmo screen size (TransformControls' `size`; 1 = library default).
+// Constant: the control already normalises for camera distance itself.
+const GIZMO_SIZE = 0.6
+
 class SceneManager {
   constructor() {
     this.scene = null
@@ -96,9 +100,13 @@ class SceneManager {
     // Any camera move (incl. inertial damping frames) keeps the renderer awake.
     this.orbitControls.addEventListener('change', () => this.requestRender())
 
-    // TransformControls — smaller, elegant gizmo
+    // TransformControls — compact gizmo. TransformControls itself already keeps
+    // the gizmo a constant size ON SCREEN (it scales its handles by the camera
+    // distance every frame), so `size` is a fixed screen-size factor and must
+    // NOT be re-scaled with distance — doing that shrank the gizmo to a speck
+    // buried inside the selected part whenever you zoomed in on it.
     this.transformControls = new TransformControls(this.camera, this.renderer.domElement)
-    this.transformControls.size = 0.25
+    this.transformControls.size = GIZMO_SIZE
     this.transformControls.addEventListener('dragging-changed', (e) => {
       this.orbitControls.enabled = !e.value
       this.requestRender()
@@ -134,7 +142,6 @@ class SceneManager {
     const tick = () => {
       this.animationId = requestAnimationFrame(tick)
       this.orbitControls?.update()
-      this._updateGizmoScale()
       try { wireManager.update() } catch (_) { /* never block motor tick */ }
       try { objectManager.updateWires() } catch (_) { /* never block motor tick */ }
       try { if (this.onAnimationTick) this.onAnimationTick() } catch (e) { console.error('[tick]', e) }
@@ -149,18 +156,6 @@ class SceneManager {
       }
     }
     tick()
-  }
-
-  // Keep the transform gizmo a constant apparent screen size by scaling with
-  // the camera-to-object distance. Without this, arrows look huge when zoomed
-  // in and tiny when zoomed out.
-  _updateGizmoScale() {
-    const tc = this.transformControls
-    if (!tc?.object) return
-    const dist = this.camera.position.distanceTo(tc.object.position)
-    // ~14% of the distance gives a compact, professional-looking gizmo.
-    // Clamp so it never becomes invisible or overwhelmingly large.
-    tc.size = Math.max(0.15, Math.min(0.6, dist * 0.07))
   }
 
   stopLoop() {

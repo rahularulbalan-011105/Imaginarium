@@ -11,8 +11,11 @@ async function getRapier() {
 }
 
 // Collision groups ((memberships << 16) | filter). Everything defaults to "all";
-// combat robots are group 0, loose combat debris is group 1. Debris ignores
-// robots, and raycast() ignores debris.
+// combat robots are group 0, loose combat debris is group 1. Debris collides with
+// the floor, walls and other debris but NOT robots (a part knocked off a chassis
+// top would otherwise land back on it and ride along, reading as still attached),
+// and raycast() ignores debris — wreckage never blocks shots, AI line of sight or
+// the chase camera.
 const ROBOT_GROUPS  = (0x0001 << 16) | 0xFFFF
 const DEBRIS_GROUPS = (0x0002 << 16) | 0xFFFE
 const QUERY_GROUPS  = 0xFFFFFFFD            // all memberships, filter = all but debris
@@ -185,8 +188,9 @@ class PhysicsManager {
   /**
    * A loose combat part (a component torn off a robot): a free dynamic box that
    * tumbles, lands on the floor and is stopped by the arena walls. It never
-   * collides with robots and is invisible to raycast() — wreckage must not block
-   * driving, shots, AI line of sight or the chase camera.
+   * passes through robots, and is invisible to raycast() — wreckage must not block
+   * shots, AI line of sight or the chase camera. `mass` = the part's own share of
+   * its robot's mass, so a heavy wheel and a small board move differently.
    */
   createDebrisBody(id, position, halfExtents, mass = 0.35) {
     if (!this.ready) return null
@@ -209,6 +213,17 @@ class PhysicsManager {
     return body
   }
 
+  /** Change a body's mass (its first collider), e.g. a robot that lost a part. */
+  setBodyMass(id, mass) {
+    const b = this._bodies.get(id)
+    if (!b || !(mass > 0)) return false
+    const c = b.collider(0)
+    if (!c?.setMass) return false
+    c.setMass(mass)
+    b.recomputeMassPropertiesFromColliders?.()   // the body keeps its old mass until recomputed
+    return true
+  }
+
   /** Apply a linear impulse (scene-unit·mass) at the body's centre of mass. */
   applyImpulse(id, imp) {
     const b = this._bodies.get(id)
@@ -229,8 +244,16 @@ class PhysicsManager {
     if (!this.ready) return null
     const R   = this._R
     const ray = new R.Ray(origin, dir)
-    const excl = excludeId != null ? this._bodies.get(excludeId) : null
-    const hit = this.world.castRay(ray, maxToi, true, undefined, QUERY_GROUPS, undefined, excl || undefined)
+    // excludeId: one id, or a list (a shot that passed THROUGH a robot's box
+    // without meeting its geometry continues, excluding shooter + that robot).
+    const list = Array.isArray(excludeId) ? excludeId.filter(x => x != null) : null
+    const excl = !list && excludeId != null ? this._bodies.get(excludeId) : (list && list.length === 1 ? this._bodies.get(list[0]) : null)
+    let pred
+    if (list && list.length > 1) {
+      const handles = new Set(list.map(id => this._bodies.get(id)?.handle).filter(h => h != null))
+      pred = (collider) => { const rb = collider.parent?.(); return !(rb && handles.has(rb.handle)) }
+    }
+    const hit = this.world.castRay(ray, maxToi, true, undefined, QUERY_GROUPS, undefined, excl || undefined, pred)
     if (!hit) return null
     const collider = hit.collider
     const rb = collider?.parent?.() ?? collider?.parent

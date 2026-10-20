@@ -21,7 +21,16 @@ import { CombatEffectsManager } from './arena/CombatEffectsManager.js'
 import { ArenaAIController } from './arena/ArenaAIController.js'
 import { arenaAudio } from './arena/ArenaAudio.js'
 import { smoothDampScalar } from './arena/smoothing.js'
-import { spawnStockOpponent, removeStockOpponent } from '../combat/stockOpponent.js'
+import { spawnStockOpponent, spawnOpponentFromProject, removeStockOpponent } from '../combat/stockOpponent.js'
+import { expandByRobust } from '../utils/robustBounds.js'
+import { robotHeading } from '../combat/robotFront.js'
+import { useUiStore } from '../stores/uiStore.js'
+import { useRigidStore } from '../stores/rigidStore.js'
+import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { driveManager } from './DriveManager.js'
+import { simulationManager } from './SimulationManager.js'
+import { loadWeaponModel } from '../utils/modelLoader.js'
+import { aiScaleFor } from '../combat/robotScale.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CombatManager — Stage 1 of the physics-based Arena mode.
@@ -80,7 +89,18 @@ class CombatManager {
     this._stats = {}           // id -> { hits, dealt, taken, partsLost }
     // HUD aim state, mutated per frame (the crosshair reads it imperatively —
     // no React state per frame). Screen px of the player's real firing ray.
-    this.aim = { visible: false, x: 0, y: 0, onTarget: false, inRange: false, dist: 0, range: 0, ready: false, reloading: false, weapon: null, blocked: false }
+    this.aim = {
+      visible: false, x: 0, y: 0,            // crosshair = the mouse (screen px)
+      onTarget: false,                       // the mouse ray is on an enemy robot
+      impactVisible: false, ix: 0, iy: 0,    // where the head weapon's REAL barrel ray lands
+      willHit: false,                        // …and that ray meets an enemy in range
+      outOfArc: false,                       // aim point beyond the weapon's swivel limits
+      inRange: false, dist: 0, range: 0, ready: false, reloading: false, weapon: null, blocked: false,
+    }
+    this.aimPoint = null       // world aim point under the mouse (THREE.Vector3)
+    this.aimTargetId = null    // robot id under the mouse, if any
+    this._pointer = { x: 0, y: 0, has: false }
+    this._raycaster = new THREE.Raycaster()
   }
 
   get isActive() { return this._active }
@@ -93,10 +113,19 @@ class CombatManager {
   // list holds only the player's robot, fight a built-in stock AI opponent.
   startArena(robotIds, opts = {}) {
     let ids = (robotIds || []).filter(Boolean)
-    const stock = !!opts.stock && ids.length === 1
-    if (ids.length < 2 && !stock) { console.warn('[Combat] need at least 2 robots'); return }
+    // opts.opponentData: a robot/project JSON (parsed) to fight as the AI —
+    // spawned for this match only, like the stock bot (transient parts).
+    const fileOpp = opts.opponentData && ids.length === 1 ? opts.opponentData : null
+    const stock = !fileOpp && !!opts.stock && ids.length === 1
+    if (ids.length < 2 && !stock && !fileOpp) { console.warn('[Combat] need at least 2 robots'); return }
     if (this._active || this._over || useCombatStore.getState().arenaActive) this.stop()   // no re-entry orphans
-    this._config = { ids: [...ids], difficulty: opts.difficulty || 'normal', stock }
+    // ONE owner of the robot meshes: a running Simulation re-parents every part
+    // into its drive group (or gives each part its own free-fall body) and moves
+    // them every frame — left running, it and the arena would both drive the same
+    // meshes and the robot comes apart. End it through its own exit path first
+    // (restores the design pose, removes its bodies / group), then build.
+    this._endSimulation()
+    this._config = { ids: [...ids], difficulty: opts.difficulty || 'normal', stock, opponentData: fileOpp }
     trackEvent('arena_started', { robots: ids.length + (stock ? 1 : 0), difficulty: this._config.difficulty, stock })
     useCombatStore.getState().sync({ arenaActive: true, status: 'loading', message: '', winnerTeam: null, difficulty: this._config.difficulty, result: null, paused: false, elapsed: 0, notices: [] })
     const token = this._startToken = (this._startToken || 0) + 1
@@ -104,6 +133,9 @@ class CombatManager {
       .then(() => physicsManager.init())
       .then(async () => {
         if (stock) { const so = await spawnStockOpponent('brawler'); this._stockIds = so.ids; ids = [ids[0], so.rootId] }
+        else if (fileOpp) { const so = await spawnOpponentFromProject(fileOpp); this._stockIds = so.ids; ids = [ids[0], so.rootId] }
+        // Weapons need their REAL model before muzzles / swivel axes are measured.
+        await this._weaponsReady(ids)
       })
       .then(() => {
         if (token !== this._startToken || !useCombatStore.getState().arenaActive) return   // cancelled meanwhile
@@ -112,13 +144,40 @@ class CombatManager {
       .catch((e) => { console.error('[Combat] arena start failed:', e); this.stop() })
   }
 
+  // Resolve once every weapon part on these robots shows its real GLB (or its
+  // model is missing for good) — bounded by frames, never a guessed delay.
+  async _weaponsReady(ids) {
+    const byId = new Map(useSceneStore.getState().objects.map(o => [o.id, o]))
+    const parts = ids.flatMap(id => assemblyMembers(id)).filter(id => isWeaponType(byId.get(id)?.type))
+    await Promise.all([...new Set(parts.map(id => byId.get(id).type))].map(t => loadWeaponModel(t).catch(() => null)))
+    const nextFrame = () => new Promise(r => requestAnimationFrame(() => r()))
+    for (let i = 0; i < 120; i++) {
+      if (parts.every(id => { const m = objectManager.getMesh(id); return !m || m.userData.modelReady })) return
+      await nextFrame()
+    }
+  }
+
+  _endSimulation() {
+    if (simulationManager.isRunning?.()) {
+      simulationManager.stop()
+      useElectronicsStore.getState().stopSimulation?.()
+    }
+    if (useUiStore.getState().simActive) {
+      // Exit now (synchronously) — the App's simActive effect runs after React
+      // re-renders, too late for the build that follows. exit() is idempotent,
+      // so the effect's own call later is a no-op.
+      driveManager.exit((id, updates) => useSceneStore.getState().updateObject(id, updates))
+      useUiStore.getState().setSimActive(false)
+    }
+  }
+
   // Same robots, same difficulty, fresh everything (damage, loose parts, marks,
   // timers, input). The user's design is restored by stop() first.
   restart() {
     const cfg = this._config
     if (!cfg) return
     this.stop()
-    this.startArena(cfg.ids, { difficulty: cfg.difficulty, stock: cfg.stock })
+    this.startArena(cfg.ids, { difficulty: cfg.difficulty, stock: cfg.stock, opponentData: cfg.opponentData })
   }
 
   // Esc / HUD pause. Freezes the simulation (no input, AI, weapons, physics),
@@ -129,6 +188,7 @@ class CombatManager {
     if (next === this._paused) return
     this._paused = next
     this._releaseInput()
+    if (next) this._setCursorHidden(false)
     if (next) { this._pauseAt = performance.now(); arenaAudio.stopMove() }
     else { this._pausedFor += performance.now() - this._pauseAt; this._last = performance.now() }
     useCombatStore.getState().sync({ paused: next })
@@ -138,6 +198,11 @@ class CombatManager {
     // Drop focus from the launch button so Space/Enter fire weapons instead of
     // re-activating the focused button.
     if (typeof document !== 'undefined' && document.activeElement?.blur) document.activeElement.blur()
+    // Capture from the CANONICAL assembly: bonds are the authority for where a
+    // bonded part sits (the editor loop re-applies them every frame). A build
+    // can run between frames — right after a gizmo drag, or after a simulation
+    // exit baked its last pose — so apply them here first, then snapshot.
+    objectManager.propagateAllBonds(useRigidStore.getState().getBonds())
     this._saveOrig(ids.flatMap(id => assemblyMembers(id)))
     // The editor's selection/gizmo would sit on a fighting part.
     useSceneStore.getState().clearSelection()
@@ -147,11 +212,22 @@ class CombatManager {
     this._robots = []
     this._actors = {}
     const n = ids.length
+    // Measure every robot as built (unscaled editor pose), then size the AI
+    // opponent(s) to the player's robot — the player is never scaled. One
+    // uniform factor per AI, applied once at capture; stop() restores it, so a
+    // restart re-measures the original and never compounds.
+    const measured = ids.map(id => this._measureRobot(id))
+    const pSize = measured[0]?.box.getSize(new THREE.Vector3())
+    const scales = ids.map((id, i) => (i === 0 || !measured[i] || !pSize) ? 1 : aiScaleFor(pSize, measured[i].box.getSize(new THREE.Vector3())))
+    // Spawn far enough apart for the (scaled) footprints, inside the walls.
+    const radius = (i) => { const m = measured[i]; if (!m) return 1.5; const sz = m.box.getSize(new THREE.Vector3()).multiplyScalar(scales[i]); return Math.max(sz.x, sz.z) / 2 }
+    const rMax = Math.max(...ids.map((_, i) => radius(i)))
+    const spawnR = Math.min(Math.max(SPAWN_X, (n === 2 ? (radius(0) + radius(1)) / 2 : rMax) + 3), Math.max(2, ARENA_HALF - rMax - 1))
     ids.forEach((id, i) => {
-      const startX = n === 2 ? (i === 0 ? -SPAWN_X : SPAWN_X)
-                             : Math.cos((i / n) * Math.PI * 2) * SPAWN_X
-      const startZ = n === 2 ? 0 : Math.sin((i / n) * Math.PI * 2) * SPAWN_X
-      const robot = this._captureRobot(id, startX, startZ)
+      const startX = n === 2 ? (i === 0 ? -spawnR : spawnR)
+                             : Math.cos((i / n) * Math.PI * 2) * spawnR
+      const startZ = n === 2 ? 0 : Math.sin((i / n) * Math.PI * 2) * spawnR
+      const robot = this._captureRobot(id, startX, startZ, scales[i], measured[i])
       if (!robot) return
       this._robots.push(robot)
       const name = useSceneStore.getState().objects.find(o => o.id === id)?.name || 'Robot'
@@ -163,6 +239,8 @@ class CombatManager {
     })
 
     if (this._robots.length < 2) { this.stop(); return }
+    const ai = this._robots[1]
+    if (ai && ai.scale !== 1) console.log(`[Combat] AI "${useSceneStore.getState().objects.find(o => o.id === ai.id)?.name}" scaled ×${ai.scale.toFixed(2)} to match the player's robot`)
 
     // ── Player vs AI: robot[0] is the LOCAL PLAYER, robot[1] is the AI enemy.
     // (Any extra robots idle until multi-AI; the seam already supports N.)
@@ -212,10 +290,20 @@ class CombatManager {
       getRobot: (id) => this._robots.find(r => r.id === id),
       getActor: (id) => this._actors[id],
       onFire: (id, def, mesh) => this._effects.onFire(id, def, id === this._playerId, mesh),
+      // The robot component model (RobotDamageView via the effects seam) is the
+      // one authority for which part a shot meets and how well a part works.
+      resolveShot: (id, entry, dir) => this._effects.resolveShot(id, entry, dir),
+      exitPoint: (id, entry, dir) => this._effects.exitPoint(id, entry, dir),
+      partHealth: (id, mesh) => this._effects.partHealthForMesh(id, mesh),
     })
     for (const r of this._robots) {
       weaponManager.equip(r.id, r.weapons)   // every mounted weapon part
+      for (const mv of r.movers) mv.aim = weaponManager.instForMesh(mv.mesh)   // its swivel (aimQ) rides on the mounted pose
     }
+    // Mouse-aim raycast set: the arena + every OTHER robot (never your own).
+    this._aimMeshes = [this._arena, ...this._robots.filter(r => r.id !== this._playerId).flatMap(r => r.movers.map(mv => mv.mesh))].filter(Boolean)
+    this._meshOwner = new Map()
+    for (const r of this._robots) for (const mv of r.movers) this._meshOwner.set(mv.mesh, r.id)
     this._ai.configure({ level: this._config?.difficulty || 'normal' })
     this._stats = {}
     for (const id in this._actors) this._stats[id] = { hits: 0, dealt: 0, taken: 0, partsLost: 0 }
@@ -234,7 +322,7 @@ class CombatManager {
       canvas: sceneManager.renderer?.domElement, shake: arenaCameraManager.shake,
       getRobot: (id) => this._robots.find(r => r.id === id),
       getActor: (id) => this._actors[id], playerId: this._playerId, robots: this._robots,
-      onDetach: (robotId, mesh) => this._onPartDetached(robotId, mesh),
+      onDetach: (robotId, mesh, part) => this._onPartDetached(robotId, mesh, part),
     })
     arenaAudio.resume()
 
@@ -257,16 +345,22 @@ class CombatManager {
 
   // A part was physically torn off a robot (RobotDamageView → its own rigid body).
   // It stops riding the chassis, and a lost weapon can no longer fire.
-  _onPartDetached(robotId, mesh) {
+  _onPartDetached(robotId, mesh, part = null) {
     const r = this._robots.find(x => x.id === robotId)
     if (!r) return
     const i = r.movers.findIndex(mv => mv.mesh === mesh)
     if (i >= 0) r.movers.splice(i, 1)
+    // The robot no longer carries that part's mass (bounded: the chassis stays).
+    if (part?.mass > 0 && r.mass > 0) {
+      const m = Math.max((r.mass0 || r.mass) * 0.4, r.mass - part.mass)
+      if (physicsManager.setBodyMass(r.bodyId, m)) { r.inertiaY *= m / r.mass; r.mass = m }
+    }
+    this._aimMeshes = this._aimMeshes?.filter(x => x !== mesh) ?? null
     const wasWeapon = weaponManager.dropWeapon(robotId, mesh)
     if (this._stats[robotId]) this._stats[robotId].partsLost++
-    const part = useSceneStore.getState().objects.find(o => o.id === mesh?.userData?.id)
+    const partObj = useSceneStore.getState().objects.find(o => o.id === mesh?.userData?.id)
     const who = robotId === this._playerId ? 'You' : (this._actors[robotId]?.name || 'Enemy')
-    const what = part?.name ? part.name.replace(/_\d+$/, '').replace(/^Weapon_/, '').replace(/_/g, ' ') : 'a part'
+    const what = partObj?.name ? partObj.name.replace(/_\d+$/, '').replace(/^Weapon_/, '').replace(/_/g, ' ') : 'a part'
     useCombatStore.getState().notify(`${who} lost ${wasWeapon ? 'the ' : ''}${what}${wasWeapon ? ' — weapon offline' : ''}`)
   }
 
@@ -280,13 +374,21 @@ class CombatManager {
 
   _playerRobot() { return this._robots.find(r => r.id === this._playerId) }
 
-  // Capture an assembly as a rigid mover-set + a Rapier dynamic box body.
-  _captureRobot(rootId, startX, startZ) {
+  // The assembly as the arena sees it, measured in the robot's own frame: +Z =
+  // its declared front (robotFront.js), from the root part's live pose, so the
+  // body's drive axis is the robot's nose whatever way it was built or turned
+  // in the editor — and the spawn yaw is the only rotation the arena adds.
+  // Returns { rootMesh, heading, qEditor, invQ, box, memberMeshes, weapons }.
+  _measureRobot(rootId) {
     const rootMesh = objectManager.getMesh(rootId)
     if (!rootMesh) return null
+    const heading = robotHeading(rootId)
+    const qEditor = heading?.q ?? new THREE.Quaternion()
+    const invQ = qEditor.clone().invert()
+    const toFrame = new THREE.Matrix4().makeRotationFromQuaternion(invQ)
 
-    // World AABB of the whole assembly → box half-extents + centre. Also detect a
-    // weapon PART attached to this robot (its mesh becomes the muzzle origin).
+    // Oriented box of the whole assembly (in the robot frame) → half-extents +
+    // centre. Also collect every weapon PART (its mesh is the muzzle origin).
     const byId = new Map(useSceneStore.getState().objects.map(o => [o.id, o]))
     const box = new THREE.Box3()
     const memberMeshes = []
@@ -296,23 +398,41 @@ class CombatManager {
       const m = objectManager.getMesh(mid)
       if (!m) continue
       m.updateMatrixWorld(true)
-      box.expandByObject(m)
+      expandByRobust(box, m, toFrame)   // visible meshes, stray-vertex-trimmed (GLB outliers / editor helpers ignored)
       memberMeshes.push(m)
       const t = byId.get(mid)?.type
       if (isWeaponType(t)) { const def = weaponForType(t); if (def) weapons.push({ def, mesh: m }) }
     }
     // Every weapon part is handed to WeaponManager, which groups them per button.
-    if (memberMeshes.length === 0) { memberMeshes.push(rootMesh); box.expandByObject(rootMesh) }
+    if (memberMeshes.length === 0) { memberMeshes.push(rootMesh); expandByRobust(box, rootMesh, toFrame) }
+    if (box.isEmpty()) box.expandByObject(rootMesh).applyMatrix4(toFrame)   // nothing visible: raw fallback
+    return { rootMesh, heading, qEditor, invQ, box, memberMeshes, weapons }
+  }
 
-    const size   = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
+  // Capture an assembly as a rigid mover-set + a Rapier dynamic box body.
+  // `scale` (AI size normalisation) is one uniform factor about the assembly's
+  // centre: every part's offset and mesh scale grow together (proportions,
+  // orientation and mass/class stay as designed) and the physics box is built
+  // from the scaled size, so collisions match what's drawn.
+  _captureRobot(rootId, startX, startZ, scale = 1, measured = null) {
+    const m0 = measured || this._measureRobot(rootId)
+    if (!m0) return null
+    const { heading, qEditor, invQ, box, memberMeshes, weapons } = m0
+    const s = scale > 0 ? scale : 1
+
+    const size   = box.getSize(new THREE.Vector3()).multiplyScalar(s)
+    const center = box.getCenter(new THREE.Vector3())            // robot frame (unscaled pose)
+    const centerWorld = center.clone().applyQuaternion(qEditor)
     const half   = { x: Math.max(0.3, size.x / 2), y: Math.max(0.3, size.y / 2), z: Math.max(0.3, size.z / 2) }
 
-    // Movers: each part's offset + orientation relative to the AABB centre (at rest).
+    // Movers: each part's offset + orientation relative to the box centre, in the
+    // robot frame (at rest). _applyMesh then places them as body × (off, quat0).
     const movers = memberMeshes.map(m => ({
       mesh: m,
-      off:  m.getWorldPosition(new THREE.Vector3()).sub(center),
-      quat0: m.getWorldQuaternion(new THREE.Quaternion()),
+      off:  m.getWorldPosition(new THREE.Vector3()).sub(centerWorld).applyQuaternion(invQ).multiplyScalar(s),
+      quat0: invQ.clone().multiply(m.getWorldQuaternion(new THREE.Quaternion())),
+      scale0: m.scale.clone().multiplyScalar(s),
+      aim: null,
     }))
 
     // Class + stat block from real mass (drives HP, mobility, physics mass).
@@ -335,9 +455,15 @@ class CombatManager {
     if (!body) return null
 
     const robot = {
-      id: rootId, bodyId, movers, stats,
+      id: rootId, bodyId, movers, stats, front: heading?.front ?? '+z',
+      // Yaw moment of inertia of the body's box (m·(w²+l²)/12): steering must
+      // be scaled by THIS, not by mass — a 6×12 su robot is ~15× harder to spin
+      // than its mass alone suggests, and floor friction + angular damping ate
+      // mass-scaled turns entirely.
+      inertiaY: body.mass() * ((2 * half.x) ** 2 + (2 * half.z) ** 2) / 12,
       weapons: weapons.map(w => ({ key: w.def.key, mesh: w.mesh })),
-      radius: Math.max(size.x, size.z) / 2, mass: body.mass(),
+      radius: Math.max(size.x, size.z) / 2, mass: body.mass(), mass0: body.mass(), scale: s,
+      size: { x: size.x, y: size.y, z: size.z },
     }
     this._applyMesh(robot, body)
     return robot
@@ -394,6 +520,12 @@ class CombatManager {
       })
     }
 
+    // 2b'. AI weapons: ELEVATION only — each AI gun keeps its mounted heading
+    // (its accuracy still comes from how the AI steers, as before) but pitches
+    // toward the player's centre, so level-mounted guns still meet a shorter or
+    // taller robot now that only real component hits count.
+    this._aiElevation()
+
     // 2c. Weapons: fire (raycast damage / spawn rockets), advance rockets +
     // explosions, and tracer/flame VFX. fireInputs was computed in step 1.
     weaponManager.step(dt, now, fireInputs)
@@ -421,40 +553,118 @@ class CombatManager {
     this._checkWin()
   }
 
-  // Where the player's primary (else secondary) would actually hit this frame:
-  // the same ray WeaponManager fires along, resolved by the same physics raycast,
-  // projected to the screen for the HUD crosshair.
+  // Mouse aim, every frame:
+  //  1. the crosshair is the mouse; a ray from THIS frame's camera through it
+  //     finds the intended aim point — the first arena surface or OTHER robot
+  //     part it meets (your own robot is never a target), else the floor plane,
+  //     else a far point along the ray;
+  //  2. that point is handed to WeaponManager, which swivels each weapon toward
+  //     it within its arc/speed (the shot still leaves the real muzzle along the
+  //     real barrel);
+  //  3. the head weapon's ACTUAL barrel ray is resolved by the same physics
+  //     raycast a shot uses and projected for the HUD's impact pip — so the HUD
+  //     shows both where you aim and where the gun will really hit.
   _updateAim() {
     const aim = this.aim
     const r = this._playerRobot(), a = this._actors[this._playerId]
-    const slots = weaponManager.weaponsFor(this._playerId)
-    const inst = slots?.primary || slots?.secondary
     const cam = sceneManager.camera, canvas = sceneManager.renderer?.domElement
-    if (!r || !a || !inst || !cam || !canvas || a.state === 'destroyed') { aim.visible = false; return }
-    const ray = weaponManager.aimRay(r, inst)
-    if (!ray) { aim.visible = false; return }
-    const hit = physicsManager.raycast(ray.muzzle, ray.forward, Math.max(ray.range, 60), this._playerId)
-    const dist = hit ? Math.hypot(hit.point.x - ray.muzzle.x, hit.point.y - ray.muzzle.y, hit.point.z - ray.muzzle.z) : Infinity
-    const target = hit && this._actors[hit.id] ? hit.id : null
-    const p = hit ? new THREE.Vector3(hit.point.x, hit.point.y, hit.point.z)
-                  : ray.muzzle.clone().addScaledVector(ray.forward, ray.range)
-    // The chase camera moved this frame; project with THIS frame's view (the
-    // renderer refreshes matrixWorldInverse only when it draws).
+    if (!r || !a || !cam || !canvas || a.state === 'destroyed') { aim.visible = false; aim.impactVisible = false; this._setCursorHidden(false); return }
+    const rect = canvas.getBoundingClientRect()
+    // The chase camera moved this frame; ray-cast / project with THIS frame's view.
     cam.updateMatrixWorld(true)
     cam.matrixWorldInverse.copy(cam.matrixWorld).invert()
-    p.project(cam)
-    const rect = canvas.getBoundingClientRect()
-    aim.visible = p.z < 1 && Math.abs(p.x) < 1.2 && Math.abs(p.y) < 1.2
-    aim.x = rect.left + (p.x + 1) / 2 * rect.width
-    aim.y = rect.top + (1 - p.y) / 2 * rect.height
-    aim.onTarget = !!target && target !== this._playerId
-    aim.inRange = aim.onTarget && dist <= ray.range
-    aim.blocked = !!hit && !target               // wall / loose part in the way
-    aim.dist = Number.isFinite(dist) ? dist : ray.range
-    aim.range = ray.range
+
+    // 1. Pointer → camera ray → aim point. Mouse aiming starts the first time the
+    // pointer enters the 3D view in this match — until then nothing swivels
+    // (the weapons sit exactly as mounted) and the crosshair shows where the
+    // barrel points, as before. While the pointer is outside the 3D view (HUD,
+    // side panel) the last aim is kept.
+    const ptr = this._pointer
+    const inside = ptr.has && ptr.x >= rect.left && ptr.x <= rect.right && ptr.y >= rect.top && ptr.y <= rect.bottom
+    if (inside) this._aiming = true
+    if (this._aiming && inside) {
+      const ndc = new THREE.Vector2(((ptr.x - rect.left) / rect.width) * 2 - 1, -((ptr.y - rect.top) / rect.height) * 2 + 1)
+      this._raycaster.setFromCamera(ndc, cam)
+      const ray = this._raycaster.ray
+      let point = null, targetId = null
+      const hits = this._aimMeshes ? this._raycaster.intersectObjects(this._aimMeshes, true) : []
+      for (const h of hits) {
+        if (!h.object.visible || h.object.userData?.isCombatDecal) continue
+        point = h.point.clone()
+        for (let n = h.object; n; n = n.parent) { const id = this._meshOwner?.get(n); if (id) { targetId = id; break } }
+        break
+      }
+      if (!point && ray.direction.y < -1e-3) point = ray.origin.clone().addScaledVector(ray.direction, -ray.origin.y / ray.direction.y)   // floor plane
+      if (!point) point = ray.origin.clone().addScaledVector(ray.direction, 120)                                                         // open sky
+      this.aimPoint = point
+      this.aimTargetId = targetId && targetId !== this._playerId && this._actors[targetId]?.state !== 'destroyed' ? targetId : null
+      aim.x = ptr.x; aim.y = ptr.y
+    }
+    weaponManager.setAimTarget(this._playerId, this._aiming ? this.aimPoint : null)
+    this._setCursorHidden(!this._paused && inside)
+
+    // 2. Where the head weapon will REALLY hit (its live barrel ray).
+    const slots = weaponManager.weaponsFor(this._playerId)
+    const inst = slots?.primary || slots?.secondary
+    const bray = inst ? weaponManager.aimRay(r, inst) : null
+    if (!bray) { aim.visible = false; aim.impactVisible = false; aim.weapon = null; return }
+    // Same trace a shot makes (robot box → real component; boxes it only clips
+    // are passed through), so the pip is where the round would really land.
+    const tr = weaponManager.traceShot(this._playerId, bray.muzzle, bray.forward, Math.max(bray.range, 60))
+    const hit = tr.dist < Math.max(bray.range, 60) - 1e-3 || tr.targetId ? tr : null
+    const dist = hit ? tr.dist : Infinity
+    const hitActor = tr.targetId && tr.targetId !== this._playerId ? tr.targetId : null
+    const ip = tr.point.clone()
+    ip.project(cam)
+    const ipVisible = ip.z < 1 && Math.abs(ip.x) < 1.2 && Math.abs(ip.y) < 1.2
+    aim.ix = rect.left + (ip.x + 1) / 2 * rect.width
+    aim.iy = rect.top + (1 - ip.y) / 2 * rect.height
+    aim.willHit = !!hitActor && dist <= bray.range
+    aim.outOfArc = this._aiming && !!inst.outOfArc
+    aim.blocked = !!hit && !hitActor
+    aim.range = bray.range
     aim.reloading = !!inst.reloading
     aim.ready = !inst.reloading && inst.cooldown <= 0 && inst.ammo > 0 && !a.overheated
     aim.weapon = inst.def.key
+    if (this._aiming) {
+      // Crosshair = the mouse; pip = the gun's real impact.
+      const aimDist = bray.muzzle.distanceTo(this.aimPoint)
+      aim.visible = true
+      aim.impactVisible = ipVisible
+      aim.onTarget = !!this.aimTargetId
+      aim.inRange = aimDist <= bray.range
+      aim.dist = aimDist
+    } else {
+      // Not aiming yet: the crosshair sits on the barrel's impact point.
+      aim.visible = ipVisible
+      aim.impactVisible = false
+      aim.x = aim.ix; aim.y = aim.iy
+      aim.onTarget = !!hitActor
+      aim.inRange = !!hitActor && dist <= bray.range
+      aim.dist = Number.isFinite(dist) ? dist : bray.range
+    }
+  }
+
+  // Over the 3D view the OS cursor is replaced by the crosshair.
+  _setCursorHidden(hide) {
+    const c = sceneManager.renderer?.domElement
+    if (!c) return
+    const want = hide ? 'none' : ''
+    if (c.style.cursor !== want) c.style.cursor = want
+  }
+
+  _aiElevation() {
+    const e = this._robots.find(r => r.id === this._enemyId), p = physicsManager.getBody(this._playerId)
+    if (!e || !p) return
+    const inst = weaponManager.weaponsFor(e.id)?.primary
+    const ray = inst ? weaponManager.aimRay(e, inst) : null
+    if (!ray) return
+    const t = p.translation()
+    const h = new THREE.Vector3(ray.forward.x, 0, ray.forward.z)
+    if (h.lengthSq() < 1e-6) return
+    h.normalize()
+    const dist = Math.hypot(t.x - ray.muzzle.x, t.z - ray.muzzle.z)
+    weaponManager.setAimTarget(e.id, ray.muzzle.clone().addScaledVector(h, dist).setY(t.y))
   }
 
   // The match is decided (combat is frozen: no input, weapons, damage or AI), but
@@ -497,9 +707,19 @@ class CombatManager {
     const actor = this._actors[r.id]
     const auth = stabilitySystem.authority(actor)
     const moveMult = auth.move * heatSystem.moveMult(actor) * statusEffectSystem.moveMult(actor)
-    const maxSpeed = (r.stats?.maxSpeed ?? MAX_SPEED) * moveMult
+    // Drivetrain from the robot's real drive units (component model): damaged /
+    // lost units cut speed and turning, and a dead side drags the robot toward
+    // it. A design with no drive components keeps the plain movement model.
+    const ds = this._effects.driveState(r.id)
+    const driveMul = ds.units ? (ds.left + ds.right) / 2 : 1
+    const pull = ds.units ? ds.right - ds.left : 0          // + → the left side is weaker → veers left
+    const maxSpeed = (r.stats?.maxSpeed ?? MAX_SPEED) * moveMult * driveMul
     const accel    = r.stats?.accelGain ?? ACCEL_GAIN
-    const turn     = (r.stats?.turnRate ?? TURN_RATE) * auth.turn
+    const baseTurn = (r.stats?.turnRate ?? TURN_RATE) * auth.turn
+    const turn     = baseTurn * driveMul
+    // One working side still pushes, brakes and steers; authority fades only as
+    // the drivetrain drops below half, reaching zero when nothing drives.
+    const authority = Math.min(1, 2 * driveMul)
 
     // Linear: impulse toward desired forward velocity (leaves Y to gravity, keeps
     // knockback because we only correct a fraction of the error each frame).
@@ -507,16 +727,22 @@ class CombatManager {
     const dirSpeed = maxSpeed * (input.fwd < 0 ? REVERSE_SCALE : 1)
     const desX = fwd.x * input.fwd * dirSpeed
     const desZ = fwd.z * input.fwd * dirSpeed
+    // Drive authority = what the drivetrain can still do: lost wheels can neither
+    // push nor brake, so a robot with no working drive just coasts under physics
+    // (a blast or a ram still shoves it). Intact robots: driveMul = 1, unchanged.
     physicsManager.applyImpulse(r.bodyId, {
-      x: (desX - v.x) * mass * accel,
+      x: (desX - v.x) * mass * accel * authority,
       y: 0,
-      z: (desZ - v.z) * mass * accel,
+      z: (desZ - v.z) * mass * accel * authority,
     })
 
-    // Angular: torque impulse toward a target yaw rate.
+    // Angular: torque impulse toward a target yaw rate, scaled by the body's
+    // yaw inertia so every robot size reaches its turn rate (A = left / anti-
+    // clockwise seen from above, D = right / clockwise).
     const w = body.angvel().y
-    const targetW = -input.turn * turn
-    physicsManager.applyTorqueImpulse(r.bodyId, { x: 0, y: (targetW - w) * mass * TURN_GAIN, z: 0 })
+    const targetW = -input.turn * turn + input.fwd * pull * baseTurn * 0.45
+    const inertia = r.inertiaY || mass
+    physicsManager.applyTorqueImpulse(r.bodyId, { x: 0, y: (targetW - w) * inertia * TURN_GAIN * authority, z: 0 })
   }
 
   // Turn a ram contact into DamageEvents and route them through the funnel.
@@ -581,7 +807,8 @@ class CombatManager {
       })
       trackEvent('arena_over', { outcome, elapsed })
       this._releaseInput()
-      this.aim.visible = false
+      this.aim.visible = false; this.aim.impactVisible = false
+      this._setCursorHidden(false)
       this._active = false   // combat frozen; UI shows the result
       this._over = true      // …but the aftermath (physics + effects) keeps playing
     }
@@ -604,8 +831,13 @@ class CombatManager {
     const fwdAccel = ax * fwd.x + az * fwd.z          // + accelerating, − braking
     const latAccel = ax * right.x + az * right.z      // sideways shove
     const speed = Math.hypot(v.x, v.z)
-    const targetPitch = THREE.MathUtils.clamp(-fwdAccel * 0.010, -0.08, 0.08)
-    const targetRoll  = THREE.MathUtils.clamp(w * 0.045 + latAccel * 0.005, -0.10, 0.10)
+    // Angle limits shrink for big robots so the nose / sides never dip more than
+    // ~0.15 su (the lean pivots on the body centre; 0.08 rad on a 12 su-long
+    // robot would sink its nose ~0.5 su into the floor).
+    const halfL = Math.max(0.5, (r.size?.z ?? 2) / 2), halfW = Math.max(0.5, (r.size?.x ?? 2) / 2)
+    const maxPitch = Math.min(0.08, 0.15 / halfL), maxRoll = Math.min(0.10, 0.15 / halfW)
+    const targetPitch = THREE.MathUtils.clamp(-fwdAccel * 0.010, -maxPitch, maxPitch)
+    const targetRoll  = THREE.MathUtils.clamp(w * 0.045 + latAccel * 0.005, -maxRoll, maxRoll)
     r._bobT = (r._bobT || 0) + dt * (7 + speed * 0.5)
     const targetBob = Math.sin(r._bobT) * 0.05 * Math.min(1, speed / 10)
     if (!r._lean) { r._lean = { pitch: 0, roll: 0, bob: 0 }; r._leanState = { pitch: { v: 0 }, roll: { v: 0 }, bob: { v: 0 } } }
@@ -630,6 +862,10 @@ class CombatManager {
       const p = mv.off.clone().applyQuaternion(q)
       mv.mesh.position.set(P.x + p.x, P.y + bob + p.y, P.z + p.z)
       mv.mesh.quaternion.copy(q).multiply(mv.quat0)
+      if (mv.aim) mv.mesh.quaternion.multiply(mv.aim.aimQ)   // mouse-aim swivel on the mount
+      // Scale every frame too: an editor store sync (e.g. the selection clear at
+      // match start) re-applies design transforms to all meshes.
+      if (mv.scale0) mv.mesh.scale.copy(mv.scale0)
     }
   }
 
@@ -667,6 +903,12 @@ class CombatManager {
       else if (e.button === 2) this._mouse.secondary = false
     }
     this._onContext = (e) => e.preventDefault()   // RMB is the secondary attack, not a menu
+    // Mouse aim: the crosshair IS the pointer (visible-cursor model — the mouse
+    // never steers the robot or the chase camera; F3 orbit reads movementX/Y).
+    this._pointer.has = false
+    this._aiming = false
+    this._onPointerMove = (e) => { this._pointer.x = e.clientX; this._pointer.y = e.clientY; this._pointer.has = true }
+    window.addEventListener('pointermove', this._onPointerMove)
     window.addEventListener('keydown', this._onKeyDown)
     window.addEventListener('keyup', this._onKeyUp)
     window.addEventListener('mousedown', this._onMouseDown)
@@ -743,8 +985,19 @@ class CombatManager {
   _saveOrig(ids) {
     this._orig = {}
     for (const id of ids) {
+      // A part riding a motor shaft (wheel) is a Three child of the rotor and is
+      // never moved by the arena (it follows its motor) — and its store position
+      // is WORLD while its mesh transform is ROTOR-LOCAL, so it must not be
+      // "restored" from the store either.
+      if (objectManager.attachedObjects.has(id)) continue
       const o = useSceneStore.getState().objects.find(x => x.id === id)
-      if (o) this._orig[id] = { position: { ...o.position }, rotation: { ...o.rotation } }
+      const mesh = objectManager.getMesh(id)
+      if (!o) continue
+      if (mesh && mesh.parent === sceneManager.scene) {
+        // Mesh pose = the canonical (bond-propagated) pose; the store can lag it
+        // by a frame (e.g. a simulation exit baked its last pose there).
+        this._orig[id] = { position: { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z }, rotation: { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z }, scale: { x: mesh.scale.x, y: mesh.scale.y, z: mesh.scale.z } }
+      } else this._orig[id] = { position: { ...o.position }, rotation: { ...o.rotation }, scale: o.scale ? { ...o.scale } : null }
     }
   }
 
@@ -760,9 +1013,14 @@ class CombatManager {
     window.removeEventListener('contextmenu', this._onContext)
     window.removeEventListener('blur', this._onBlur)
     document.removeEventListener('visibilitychange', this._onVis)
+    window.removeEventListener('pointermove', this._onPointerMove)
+    this._onPointerMove = null
+    this._setCursorHidden(false)
+    this._aimMeshes = null; this._meshOwner = null
+    this.aimPoint = null; this.aimTargetId = null
     this._releaseInput()
     this._paused = false
-    this.aim.visible = false
+    this.aim.visible = false; this.aim.impactVisible = false
     // Restore the shared camera + tear down arena camera/effects/audio.
     arenaCameraManager.stop()
     this._effects.clear()
@@ -776,14 +1034,12 @@ class CombatManager {
     // Restore original transforms.
     for (const [id, t] of Object.entries(this._orig)) {
       const mesh = objectManager.getMesh(id)
-      if (mesh) { mesh.position.set(t.position.x, t.position.y, t.position.z); mesh.rotation.set(t.rotation.x, t.rotation.y, t.rotation.z) }
-      // The arena only moves meshes; skip a no-op store write so a battle leaves
-      // the saved design (incl. its updatedAt stamps) untouched.
-      const cur = useSceneStore.getState().objects.find(o => o.id === id)
-      const same = (a, b) => a && b && a.x === b.x && a.y === b.y && a.z === b.z
-      if (!cur || !same(cur.position, t.position) || !same(cur.rotation, t.rotation)) {
-        useSceneStore.getState().updateObject(id, { position: t.position, rotation: t.rotation })
+      if (mesh) {
+        mesh.position.set(t.position.x, t.position.y, t.position.z); mesh.rotation.set(t.rotation.x, t.rotation.y, t.rotation.z)
+        if (t.scale) mesh.scale.set(t.scale.x, t.scale.y, t.scale.z)
       }
+      // The arena only ever moves MESHES; the store (the saved design) is never
+      // written by a battle — restoring the mesh pose is the whole job.
     }
     this._orig = {}
     this._robots = []

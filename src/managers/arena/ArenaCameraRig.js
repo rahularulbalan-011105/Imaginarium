@@ -47,13 +47,15 @@ export class ArenaCameraRig {
     this._initialized = false
   }
 
-  configure(camera, excludeId, mode) {
+  // sizeK: framing scale for the player's robot size (1 = the tuned framing).
+  configure(camera, excludeId, mode, sizeK = 1) {
     this._camera = camera
     this._excludeId = excludeId
+    this._k = sizeK > 0 ? sizeK : 1
     this._p = { ...mode }
     this._target = { ...mode }
     this._initialized = false
-    this._arm = mode.distance
+    this._arm = mode.distance * this._k
     this._fov = mode.fov
     return this
   }
@@ -96,7 +98,7 @@ export class ArenaCameraRig {
     const horiz = Math.cos(pitch)
     const back = new THREE.Vector3(-Math.sin(yaw) * horiz, Math.sin(pitch), -Math.cos(yaw) * horiz)
     out.copy(follow).addScaledVector(back, arm)
-    out.y += p.height
+    out.y += p.height * (this._k || 1)
     // Lateral shoulder offset (right of the view direction).
     if (p.sideOffset) {
       const right = new THREE.Vector3().crossVectors(UP, back).normalize()
@@ -120,7 +122,8 @@ export class ArenaCameraRig {
     const speed = Math.hypot(vel.x, vel.z)
 
     // Follow point = robot centre, raised toward chest height.
-    const followTarget = new THREE.Vector3(P.x, P.y + 1.2, P.z)
+    const k = this._k || 1
+    const followTarget = new THREE.Vector3(P.x, P.y + 1.2 * k, P.z)
 
     if (!this._initialized) this._seed(followTarget, p.orbit ? this._orbitYaw : robotYaw)
 
@@ -137,7 +140,7 @@ export class ArenaCameraRig {
 
     // Speed-scaled arm + FOV ("sprint" widens view, pulls back a little).
     const speedK = Math.min(1, speed / 14)
-    const armWanted = p.distance + speedK * 5
+    const armWanted = (p.distance + speedK * 5) * k
     const fovWanted = p.fov + speedK * 7
 
     // Spring arm collision: cast from follow point toward the ideal camera pos.
@@ -180,7 +183,7 @@ export class ArenaCameraRig {
     // frame, plus a velocity look-ahead so the camera anticipates movement.
     // The look-ahead never points backward: reversing would otherwise aim the chase
     // camera back at its own foreground (the floor between camera and robot).
-    const lookAt = new THREE.Vector3(P.x, P.y + 2.0, P.z)
+    const lookAt = new THREE.Vector3(P.x, P.y + 2.0 * k, P.z)
     if (p.lookAhead > 0 && speed > 0.5) {
       _heading.set(fwd.x, 0, fwd.z).normalize()
       _ahead.set(vel.x, 0, vel.z)

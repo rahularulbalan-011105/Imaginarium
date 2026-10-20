@@ -58,7 +58,8 @@ export function buildProjectSnapshot(sceneState, electronicsState) {
     electronics: electronicsState ? {
       connections: electronicsState.connections,
       code: electronicsState.code,
-      attachments: electronicsState.attachments,
+      // Arena-only parts (stock / file opponent) ride motors too — never saved.
+      attachments: transientIds.size ? Object.fromEntries(Object.entries(electronicsState.attachments || {}).filter(([o, m]) => !transientIds.has(o) && !transientIds.has(m))) : electronicsState.attachments,
     } : undefined,
     surface: { patches: surfaceState.patches },
     rigid:   { bonds:   transientIds.size ? Object.fromEntries(Object.entries(rigidState.bonds).filter(([, b]) => !transientIds.has(b.parentId) && !transientIds.has(b.childId))) : rigidState.bonds },

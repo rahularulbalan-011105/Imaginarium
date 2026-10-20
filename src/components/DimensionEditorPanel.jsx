@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { objectManager } from '../managers/ObjectManager.js'
 import { surfaceMountManager } from '../managers/SurfaceMountManager.js'
 import { useSceneStore } from '../stores/sceneStore.js'
+import { useRigidStore } from '../stores/rigidStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 
 /**
@@ -62,7 +63,12 @@ export default function DimensionEditorPanel({ obj }) {
       z: axis === 'z' ? obj.scale.z * scaleFactor : obj.scale.z,
     }
 
-    let newPosition = { ...obj.position }
+    // Start from the RENDERED position: a bonded part follows its parent on
+    // screen, so its mesh — not an older store copy — is where it really is.
+    const live = objectManager.getMesh(obj.id)
+    const base = (live && !objectManager.attachedObjects.has(obj.id))
+      ? { x: live.position.x, y: live.position.y, z: live.position.z } : obj.position
+    let newPosition = { ...base }
 
     if (mode === 'one-sided') {
       // Move position so the chosen face stays fixed
@@ -73,9 +79,9 @@ export default function DimensionEditorPanel({ obj }) {
       const sign = lockSide === 'min' ? 1 : -1
       newPosition = {
         ...newPosition,
-        x: axis === 'x' ? obj.position.x + halfDelta * sign : newPosition.x,
-        y: axis === 'y' ? obj.position.y + halfDelta * sign : newPosition.y,
-        z: axis === 'z' ? obj.position.z + halfDelta * sign : newPosition.z,
+        x: axis === 'x' ? base.x + halfDelta * sign : newPosition.x,
+        y: axis === 'y' ? base.y + halfDelta * sign : newPosition.y,
+        z: axis === 'z' ? base.z + halfDelta * sign : newPosition.z,
       }
     }
 
@@ -85,6 +91,15 @@ export default function DimensionEditorPanel({ obj }) {
       mesh.scale.set(newScale.x, newScale.y, newScale.z)
       mesh.position.set(newPosition.x, newPosition.y, newPosition.z)
       surfaceMountManager.reseatMountsOn(obj.id)   // keep mounted parts flush
+      // A bonded part that shifted (one-sided resize) keeps its new spot.
+      const rigid = useRigidStore.getState()
+      const own = rigid.getBonds().find(b => b.childId === obj.id)
+      if (own) {
+        const rel = objectManager.computeChildRelativeMatrix(own.parentId, newPosition, { x: mesh.rotation.x, y: mesh.rotation.y, z: mesh.rotation.z })
+        if (rel) rigid.updateBond(own.id, { relativeMatrix: rel })
+      }
+      // Carry everything bonded below it, mesh + store together.
+      for (const [cid, r] of objectManager.cascadeBondDescendants(obj.id, useRigidStore.getState().getBonds())) updateObject(cid, r)
     }
     snapshot()
     setEditing(e => ({ ...e, [axis]: undefined }))

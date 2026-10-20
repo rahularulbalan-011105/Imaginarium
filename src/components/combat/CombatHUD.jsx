@@ -11,9 +11,11 @@ import { useGameStore } from '../../stores/gameStore.js'
 //
 //   Top-left / right : YOU / ENEMY cards (armor · HP · stability · heat · weapon)
 //   Top-centre       : match clock + difficulty + camera mode
-//   Centre           : crosshair ON THE REAL AIM POINT (CombatManager.aim — the
-//                      ray WeaponManager fires along, projected to the screen),
-//                      target / range / reload state, hit marker on confirmed hits
+//   Centre           : mouse crosshair (CombatManager.aim x/y — the camera ray
+//                      that picks the aim point) + an IMPACT PIP where the gun's
+//                      real barrel ray lands (aim ix/iy — it swivels toward the
+//                      crosshair within its arc), target / arc / range / reload
+//                      state, hit marker only on hits confirmed by the damage pipeline
 //   Bottom           : weapon slots (LMB / RMB) with live readiness, controls
 //                      (from the user's actual bindings), Pause + Exit
 //   Overlays         : Pause (Resume / Restart / Exit), Result (Rematch / Exit),
@@ -85,7 +87,7 @@ function CombatantCard({ a, side }) {
 //   dim    = enemy in the beam, out of range / weapon not ready
 //   X mark = a hit confirmed by the damage pipeline (hitMarkerAt)
 function Crosshair({ active }) {
-  const ref = useRef(null), labelRef = useRef(null), ringRef = useRef(null)
+  const ref = useRef(null), labelRef = useRef(null), ringRef = useRef(null), pipRef = useRef(null)
   const hitAt = useCombatStore((s) => s.hitMarkerAt)
   const [hit, setHit] = useState(false)
   useEffect(() => {
@@ -99,15 +101,25 @@ function Crosshair({ active }) {
     let raf = 0, lastLabel = ''
     const tick = () => {
       raf = requestAnimationFrame(tick)
-      const el = ref.current, aim = combatManager.aim
+      const el = ref.current, aim = combatManager.aim, pip = pipRef.current
       if (!el) return
+      if (pip) {
+        // The gun's real impact point; hidden when it sits on the crosshair.
+        const show = aim.visible && aim.impactVisible && Math.hypot(aim.ix - aim.x, aim.iy - aim.y) > 6
+        pip.style.opacity = show ? '1' : '0'
+        if (show) {
+          pip.style.transform = `translate(${aim.ix}px, ${aim.iy}px) translate(-50%, -50%) rotate(45deg)`
+          pip.style.borderColor = aim.willHit ? '#fb923c' : 'rgba(255,255,255,.8)'
+        }
+      }
       if (!aim.visible) { el.style.opacity = '0'; return }
       el.style.opacity = '1'
       el.style.transform = `translate(${aim.x}px, ${aim.y}px) translate(-50%, -50%)`
-      const color = aim.onTarget ? (aim.inRange && aim.ready ? '#fb923c' : 'rgba(251,146,60,.55)') : 'rgba(255,255,255,.75)'
+      const hot = aim.onTarget && aim.inRange && aim.ready && !aim.outOfArc
+      const color = aim.onTarget ? (hot ? '#fb923c' : 'rgba(251,146,60,.55)') : 'rgba(255,255,255,.75)'
       const ring = ringRef.current
       if (ring) { ring.style.borderColor = color; ring.style.transform = aim.onTarget ? 'scale(0.82)' : 'scale(1)' }
-      const label = aim.reloading ? 'RELOADING' : aim.onTarget && !aim.inRange ? `OUT OF RANGE · ${Math.round(aim.dist)}` : aim.onTarget ? (aim.ready ? 'TARGET' : 'COOLING') : aim.blocked ? '' : ''
+      const label = !aim.weapon ? '' : aim.reloading ? 'RELOADING' : aim.outOfArc ? 'OUT OF ARC' : aim.onTarget && !aim.inRange ? `OUT OF RANGE · ${Math.round(aim.dist)}` : aim.onTarget ? (aim.ready ? 'TARGET' : 'COOLING') : ''
       if (label !== lastLabel && labelRef.current) { labelRef.current.textContent = label; lastLabel = label }
     }
     raf = requestAnimationFrame(tick)
@@ -115,6 +127,8 @@ function Crosshair({ active }) {
   }, [active])
   if (!active) return null
   return (
+    <>
+    <div ref={pipRef} title="Where your weapon will actually hit" style={{ position: 'fixed', left: 0, top: 0, width: 12, height: 12, opacity: 0, willChange: 'transform', pointerEvents: 'none', border: '2px solid rgba(255,255,255,.8)', transform: 'rotate(45deg)', boxShadow: '0 0 0 1px rgba(0,0,0,.5)' }} />
     <div ref={ref} style={{ position: 'fixed', left: 0, top: 0, width: 44, height: 44, opacity: 0, willChange: 'transform', pointerEvents: 'none' }}>
       <div ref={ringRef} style={{ position: 'absolute', inset: 4, borderRadius: '50%', border: '1.5px solid rgba(255,255,255,.75)', transition: 'transform 90ms, border-color 90ms', boxShadow: '0 0 0 1px rgba(0,0,0,.45), inset 0 0 0 1px rgba(0,0,0,.45)' }} />
       <div style={{ position: 'absolute', top: '50%', left: '50%', width: 3, height: 3, borderRadius: '50%', background: '#fff', boxShadow: '0 0 0 1px rgba(0,0,0,.6)', transform: 'translate(-50%,-50%)' }} />
@@ -126,6 +140,7 @@ function Crosshair({ active }) {
       ))}
       <div ref={labelRef} style={{ position: 'absolute', top: 46, left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', fontSize: 9, fontWeight: 800, letterSpacing: '.08em', color: '#fde68a', textShadow: '0 1px 2px #000' }} />
     </div>
+    </>
   )
 }
 
@@ -275,7 +290,7 @@ export default function CombatHUD() {
       {!(paused && fighting) && status !== 'over' && <div style={{ position: 'absolute', bottom: 16, left: 0, right: 0, display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', padding: '0 18px', gap: 12 }}>
         <div data-hud-ui style={{ pointerEvents: 'auto' }}><WeaponSlots player={player} /></div>
         <div style={{ fontSize: 11, color: 'rgb(var(--g-400))', textAlign: 'center', alignSelf: 'center', background: 'rgb(var(--g-900) / 0.6)', padding: '4px 10px', borderRadius: 8 }}>
-          <b style={kb}>{keyName(keys.up)}{keyName(keys.left)}{keyName(keys.down)}{keyName(keys.right)}</b> drive · <b style={kb}>LMB</b> fire · <b style={kb}>RMB</b> melee · <b style={kb}>Esc</b> pause
+          <b style={kb}>{keyName(keys.up)}{keyName(keys.left)}{keyName(keys.down)}{keyName(keys.right)}</b> drive · <b style={kb}>Mouse</b> aim · <b style={kb}>LMB</b> fire · <b style={kb}>RMB</b> melee · <b style={kb}>Esc</b> pause
         </div>
         <div data-hud-ui style={{ pointerEvents: 'auto', display: 'flex', gap: 8 }}>
           {fighting && <button onClick={() => combatManager.togglePause()} style={btn('rgb(var(--g-700))', true)}>{paused ? '▶ Resume' : '❚❚ Pause'}</button>}
