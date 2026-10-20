@@ -617,7 +617,11 @@ GitHub Pages base path is in `vite.config.js`. `netlify.toml` / `vercel.json` pr
 **Arena camera stuck / editor camera wrong after leaving Arena** → `ArenaCameraManager` restores it in `stop()`; the HUD Exit button always restores. OrbitControls is disabled during a match (except F3).
 **Arena: LMB/RMB do nothing / robot won't move** → player = robot[0] (first pick); WASD moves, A/D rotate (mouse doesn't); LMB needs a ⚔ weapon part (else no primary), RMB = built-in Melee. Click the viewport if focus was lost.
 **Arena feels like a simulator / no hits or sound** → feedback is `CombatEffectsManager` (fed by `DamageManager.onApplied` + `WeaponManager.onFire` + `ExplosionSystem.onDetonate`); audio unlocks on first click; damage numbers are a DOM overlay.
+**A GLB renders pure black / no colours** → it uses `KHR_materials_pbrSpecularGlossiness`, which three.js dropped: the loader falls back to the glTF default (white, **metalness 1**), and a fully metallic material with no env map is black. `tools/optimize-models.mjs` now runs glTF-Transform `metalrough` on any source that declares it (esp32 + ir_sensor were affected) — re-run `npm run optimize:models <name>`.
+
 **ESP32 sketch won't Run** → an ESP32 alone is runnable (no wiring needed); if Run is blocked, read the compiler report — an illegal pin (input-only as output, GPIO6–11, DAC on a non-DAC pin) is an ERROR by design.
+**A new board is a plain blue box in the Workbench with all pins on one edge** → `WiringWorkbench.shapeOf` fell through to the generic module art; add a `SHAPES.<type>` entry (the ESP32 one splits its pins left/right from `ESP32_PINS`). `tests/esp32/esp32.test.js` checks every wireable type has a shape.
+
 **ESP32 controls don't appear** → they come only from `// @control …` lines in the sketch; press Run again after adding them, and check the panel's red line for declaration errors.
 **ESP32 Wi-Fi/Bluetooth "doesn't really connect"** → correct: both are simulated and labelled SIMULATED. A browser cannot reach Bluetooth Classic at all, and no firmware can be compiled or flashed from a tab (`docs/ESP32.md`).
 **Every sketch suddenly fails with a syntax error** → `sketchSandbox.js` builds its whole runtime inside ONE template literal: an unescaped backtick or `

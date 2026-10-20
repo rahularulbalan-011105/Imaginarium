@@ -4,6 +4,10 @@
 //   node tools/optimize-models.mjs servo subo (just these)
 //
 // Pipeline per model (glTF-Transform CLI via npx — a dev-time tool, not an app dependency):
+//   0. metalrough  ONLY for sources using KHR_materials_pbrSpecularGlossiness. three.js
+//                  dropped that extension, so such materials load as the glTF default
+//                  (white, metalness 1, roughness 1) and render PURE BLACK without an
+//                  env map — which is exactly how the ESP32 first appeared.
 //   1. prune      drop unused vertex attributes (e.g. the Arduino had 9 UV sets/vertex)
 //   2. resize     cap textures at 1024² (2048² board textures cost ~22 MB of VRAM each)
 //   3. webp       re-encode textures as WebP (smaller download, same GPU format)
@@ -19,7 +23,7 @@
 //   buzzer 26k→10k. Off by default because it changes how the models look (slightly);
 //   check the result visually (pins / LED matrix on SUBO, rotor on wheels) before shipping.
 import { execFileSync } from 'node:child_process'
-import { readdirSync, statSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { readdirSync, statSync, mkdirSync, rmSync, existsSync, readFileSync } from 'node:fs'
 import { join, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 
@@ -37,11 +41,27 @@ mkdirSync(OUT, { recursive: true })
 const tmp = join(tmpdir(), 'constructa-models')
 mkdirSync(tmp, { recursive: true })
 
+// True when a GLB's JSON chunk declares the dead spec/gloss extension.
+function usesSpecGloss(file) {
+  const buf = readFileSync(file)
+  if (buf.length < 20 || buf.readUInt32LE(0) !== 0x46546c67) return false   // not a GLB
+  const jsonLen = buf.readUInt32LE(12)
+  return buf.slice(20, 20 + jsonLen).includes('KHR_materials_pbrSpecularGlossiness')
+}
+
 const files = readdirSync(SRC).filter(f => f.endsWith('.glb') && (!only.length || only.includes(basename(f, '.glb'))))
 let before = 0, after = 0
 for (const f of files) {
-  const src = join(SRC, f), name = basename(f, '.glb')
+  let src = join(SRC, f)
+  const name = basename(f, '.glb')
   const a = join(tmp, `${name}.1.glb`), b = join(tmp, `${name}.2.glb`), c = join(tmp, `${name}.3.glb`)
+  let mr = null
+  if (usesSpecGloss(src)) {
+    mr = join(tmp, `${name}.0.glb`)
+    run('metalrough', src, mr)
+    console.log(`${f.padEnd(24)} spec/gloss → metal/rough (three.js no longer reads KHR_materials_pbrSpecularGlossiness)`)
+    src = mr
+  }
   if (simplifyError) {
     const w = join(tmp, `${name}.w.glb`), s = join(tmp, `${name}.s.glb`)
     run('weld', src, w)
@@ -53,9 +73,9 @@ for (const f of files) {
   run('webp', b, c)
   run('meshopt', c, join(OUT, f), '--level', 'medium',
     '--quantize-position', '16', '--quantize-normal', '10', '--quantize-texcoord', '12')
-  const s0 = statSync(src).size, s1 = statSync(join(OUT, f)).size
+  const s0 = statSync(join(SRC, f)).size, s1 = statSync(join(OUT, f)).size
   before += s0; after += s1
   console.log(`${f.padEnd(24)} ${(s0 / 1024).toFixed(0).padStart(6)} KB → ${(s1 / 1024).toFixed(0).padStart(6)} KB  (${(100 * s1 / s0).toFixed(0)}%)`)
-  for (const t of [a, b, c]) if (existsSync(t)) rmSync(t)
+  for (const t of [a, b, c, mr]) if (t && existsSync(t)) rmSync(t)
 }
 console.log(`TOTAL ${(before / 1048576).toFixed(1)} MB → ${(after / 1048576).toFixed(1)} MB`)

@@ -15,6 +15,7 @@ import { parseControlAnnotations, controlDefaults } from '../../src/utils/esp32C
 import { analyzeArduino } from '../../src/utils/arduinoDiagnostics.js'
 import { ESP32_EXAMPLES } from '../../src/utils/esp32Examples.js'
 import { parseAndTranspile } from '../../src/utils/arduinoParser.js'
+import { PIN_DEFS, ELEC_TYPES } from '../../src/utils/wiring.js'
 
 describe('ESP32 board table', () => {
   it('describes a 30-pin DevKit V1 with a 12-bit ADC', () => {
@@ -173,6 +174,31 @@ describe('shipped ESP32 examples', () => {
       expect(d.errors, `${ex.label}: ${d.errors.map(e => e.message).join('; ')}`).toEqual([])
       expect(parseControlAnnotations(ex.code).errors, ex.label).toEqual([])
       expect(() => parseAndTranspile(ex.code), ex.label).not.toThrow()
+    }
+  })
+})
+
+describe('2D workbench board', () => {
+  it('draws the ESP32 with 15 pins per side, in board order', async () => {
+    const { shapeOf } = await import('../../src/components/WiringWorkbench.jsx')
+    const s = shapeOf('esp32')
+    const left = s.pins.filter((p) => p.side === 'left').map((p) => p.pin)
+    const right = s.pins.filter((p) => p.side === 'right').map((p) => p.pin)
+    expect(left).toHaveLength(15)
+    expect(right).toHaveLength(15)
+    expect(left).toEqual(ESP32_PINS.filter((p) => p.side === 'left').map((p) => p.name))
+    expect(right).toEqual(ESP32_PINS.filter((p) => p.side === 'right').map((p) => p.name))
+    // every pin the wiring layer knows is drawn exactly once
+    expect([...left, ...right].sort()).toEqual([...PIN_DEFS.esp32].sort())
+    expect(s.h).toBeGreaterThan(s.w)        // a DevKit is portrait, not a wide strip
+  })
+
+  it('gives every wireable component a shape whose pins match PIN_DEFS', async () => {
+    const { shapeOf } = await import('../../src/components/WiringWorkbench.jsx')
+    for (const type of ELEC_TYPES) {
+      const s = shapeOf(type)
+      expect(s, type).toBeTruthy()
+      expect(s.pins.map((p) => p.pin).sort(), type).toEqual([...(PIN_DEFS[type] ?? [])].sort())
     }
   })
 })

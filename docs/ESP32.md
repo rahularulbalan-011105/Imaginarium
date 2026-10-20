@@ -214,6 +214,8 @@ flash from there.
 | `src/managers/SimulationManager.js` | The ESP32 runtime state: radios, controls, readouts, log |
 | `src/managers/esp32Link.js` | Web Serial seam for real hardware (untested) |
 | `src/components/Esp32Panel.jsx` | Simulation-tab UI: controls, network, log |
+| `src/components/WiringWorkbench.jsx` | 2D board art — portrait DevKit with 15 pins per side, taken from `ESP32_PINS` |
+| `tools/optimize-models.mjs` | Converts the source GLB's spec/gloss materials to metal/rough (three.js dropped that extension, which made the board render pure black) |
 | `src/utils/arduinoDiagnostics.js` | ESP32 board rules in the pre-flight analyzer |
 | `tests/esp32/*.test.js` | Board/pin/control/diagnostic tests + sandbox parse guard |
 | `tools/bench/esp32-e2e.cjs`, `esp32-persist.cjs` | Browser end-to-end checks |

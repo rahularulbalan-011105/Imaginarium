@@ -6,6 +6,7 @@ import { useHistory } from '../hooks/useHistory.js'
 import ConnectionMenu from './ConnectionMenu.jsx'
 import Icon from './ui/Icon.jsx'
 import { ELEC_TYPES, PIN_DEFS, pinRole, wireStyle, isDuplicate, ROLE_COLORS } from '../utils/wiring.js'
+import { ESP32_PINS } from '../utils/esp32Board.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wiring Workbench — every electronics part drawn as a 2D component (board,
@@ -55,7 +56,65 @@ function Module({ w, h, fill = '#1d4ed8', children }) {
   )
 }
 
+// ESP32 DevKit V1 — drawn the way the board actually looks (dark PCB, RF shield
+// with its meander antenna, USB at the bottom, EN/BOOT buttons) and, crucially,
+// with the header split 15 pins LEFT / 15 RIGHT exactly as on the hardware. The
+// sides come from the same board table the 3D model and the validator use.
+function Esp32Art({ w, h }) {
+  const shieldW = w * 0.56, shieldX = (w - shieldW) / 2, shieldY = 28, shieldH = 74
+  return (
+    <>
+      {/* PCB */}
+      <rect x="1" y="1" width={w - 2} height={h - 2} rx="9" fill="#1b2430" stroke="#0b1016" strokeWidth="1.5" />
+      <rect x="3" y="3" width={w - 6} height={h - 6} rx="7" fill="none" stroke="rgb(255 255 255 / 0.06)" />
+      {/* header strips under the pins */}
+      <rect x="4" y="18" width="15" height={h - 70} rx="3" fill="#0f1620" />
+      <rect x={w - 19} y="18" width="15" height={h - 70} rx="3" fill="#0f1620" />
+      {/* mounting holes */}
+      {[[9, 10], [w - 9, 10], [9, h - 10], [w - 9, h - 10]].map(([cx, cy], i) => (
+        <circle key={i} cx={cx} cy={cy} r="3" fill="#0b1016" stroke="rgb(255 255 255 / 0.18)" />
+      ))}
+      {/* meander antenna at the very top, then the RF shield */}
+      <path d={`M${shieldX + 6} 20 h7 v-9 h7 v9 h7 v-9 h7 v9 h7 v-9 h7 v9 h7`}
+        fill="none" stroke="#c9a227" strokeWidth="2.2" strokeLinejoin="round" />
+      <rect x={shieldX} y={shieldY} width={shieldW} height={shieldH} rx="4" fill="#b8bfc9" stroke="#8a929d" />
+      <rect x={shieldX + 4} y={shieldY + 4} width={shieldW - 8} height={shieldH - 8} rx="2" fill="none" stroke="#9aa2ad" />
+      <text x={w / 2} y={shieldY + shieldH / 2 + 3} textAnchor="middle" fontSize="7.5" fontWeight="800" fill="#4b5563" letterSpacing="0.5">ESP-WROOM-32</text>
+      {/* crystal + regulator + LEDs */}
+      <rect x={w / 2 - 26} y={shieldY + shieldH + 8} width="20" height="10" rx="2" fill="#9ca3af" />
+      <rect x={w / 2 + 6} y={shieldY + shieldH + 8} width="20" height="10" rx="2" fill="#374151" />
+      <circle cx={w / 2 - 14} cy={shieldY + shieldH + 28} r="3" fill="#ef4444" />
+      <circle cx={w / 2 + 14} cy={shieldY + shieldH + 28} r="3" fill="#3b82f6" />
+      <text x={w / 2 - 14} y={shieldY + shieldH + 40} textAnchor="middle" fontSize="5.5" fill="#9ca3af">PWR</text>
+      <text x={w / 2 + 14} y={shieldY + shieldH + 40} textAnchor="middle" fontSize="5.5" fill="#9ca3af">IO2</text>
+      {/* USB-serial chip */}
+      <rect x={w / 2 - 14} y={h - 86} width="28" height="18" rx="2" fill="#111827" stroke="#374151" />
+      {/* EN / BOOT buttons */}
+      <rect x={w / 2 - 44} y={h - 60} width="22" height="16" rx="3" fill="#2f3845" stroke="#4b5563" />
+      <rect x={w / 2 + 22} y={h - 60} width="22" height="16" rx="3" fill="#2f3845" stroke="#4b5563" />
+      <text x={w / 2 - 33} y={h - 34} textAnchor="middle" fontSize="6" fill="#9ca3af">EN</text>
+      <text x={w / 2 + 33} y={h - 34} textAnchor="middle" fontSize="6" fill="#9ca3af">BOOT</text>
+      {/* micro-USB */}
+      <rect x={w / 2 - 17} y={h - 22} width="34" height="16" rx="2" fill="#c7ccd4" stroke="#8a929d" />
+      <rect x={w / 2 - 12} y={h - 18} width="24" height="8" rx="1" fill="#6b7280" />
+      <text x={w / 2} y={h - 96} textAnchor="middle" fontSize="9" fontWeight="800" fill="#e5e7eb" letterSpacing="1.5">ESP32</text>
+    </>
+  )
+}
+
 const SHAPES = {
+  esp32: () => {
+    const left = ESP32_PINS.filter(p => p.side === 'left').map(p => p.name)
+    const right = ESP32_PINS.filter(p => p.side === 'right').map(p => p.name)
+    const w = 150, h = 26 + Math.max(left.length, right.length) * 17 + 60
+    // Pads run down the header strips, not across the whole edge.
+    const column = (names, x) => names.map((pin, i) => ({ pin, x, y: 26 + i * 17, side: x === 0 ? 'left' : 'right' }))
+    return {
+      w, h, title: 'ESP32',
+      art: <Esp32Art w={w} h={h} />,
+      pins: [...column(left, 0), ...column(right, w)],
+    }
+  },
   arduino: () => {
     const w = 280, h = 150, pins = PIN_DEFS.arduino
     return { w, h, title: 'ARDUINO', art: <Board w={w} h={h} fill="#0f8f96" label="ARDUINO" sub="UNO" />,
@@ -124,9 +183,14 @@ const SHAPES = {
     ) }
   },
 }
-function shapeOf(type) {
+// Exported for tests: every wireable type must get a real shape whose pins match
+// PIN_DEFS, so a newly added board can't silently fall back to the generic
+// module art (which is how the ESP32 first appeared: one blue box, 30 pins on
+// a single edge).
+export function shapeOf(type) {
   if (type === 'arduino') return SHAPES.arduino()
   if (type === 'subo') return SHAPES.subo()
+  if (type === 'esp32') return SHAPES.esp32()
   if (type === 'servo') return SHAPES.servo()
   if (type === 'motor' || type === 'motor_bo' || type === 'motor_dc') return SHAPES.motor(type)
   if (type === 'led') return SHAPES.led()
