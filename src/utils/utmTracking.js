@@ -50,6 +50,17 @@ function nowMs() { return performance?.now ? performance.now() : Date.now() }
 export function isValidEmail(e) { return EMAIL_RE.test(String(e || '').trim()) }
 function cleanEmail(e) { const c = String(e || '').trim().toLowerCase().slice(0, 160); return isValidEmail(c) ? c : '' }
 
+// Where the visitor is, as the BROWSER already knows it: the IANA time zone and
+// the UI language. No IP lookup, no third-party geo service, no extra request —
+// and a time zone is a region, not an address. The dashboard turns it into a
+// city/country dot (src/dashboard/geo.js).
+function visitorZone() {
+  try { return (Intl.DateTimeFormat().resolvedOptions().timeZone || '').slice(0, 60) } catch { return '' }
+}
+function visitorLang() {
+  try { return String(navigator.language || '').slice(0, 20) } catch { return '' }
+}
+
 function deviceType() {
   const ua = navigator.userAgent || ''
   if (/iPad|Tablet|PlayBook|Silk/i.test(ua)) return 'tablet'
@@ -117,7 +128,7 @@ function build(event, meta, value) {
     source: a.source || '(direct)', medium: a.medium || '', campaign: a.campaign || '',
     content: a.content || '', term: a.term || '', ref: a.ref || '', referrer: a.referrer || '',
     page: location.pathname + location.search.replace(/([?&])(cx_vid|cx_ref)=[^&]*/g, '$1').slice(0, 300),
-    host: location.hostname, device: deviceType(),
+    host: location.hostname, device: deviceType(), tz: visitorZone(), lang: visitorLang(),
     value: value ?? '', meta: meta && Object.keys(meta).length ? meta : undefined,
   }
 }

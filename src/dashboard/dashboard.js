@@ -3,6 +3,7 @@
 // the pure functions in analyze.js.
 import { COLLECTOR_ENDPOINT } from '../utils/utmTracking.js'
 import { parseRows, resolveIdentities, analyze, linkStats, makeExcluder, buildCampaignUrl, slug, resolveRange } from './analyze.js'
+import { createGlobe } from './globe.js'
 
 const $ = (id) => document.getElementById(id)
 const KEY_LS = 'cx_dash_key', EXCL_LS = 'cx_dash_exclude'
@@ -133,6 +134,47 @@ function table(el, cols, rows, { onClick, sortState } = {}) {
 }
 
 const sortSources = { key: '', dir: -1 }, sortUsers = { key: '', dir: -1 }, sortLinks = { key: '', dir: -1 }
+const sortPlaces = { key: '', dir: -1 }
+
+// ── visitor globe ───────────────────────────────────────────────────────────
+let GLOBE = null
+function globe() {
+  if (GLOBE) return GLOBE
+  const tip = $('globeTip')
+  GLOBE = createGlobe($('globe'), {
+    onHover: (place, at) => {
+      if (!place) { tip.style.display = 'none'; return }
+      tip.innerHTML = `<b>${esc(place.city)}</b>${place.country && place.country !== place.city ? ', ' + esc(place.country) : ''}`
+        + `<br>${num(place.visitors)} visitor${place.visitors === 1 ? '' : 's'} · ${num(place.events)} events`
+        + (place.users ? `<br>${num(place.users)} signed-in user${place.users === 1 ? '' : 's'}` : '')
+      tip.style.display = 'block'
+      // Keep the card inside the stage.
+      const stage = tip.parentElement.getBoundingClientRect()
+      const w = tip.offsetWidth, h = tip.offsetHeight
+      tip.style.left = Math.max(6, Math.min(stage.width - w - 6, at.x + 14)) + 'px'
+      tip.style.top = Math.max(6, Math.min(stage.height - h - 6, at.y - h - 12)) + 'px'
+    },
+  })
+  $('g_spin').onchange = (e) => GLOBE.setAutoSpin(e.target.checked)
+  return GLOBE
+}
+
+function renderPlaces(result) {
+  const places = result.places
+  const located = result.totals.locatedVisitors
+  const total = result.totals.visitors
+  globe().setPlaces(places)
+  $('globeLegend').textContent = places.length
+    ? `${num(places.length)} place${places.length === 1 ? '' : 's'} · ${num(located)} of ${num(total)} visitors located`
+    : 'No location data in this period'
+  table($('t_places'), [
+    { k: 'city', t: 'Place', f: r => `<b>${esc(r.city)}</b>${r.exact ? '' : ' <span class="muted" title="Zone not in the lookup table — positioned by continent">≈</span>'}` },
+    { k: 'country', t: 'Country' },
+    { k: 'visitors', t: 'Visitors', n: 1, f: r => num(r.visitors) },
+    { k: 'users', t: 'Users', n: 1, f: r => num(r.users) },
+    { k: 'events', t: 'Events', n: 1, f: r => num(r.events) },
+  ], places, { sortState: sortPlaces, onClick: (r) => { $('g_spin').checked = false; globe().focus(r) } })
+}
 
 function render() {
   const o = opts()
@@ -142,7 +184,9 @@ function render() {
     RESULT = null
     $('u_copy').disabled = true
     $('kpis').innerHTML = `<div class="card"><div class="l">Choose a valid date range to see the numbers.</div></div>`
-    for (const id of ['t_sources', 't_users', 't_events']) $(id).innerHTML = ''
+    for (const id of ['t_sources', 't_users', 't_events', 't_places']) $(id).innerHTML = ''
+    if (GLOBE) GLOBE.setPlaces([])
+    $('globeLegend').textContent = ''
     $('userCount').textContent = ''
     return
   }
@@ -159,6 +203,7 @@ function render() {
     ['Time building', fmtDur(T.activeSecs), T.workshopUsers ? `avg ${fmtDur(T.activeSecs / T.workshopUsers)} / user` : ''],
     ['Code runs', T.codeRuns, `${num(T.sims)} simulations`],
     ['Update-list emails', T.updates, '“Keep me posted” form'],
+    ['Countries', RESULT.countries.length, RESULT.places.length ? `${RESULT.places.length} place${RESULT.places.length === 1 ? '' : 's'} on the globe` : 'no location data yet'],
   ].map(([l, v, s]) => `<div class="card"><div class="v">${typeof v === 'number' ? num(v) : esc(v)}</div><div class="l">${l}</div><div class="s">${esc(s)}</div></div>`).join('')
 
   const maxV = Math.max(1, ...sources.map(s => s.visitors))
@@ -189,6 +234,8 @@ function render() {
     { k: 'source', t: 'Source' }, { k: 'campaign', t: 'Campaign' }, { k: 'device', t: 'Device' },
     { k: 'meta', t: 'Details', f: r => detail(r) },
   ], RESULT.ranged.slice(-300).reverse())
+
+  renderPlaces(RESULT)
 
   const stats = linkStats(RESULT.events, RESULT.people, LINKS)
   $('linkCount').textContent = `(${stats.length})`

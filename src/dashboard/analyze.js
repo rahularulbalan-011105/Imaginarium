@@ -1,5 +1,6 @@
 // Pure analytics over the collector's cx_events rows (no DOM) — unit-tested in
 // tests/dashboard/analyze.test.js. Every number on the dashboard comes from here.
+import { placesOf, countriesOf } from './geo.js'
 
 export const BUILD_EVENTS = new Set([
   'shape_added', 'preset_opened', 'code_run', 'sim_started', 'battle_started',
@@ -24,6 +25,9 @@ export function parseRows(headers, rows) {
       source: lc(r[ix.source]) || '(direct)', medium: lc(r[ix.medium]), campaign: lc(r[ix.campaign]),
       content: lc(r[ix.content]), term: lc(r[ix.term]), ref: String(r[ix.ref] || ''),
       referrer: String(r[ix.referrer] || ''), page: String(r[ix.page] || ''), device: String(r[ix.device] || ''),
+      // Coarse location, as sent by the browser (IANA zone + UI language).
+      // Old rows predate these columns and simply carry ''.
+      tz: String(r[ix.tz] ?? ''), lang: String(r[ix.lang] ?? ''),
       value: Number.isFinite(value) ? value : null, meta,
     })
   }
@@ -204,7 +208,17 @@ export function analyze(allEvents, opts = {}) {
     .sort((a, b) => a.signupAt - b.signupAt)
     .map(p => ({ email: p.email, signupAt: p.signupAt, source: p.attr.source }))
 
-  return { events, ranged: ranged.filter(e => matches(attrFor(e))), sources, totals, users, newUsers, people }
+  // Where the period's visitors were, from their browser time zone. Only events
+  // that actually carry a zone count, so the "located" share is honest.
+  const inScope = ranged.filter(e => matches(attrFor(e)))
+  const places = placesOf(inScope)
+  const locatedVids = new Set(inScope.filter(e => e.tz && e.vid).map(e => e.vid))
+  totals.locatedVisitors = locatedVids.size
+
+  return {
+    events, ranged: inScope, sources, totals, users, newUsers, people,
+    places, countries: countriesOf(places),
+  }
 }
 
 /** All-time results per saved campaign link (exact source|medium|campaign|content match). */

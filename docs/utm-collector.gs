@@ -30,9 +30,11 @@
  */
 
 var EVENTS_TAB = 'cx_events';
+// Columns are APPEND-ONLY: never reorder or remove one, or every existing row
+// shifts. New columns are added at the end and back-filled as '' for old rows.
 var EVENT_HEADERS = ['received', 'env', 'eid', 'app', 'event', 'email', 'vid', 'sid',
   'source', 'medium', 'campaign', 'content', 'term', 'ref', 'referrer',
-  'page', 'device', 'value', 'meta', 'client_ts'];
+  'page', 'device', 'value', 'meta', 'client_ts', 'tz', 'lang'];
 
 var LINKS_TAB = 'cx_links';
 var LINK_HEADERS = ['saved', 'label', 'url', 'base', 'source', 'medium', 'campaign', 'content', 'term', 'ref'];
@@ -54,7 +56,14 @@ var EVENTS = {
 function tab_(name, headers) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var sh = ss.getSheetByName(name);
-  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(headers); sh.setFrozenRows(1); }
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(headers); sh.setFrozenRows(1); return sh; }
+  // A sheet created by an older version is missing the newest columns: add the
+  // header cells so appended rows line up (old rows simply have blanks there).
+  var width = sh.getLastColumn();
+  if (width < headers.length) {
+    sh.getRange(1, width + 1, 1, headers.length - width)
+      .setValues([headers.slice(width)]);
+  }
   return sh;
 }
 
@@ -93,7 +102,10 @@ function doPost(e) {
       str_(v.campaign, 120).trim().toLowerCase(), str_(v.content, 120).trim().toLowerCase(), str_(v.term, 120), str_(v.ref, 80), str_(v.referrer, 300),
       str_(v.page, 300), str_(v.device, 20), isFinite(value) ? value : '',
       v.meta && typeof v.meta === 'object' ? JSON.stringify(v.meta).slice(0, 1000) : '',
-      str_(v.ts, 40)
+      str_(v.ts, 40),
+      // Coarse location: the browser's IANA time zone + UI language. No IP is
+      // read or stored; the dashboard maps the zone to a city/country dot.
+      str_(v.tz, 60), str_(v.lang, 20)
     ]);
     cache.put('eid_' + eid, '1', 21600);   // 6 h dedupe window
     return json_({ ok: true });
@@ -132,8 +144,13 @@ function doGet(e) {
   var rows = [];
   for (var i = 1; i < vals.length; i++) {
     var r = vals[i];
-    // compact arrays (same order as EVENT_HEADERS) keep the payload small
-    rows.push([iso_(r[0])].concat(r.slice(1, 19)).concat([String(r[19] || '')]));
+    // compact arrays (same order as EVENT_HEADERS) keep the payload small.
+    // Built from EVENT_HEADERS.length so adding a column needs no edit here.
+    var out = [iso_(r[0])];
+    for (var c = 1; c < EVENT_HEADERS.length; c++) {
+      out.push(c === 17 ? r[c] : String(r[c] == null ? '' : r[c]));   // 17 = value (numeric)
+    }
+    rows.push(out);
   }
   return reply_({ ok: true, headers: EVENT_HEADERS, rows: rows }, p);
 }
