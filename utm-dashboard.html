@@ -60,7 +60,7 @@
   #globeTip b{ color:#fdba74 }
   .globe-legend{ position:absolute; left:12px; bottom:10px; font-size:11px; color:var(--muted) }
 </style>
-  <script type="module" crossorigin src="./assets/utm-QELZiXRn.js"></script>
+  <script type="module" crossorigin src="./assets/utm-42K-Mm1A.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/utmTracking-Bnfn-pC2.js">
 </head>
 <body>
@@ -130,6 +130,7 @@
       <div class="row">
         <label class="f">Period
           <select id="f_range">
+            <option value="live">Live — in the workshop now</option>
             <option value="1">Today</option>
             <option value="7">Last 7 days</option>
             <option value="30" selected>Last 30 days</option>
@@ -154,15 +155,20 @@
 
     <div class="panel">
       <div class="row" style="justify-content:space-between">
-        <h2>🌍 Where visitors are</h2>
+        <h2>🌍 Who's in the workshop now</h2>
         <div class="row">
+          <label class="f" style="flex-direction:row;align-items:center;gap:6px">
+            <input type="checkbox" id="g_live" checked> Live only
+          </label>
           <label class="f" style="flex-direction:row;align-items:center;gap:6px">
             <input type="checkbox" id="g_spin" checked> Auto-rotate
           </label>
         </div>
       </div>
       <p class="hint">
-        Each dot is a place people opened Constructa from in the selected period; dot area is proportional to visitors.
+        With <b>Live only</b> on, each dot is a place someone is <b>in the workshop right now</b> — the editor
+        heart-beats every 5 minutes while its tab is open, so "now" means active in the last 10 minutes. Turn it off
+        to see the whole selected period instead. Dot area is proportional to visitors.
         Location comes from the <b>browser's time zone</b> — no IP lookup and no third-party geo service — so it is a
         region, not an address: everyone on <code>Asia/Kolkata</code> shares one dot. Drag the globe to spin it, or click a row to fly to it.
       </p>
