@@ -44,3 +44,14 @@ SuboLibrary*/
 
 # Electron desktop build output
 release/
+
+# Sibling projects and private material that live in this working directory but
+# must never reach this PUBLIC repo: the landing/dashboard apps (they carry their
+# own .env and git history), design handoffs, and analytics exports.
+/constructa/
+/final-dashboard/
+/LANDING PAE- CONSTURCTA/
+/AtumX Robot Forge/
+/CONSTRUCTA PRESETS/
+/reports/
+/docs/analytics/
