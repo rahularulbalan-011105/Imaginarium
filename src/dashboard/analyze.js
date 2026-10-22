@@ -7,6 +7,51 @@ export const BUILD_EVENTS = new Set([
   'arena_started', 'project_saved', 'export_json', 'share_link_created',
 ])
 
+/**
+ * How far back "live" reaches.
+ *
+ * The editor heart-beats a `session_time` event every 5 minutes while its tab is
+ * VISIBLE, and sends a final one the moment the tab is hidden or closed. So a
+ * person actually sitting in the workshop always has an event inside the last 5
+ * minutes, and someone who left stops producing them. 10 minutes = two beats,
+ * which absorbs one dropped beat and the collector's own write lag without
+ * counting people who have gone.
+ *
+ * This is the one number that defines "live" everywhere; the UI quotes it.
+ */
+export const LIVE_WINDOW_MS = 10 * 60 * 1000
+
+/** Events that mean "this person is inside the software", not just on the site. */
+const isInApp = (e) => e.app === 'editor'
+
+/**
+ * Who is in the workshop right now.
+ *
+ * Deliberately NOT derived from the selected date range: the globe asks "who is
+ * using Constructa at this moment", which is the same question whatever period
+ * the rest of the dashboard is showing.
+ */
+export function liveSnapshot(allEvents, { now = Date.now(), exclude, includeTest = false } = {}) {
+  const excluded = exclude || (() => false)
+  const since = now - LIVE_WINDOW_MS
+  const live = allEvents.filter(e =>
+    (includeTest || e.env === 'prod') && !excluded(e.who) && isInApp(e) && e.received >= since)
+
+  const places = placesOf(live)
+  const vids = new Set(live.filter(e => e.vid).map(e => e.vid))
+  const emails = new Set(live.filter(e => e.who).map(e => e.who))
+  const locatedVids = new Set(live.filter(e => e.tz && e.vid).map(e => e.vid))
+
+  return {
+    since, windowMs: LIVE_WINDOW_MS,
+    places, countries: countriesOf(places),
+    visitors: vids.size,          // distinct browsers in the workshop now
+    users: emails.size,           // of those, how many are signed in
+    locatedVisitors: locatedVids.size,
+    events: live.length,
+  }
+}
+
 const lc = (v) => String(v ?? '').trim().toLowerCase()
 
 /** Collector rows (arrays in EVENT_HEADERS order) → event objects, oldest first. */
@@ -94,6 +139,9 @@ export function resolveRange(choice, start = '', end = '', now = Date.now()) {
     if (to <= from) return { error: 'The end date can’t be earlier than the start date.' }
     return { from, to }
   }
+  // "Live" is a rolling window, not a calendar range, and it also narrows to
+  // in-app events - see analyze()'s opts.live.
+  if (choice === 'live') return { from: now - LIVE_WINDOW_MS, to: Infinity, live: true }
   const days = Number(choice)
   if (days === 1) { const d = new Date(now); d.setHours(0, 0, 0, 0); return { from: d.getTime(), to: Infinity } }
   if (days > 0) return { from: now - days * 86400000, to: Infinity }
@@ -107,7 +155,10 @@ export function resolveRange(choice, start = '', end = '', now = Date.now()) {
 export function analyze(allEvents, opts = {}) {
   const from = opts.from || 0, to = opts.to ?? Infinity
   const excluded = opts.exclude || (() => false)
-  const events = allEvents.filter(e => (opts.includeTest || e.env === 'prod') && !excluded(e.who))
+  // In live mode the question is "who is inside the software right now", so
+  // landing-page traffic is not part of the answer.
+  const events = allEvents.filter(e =>
+    (opts.includeTest || e.env === 'prod') && !excluded(e.who) && (!opts.live || isInApp(e)))
 
   // People: all-time event lists + attribution.
   const people = new Map()

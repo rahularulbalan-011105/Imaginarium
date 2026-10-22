@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseRows, resolveIdentities, analyze, linkStats, makeExcluder, buildCampaignUrl, resolveRange } from '../../src/dashboard/analyze.js'
+import { parseRows, resolveIdentities, analyze, linkStats, makeExcluder, buildCampaignUrl, resolveRange, liveSnapshot, LIVE_WINDOW_MS } from '../../src/dashboard/analyze.js'
 
 const H = ['received', 'env', 'eid', 'app', 'event', 'email', 'vid', 'sid', 'source', 'medium', 'campaign', 'content', 'term', 'ref', 'referrer', 'page', 'device', 'value', 'meta', 'client_ts']
 let n = 0
@@ -114,6 +114,40 @@ describe('dashboard analytics', () => {
     expect(resolveRange('7', '', '', now)).toEqual({ from: now - 7 * 86400000, to: Infinity })
     expect(resolveRange('30', '', '', now)).toEqual({ from: now - 30 * 86400000, to: Infinity })
     expect(resolveRange('0', '', '', now)).toEqual({ from: 0, to: Infinity })
+  })
+
+  it('resolves "live" to a rolling in-app window', () => {
+    const now = new Date(2026, 9, 15, 14, 30).getTime()
+    expect(resolveRange('live', '', '', now)).toEqual({ from: now - LIVE_WINDOW_MS, to: Infinity, live: true })
+  })
+
+  it('live: counts only people inside the editor, only within the window', () => {
+    const now = T0 + 100 * 60000                       // "now" = T0 + 100 min
+    const mins = (m) => (now - m * 60000 - T0) / 60000  // m minutes ago, as a row offset
+    const rows = [
+      row(mins(2), 'editor', 'session_time', { vid: 'vLive', sid: 's1', email: 'live@x.com', value: 300 }),
+      row(mins(4), 'editor', 'shape_added', { vid: 'vLive2', sid: 's2' }),
+      row(mins(3), 'landing', 'landing_view', { vid: 'vLanding', sid: 's3' }),   // on the site, not in the app
+      row(mins(45), 'editor', 'session_time', { vid: 'vGone', sid: 's4', value: 900 }), // left long ago
+    ]
+    const snap = liveSnapshot(resolveIdentities(parseRows(H, rows)), { now })
+    expect(snap.visitors).toBe(2)        // vLive + vLive2; not the landing visitor, not the one who left
+    expect(snap.users).toBe(1)           // only one of them is signed in
+    expect(snap.since).toBe(now - LIVE_WINDOW_MS)
+  })
+
+  it('live: an empty window is zero, not a crash', () => {
+    const snap = liveSnapshot(resolveIdentities(parseRows(H, fixture())), { now: T0 + 10 * 86400000 })
+    expect(snap.visitors).toBe(0)
+    expect(snap.places).toEqual([])
+  })
+
+  it('analyze in live mode ignores landing traffic', () => {
+    const evs = resolveIdentities(parseRows(H, fixture()))
+    const all = analyze(evs, { from: 0, to: Infinity })
+    const live = analyze(evs, { from: 0, to: Infinity, live: true })
+    expect(live.totals.landingVisits).toBe(0)
+    expect(all.totals.landingVisits).toBeGreaterThan(0)
   })
 
   it('custom range: whole local days, both ends inclusive', () => {

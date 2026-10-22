@@ -2,7 +2,7 @@
 // cx_events / cx_links tabs (key-protected, JSONP) and renders everything from
 // the pure functions in analyze.js.
 import { COLLECTOR_ENDPOINT } from '../utils/utmTracking.js'
-import { parseRows, resolveIdentities, analyze, linkStats, makeExcluder, buildCampaignUrl, slug, resolveRange } from './analyze.js'
+import { parseRows, resolveIdentities, analyze, linkStats, makeExcluder, buildCampaignUrl, slug, resolveRange, liveSnapshot, LIVE_WINDOW_MS } from './analyze.js'
 import { createGlobe } from './globe.js'
 
 const $ = (id) => document.getElementById(id)
@@ -82,12 +82,13 @@ function opts() {
   const r = resolveRange(choice, $('f_from').value, $('f_to').value)
   $('f_err').textContent = r.error || ''
   if (r.error) return { error: r.error }
-  return { from: r.from, to: r.to, source: $('f_source').value, campaign: $('f_campaign').value, exclude: makeExcluder($('f_exclude').value) }
+  return { from: r.from, to: r.to, live: !!r.live, source: $('f_source').value, campaign: $('f_campaign').value, exclude: makeExcluder($('f_exclude').value) }
 }
 
 // "1 Oct – 15 Oct 2026" / "Today" … for the copy feedback.
 function periodLabel() {
   const sel = $('f_range')
+  if (sel.value === 'live') return `the last ${Math.round(LIVE_WINDOW_MS / 60000)} minutes`
   if (sel.value !== 'custom') return sel.options[sel.selectedIndex].text.toLowerCase()
   const f = (s) => new Date(s + 'T00:00').toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
   return `${f($('f_from').value)} – ${f($('f_to').value)}`
@@ -159,14 +160,38 @@ function globe() {
   return GLOBE
 }
 
+// A live view that never re-fetches would just be a stale snapshot wearing the
+// word "live", so refresh on a timer while one is on screen — and only then, to
+// keep the collector's Apps Script quota for actual use.
+const LIVE_POLL_MS = 60 * 1000
+let livePoll = 0
+function startLivePolling() {
+  const wanted = $('g_live').checked || $('f_range').value === 'live'
+  if (wanted === !!livePoll) return
+  if (!wanted) { clearInterval(livePoll); livePoll = 0; return }
+  livePoll = setInterval(() => { if (document.visibilityState !== 'hidden') load() }, LIVE_POLL_MS)
+}
+
 function renderPlaces(result) {
-  const places = result.places
-  const located = result.totals.locatedVisitors
-  const total = result.totals.visitors
+  // "Live only" asks a different question from the rest of the dashboard — who is
+  // in the workshop at this moment — so it is computed from all events, not the
+  // selected period.
+  const liveOnly = $('g_live').checked
+  const snap = liveOnly ? liveSnapshot(EVENTS, { exclude: makeExcluder($('f_exclude').value) }) : null
+
+  const places = liveOnly ? snap.places : (result?.places ?? [])
+  const located = liveOnly ? snap.locatedVisitors : (result?.totals.locatedVisitors ?? 0)
+  const total = liveOnly ? snap.visitors : (result?.totals.visitors ?? 0)
   globe().setPlaces(places)
-  $('globeLegend').textContent = places.length
-    ? `${num(places.length)} place${places.length === 1 ? '' : 's'} · ${num(located)} of ${num(total)} visitors located`
-    : 'No location data in this period'
+
+  const mins = Math.round(LIVE_WINDOW_MS / 60000)
+  $('globeLegend').textContent = liveOnly
+    ? (total
+        ? `${num(total)} in the workshop now · ${num(snap.users)} signed in · ${num(places.length)} place${places.length === 1 ? '' : 's'}`
+        : `Nobody in the workshop in the last ${mins} min`)
+    : (places.length
+        ? `${num(places.length)} place${places.length === 1 ? '' : 's'} · ${num(located)} of ${num(total)} visitors located`
+        : 'No location data in this period')
   table($('t_places'), [
     { k: 'city', t: 'Place', f: r => `<b>${esc(r.city)}</b>${r.exact ? '' : ' <span class="muted" title="Zone not in the lookup table — positioned by continent">≈</span>'}` },
     { k: 'country', t: 'Country' },
@@ -174,6 +199,8 @@ function renderPlaces(result) {
     { k: 'users', t: 'Users', n: 1, f: r => num(r.users) },
     { k: 'events', t: 'Events', n: 1, f: r => num(r.events) },
   ], places, { sortState: sortPlaces, onClick: (r) => { $('g_spin').checked = false; globe().focus(r) } })
+
+  startLivePolling()
 }
 
 function render() {
@@ -184,17 +211,36 @@ function render() {
     RESULT = null
     $('u_copy').disabled = true
     $('kpis').innerHTML = `<div class="card"><div class="l">Choose a valid date range to see the numbers.</div></div>`
-    for (const id of ['t_sources', 't_users', 't_events', 't_places']) $(id).innerHTML = ''
-    if (GLOBE) GLOBE.setPlaces([])
-    $('globeLegend').textContent = ''
+    for (const id of ['t_sources', 't_users', 't_events']) $(id).innerHTML = ''
     $('userCount').textContent = ''
+    // The live globe answers "who is in the workshop now", which does not depend
+    // on the broken range - so keep showing it.
+    if ($('g_live').checked) { renderPlaces(null) } else {
+      $('t_places').innerHTML = ''
+      if (GLOBE) GLOBE.setPlaces([])
+      $('globeLegend').textContent = ''
+    }
     return
   }
   $('u_copy').disabled = false
   RESULT = analyze(EVENTS, o)
   const { totals: T, sources, users } = RESULT
 
-  $('kpis').innerHTML = [
+  // The funnel cards count landing_view / editor_open, which fire once when a
+  // page loads. Over a 10-minute window that reads 0 for someone who has been
+  // building for an hour — technically true of those events, but nonsense as an
+  // answer to "who is using Constructa now". Live mode gets its own cards.
+  if (o.live) {
+    const snap = liveSnapshot(EVENTS, { exclude: o.exclude })
+    const mins = Math.round(LIVE_WINDOW_MS / 60000)
+    $('kpis').innerHTML = [
+      ['In the workshop now', snap.visitors, `active in the last ${mins} min`],
+      ['Signed in', snap.users, snap.visitors ? `${pct(snap.users, snap.visitors)} of them` : ''],
+      ['Places', snap.places.length, `${num(snap.countries.length)} countr${snap.countries.length === 1 ? 'y' : 'ies'}`],
+      ['Events just now', snap.events, `since ${new Date(snap.since).toLocaleTimeString()}`],
+    ].map(([l, v, sub]) => `<div class="card"><div class="v">${typeof v === 'number' ? num(v) : esc(v)}</div><div class="l">${l}</div><div class="s">${esc(sub)}</div></div>`).join('')
+  } else {
+    $('kpis').innerHTML = [
     ['Visitors', T.visitors, 'unique browsers'],
     ['Landing visits', T.landingVisits, `${pct(T.ctaClicks, T.landingVisits)} clicked “Try free”`],
     ['Sign-ups', T.signups, 'new accounts'],
@@ -204,7 +250,8 @@ function render() {
     ['Code runs', T.codeRuns, `${num(T.sims)} simulations`],
     ['Update-list emails', T.updates, '“Keep me posted” form'],
     ['Countries', RESULT.countries.length, RESULT.places.length ? `${RESULT.places.length} place${RESULT.places.length === 1 ? '' : 's'} on the globe` : 'no location data yet'],
-  ].map(([l, v, s]) => `<div class="card"><div class="v">${typeof v === 'number' ? num(v) : esc(v)}</div><div class="l">${l}</div><div class="s">${esc(s)}</div></div>`).join('')
+    ].map(([l, v, s]) => `<div class="card"><div class="v">${typeof v === 'number' ? num(v) : esc(v)}</div><div class="l">${l}</div><div class="s">${esc(s)}</div></div>`).join('')
+  }
 
   const maxV = Math.max(1, ...sources.map(s => s.visitors))
   table($('t_sources'), [
@@ -360,7 +407,7 @@ $('f_range').addEventListener('change', () => {
   const today = new Date(), start = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)
   $('f_from').value = ymd(start); $('f_to').value = ymd(today)
 })
-;['f_range', 'f_source', 'f_campaign', 'f_from', 'f_to'].forEach(id => $(id).addEventListener('change', render))
+;['f_range', 'f_source', 'f_campaign', 'f_from', 'f_to', 'g_live'].forEach(id => $(id).addEventListener('change', render))
 $('f_exclude').addEventListener('input', () => { ls.set(EXCL_LS, $('f_exclude').value); render() })
 $('u_q').addEventListener('input', render)
 $('u_csv').onclick = downloadUsersCsv
