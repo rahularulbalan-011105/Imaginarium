@@ -66,7 +66,7 @@ export default function HelpMenu() {
           <div className="my-1 border-t border-indigo-500/10" />
 
           <div className="px-3 py-1.5 text-[9px] uppercase tracking-wider text-gray-500">Community</div>
-          <Item icon="💬" label="Join WhatsApp Community" sub="Connect with makers & team" onClick={() => window.open('https://chat.whatsapp.com/Kxikh3QnPIaHW92hssMTRK?s=cl&p=a&ilr=1&amv=0', '_blank', 'noopener,noreferrer')} />
+          <Item icon="💬" label="Join our Discord" sub="Connect with makers & team" onClick={() => window.open('https://discord.gg/QzEJ4Vrgn', '_blank', 'noopener,noreferrer')} />
         </div>
       )}
     </div>
