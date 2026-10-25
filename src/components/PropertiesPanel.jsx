@@ -318,25 +318,76 @@ export default function PropertiesPanel() {
   // Post-attach: local position within rotorGroup (X = along shaft, Y/Z = radial)
   const [shaftPos, setShaftPos] = useState({ x: 2.95, y: 0, z: 0 })
 
-  // Sync shaftPos from Three.js whenever the selected attached object changes
+  // Which local axis the part spins about on this rotor — the presets turn it in
+  // its mounting plane rather than about an arbitrary world axis.
+  const rotorSpinAxis = attachedMotorId
+    ? (objectManager.getMesh(attachedMotorId)?.userData.rotorAxis ?? 'y')
+    : 'y'
+
+  // Attachment alignment correction, in degrees about the part's own mount frame.
+  const [attachRot, setAttachRot] = useState({ x: 0, y: 0, z: 0 })
+
+  // Sync both from Three.js whenever the selected attached object changes
   useEffect(() => {
     if (attachedMotor && selectedId) {
       const pos = objectManager.getAttachedLocalPosition(selectedId)
       if (pos) setShaftPos({ x: r3(pos.x), y: r3(pos.y), z: r3(pos.z) })
+      const rot = objectManager.getAttachAlign?.(selectedId)?.rot
+      setAttachRot(rot ? { x: r3(rot.x), y: r3(rot.y), z: r3(rot.z) } : { x: 0, y: 0, z: 0 })
     }
   }, [selectedId, attachedMotor])
+
+  // Position is shown as the ABSOLUTE local position (what the snap presets mean),
+  // but stored as an offset from the mount base, so one "Reset" undoes both it and
+  // the rotation, and neither can drift by being re-applied to itself.
+  const applyAlign = (pos, rotDeg) => {
+    const base = objectManager.getAttachBase(selectedId)
+    if (!base) {          // pre-correction project: fall back to the direct move
+      objectManager.updateAttachedLocalPosition(selectedId, pos.x, pos.y, pos.z)
+      return
+    }
+    objectManager.setAttachAlign(selectedId, {
+      pos: { x: pos.x - base.position.x, y: pos.y - base.position.y, z: pos.z - base.position.z },
+      rot: rotDeg,
+    })
+  }
 
   const handleShaftPosChange = (axis, val) => {
     if (isNaN(val)) return
     const next = { ...shaftPos, [axis]: val }
     setShaftPos(next)
-    objectManager.updateAttachedLocalPosition(selectedId, next.x, next.y, next.z)
+    applyAlign(next, attachRot)
   }
 
   const handleShaftSnap = (x) => {
     const next = { x, y: 0, z: 0 }
     setShaftPos(next)
-    objectManager.updateAttachedLocalPosition(selectedId, x, 0, 0)
+    applyAlign(next, attachRot)
+    snapshot()
+  }
+
+  // Live while typing/dragging; one history entry when the edit is committed, so
+  // a drag through 45 values does not leave 45 undo steps.
+  const handleAttachRotChange = (axis, val) => {
+    if (isNaN(val)) return
+    const next = { ...attachRot, [axis]: val }
+    setAttachRot(next)
+    applyAlign(shaftPos, next)
+  }
+
+  const handleAttachRotPreset = (axis, deg) => {
+    const next = { ...attachRot, [axis]: ((attachRot[axis] + deg) % 360 + 360) % 360 }
+    setAttachRot(next)
+    applyAlign(shaftPos, next)
+    snapshot()
+  }
+
+  const handleResetAlign = () => {
+    const base = objectManager.getAttachBase(selectedId)
+    objectManager.setAttachAlign(selectedId, null)
+    setAttachRot({ x: 0, y: 0, z: 0 })
+    if (base) setShaftPos({ x: r3(base.position.x), y: r3(base.position.y), z: r3(base.position.z) })
+    snapshot()
   }
 
   const update = useCallback(
@@ -500,6 +551,60 @@ export default function PropertiesPanel() {
               ))}
             </div>
             <div className="text-[9px] text-gray-600 mt-1">X = along shaft · Y/Z = radial</div>
+          </div>
+
+          {/* Attachment alignment — corrects an awkward mount without detaching.
+              Rotation is about the part's OWN mount frame, so it stays correct
+              when the servo turns. */}
+          <div className="mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Alignment</span>
+              <button
+                onClick={handleResetAlign}
+                title="Return this part to the mount it was given when attached"
+                className="text-[9px] px-1.5 py-0.5 rounded border border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {[['X', 'x'], ['Y', 'y'], ['Z', 'z']].map(([label, axis]) => (
+                <div key={axis} className="relative">
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">
+                    {label}
+                  </span>
+                  <input
+                    type="number"
+                    value={attachRot[axis]}
+                    step={5}
+                    title={`Rotate about the part's local ${label} axis`}
+                    onChange={(e) => handleAttachRotChange(axis, parseFloat(e.target.value))}
+                    onBlur={snapshot}
+                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-1 mt-1">
+              {[['+90°', 90], ['180°', 180], ['−90°', -90]].map(([label, deg]) => (
+                <button
+                  key={label}
+                  onClick={() => handleAttachRotPreset(rotorSpinAxis, deg)}
+                  title={`Turn the part ${label} in its mounting plane`}
+                  className="flex-1 py-1 text-[9px] rounded border bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                onClick={() => handleAttachRotPreset(rotorSpinAxis === 'x' ? 'z' : 'x', 180)}
+                title="Flip the part over on its mount"
+                className="flex-1 py-1 text-[9px] rounded border bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
+              >
+                Flip
+              </button>
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">Degrees, about the part’s own mount — survives the servo turning</div>
           </div>
 
           <button

@@ -371,6 +371,110 @@ class ObjectManager {
   //   center → mesh origin at snapX
   //   front  → +X extremity of mesh at snapX (e.g. cone tip pointing toward shaft)
   //   back   → -X extremity of mesh at snapX (e.g. cone base at shaft, tip extends past)
+  // ── Attachment mount frame ────────────────────────────────────────────────
+  //
+  // A part's mount used to be "whatever world orientation it happened to have,
+  // re-expressed in this rotor's frame". That makes the result depend on how the
+  // PART and the SERVO were each rotated beforehand, so the same propeller
+  // mounted differently on two differently-rotated servos. These helpers derive
+  // the mount from geometry instead, so it is identical on every rotor.
+
+  /** Bounding box of a part in its OWN local space (works for GLB groups too). */
+  _localBox(mesh) {
+    const box = new THREE.Box3()
+    mesh.updateMatrixWorld(true)
+    const inv = new THREE.Matrix4().copy(mesh.matrixWorld).invert()
+    mesh.traverse(c => {
+      if (!c.isMesh || !c.geometry) return
+      if (c.userData.isPatchMesh || c.userData.isPinSphere || c.userData.isAttachMarker) return
+      c.updateMatrixWorld(true)
+      c.geometry.computeBoundingBox()
+      if (!c.geometry.boundingBox) return
+      box.union(c.geometry.boundingBox.clone()
+        .applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, c.matrixWorld)))
+    })
+    return box.isEmpty() ? null : box
+  }
+
+  /**
+   * The orientation a part takes when mounted on a rotor, with no face picked.
+   *
+   * A propeller, wheel or horn is a flat thing: the axis it is thinnest along is
+   * the one you push onto the shaft. Aligning that axis to the rotor axis gives a
+   * mount that depends only on the part's geometry and the rotor — never on how
+   * either happened to be rotated in the world beforehand.
+   */
+  _canonicalMountQuat(mesh, rAxis) {
+    const box = this._localBox(mesh)
+    if (!box) return null
+    const size = box.getSize(new THREE.Vector3())
+    const thin = size.x <= size.y && size.x <= size.z ? 'x' : (size.y <= size.z ? 'y' : 'z')
+    // Degenerate (a cube, or a part with no clear flat axis): no canonical answer,
+    // so leave the caller to keep its existing behaviour rather than guess.
+    const dims = [size.x, size.y, size.z].sort((a, b) => a - b)
+    if (!(dims[0] > 0) || dims[0] > dims[1] * 0.9) return null
+
+    const from = new THREE.Vector3(); from[thin] = 1
+    const to   = new THREE.Vector3(); to[rAxis] = 1
+    return new THREE.Quaternion().setFromUnitVectors(from, to)
+  }
+
+  /**
+   * Local transform of an attachment = its base mount, then the user's correction.
+   *
+   * Rotation is post-multiplied so a correction reads in the PART's own mount
+   * frame ("spin it 90 degrees in its own plane"); the offset is added in the
+   * ROTOR's frame, which is what the along-shaft / radial fields already mean.
+   */
+  _composeAttach(base, align) {
+    const q = new THREE.Quaternion(base.quaternion.x, base.quaternion.y, base.quaternion.z, base.quaternion.w)
+    const p = new THREE.Vector3(base.position.x, base.position.y, base.position.z)
+    if (align?.rot) {
+      const d = Math.PI / 180
+      q.multiply(new THREE.Quaternion().setFromEuler(
+        new THREE.Euler(align.rot.x * d, align.rot.y * d, align.rot.z * d, 'XYZ')))
+    }
+    if (align?.pos) p.add(new THREE.Vector3(align.pos.x || 0, align.pos.y || 0, align.pos.z || 0))
+    return { position: p, quaternion: q }
+  }
+
+  /** Remember the un-corrected mount so a correction stays reversible. */
+  _setAttachBase(mesh) {
+    mesh.userData.attachBase = {
+      position:   { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+      quaternion: { x: mesh.quaternion.x, y: mesh.quaternion.y, z: mesh.quaternion.z, w: mesh.quaternion.w },
+    }
+  }
+
+  /** The correction currently applied to an attached part, if any. */
+  getAttachAlign(objectId) {
+    return this.objects.get(objectId)?.userData.attachAlign ?? null
+  }
+
+  /** The base mount of an attached part, if one was recorded. */
+  getAttachBase(objectId) {
+    return this.objects.get(objectId)?.userData.attachBase ?? null
+  }
+
+  /**
+   * Apply a correction to an already-attached part. Live: the viewport updates as
+   * the user drags a field, with no detach/reattach and no accumulated drift,
+   * because every correction is composed against the stored base, not the
+   * current (already-corrected) transform.
+   */
+  setAttachAlign(objectId, align) {
+    const mesh = this.objects.get(objectId)
+    if (!mesh || !this.attachedObjects.has(objectId)) return false
+    const base = mesh.userData.attachBase
+    if (!base) return false
+    const { position, quaternion } = this._composeAttach(base, align)
+    mesh.position.copy(position)
+    mesh.quaternion.copy(quaternion)
+    mesh.updateMatrixWorld(true)
+    mesh.userData.attachAlign = align || null
+    return true
+  }
+
   attachMeshToRotor(objectId, motorId, snapX = null, alignX = 'center') {
     const mesh = this.objects.get(objectId)
     const motorMesh = this.objects.get(motorId)
@@ -426,6 +530,9 @@ class ObjectManager {
       mesh.position.copy(new THREE.Vector3().sub(attachPt))
       mesh.quaternion.copy(newLocalQuat)
       this._snapPropCenterToAxis(mesh, rotorGroup, rotorAxis)
+      // This path already derives the mount from the picked face and the shaft,
+      // so it needs no canonical override - only a base to correct against.
+      this._setAttachBase(mesh)
       this.attachedObjects.set(objectId, motorId)
       return true
     }
@@ -481,8 +588,14 @@ class ObjectManager {
     if (mesh.parent) mesh.parent.remove(mesh)
     rotorGroup.add(mesh)
     mesh.position.copy(localPos)
-    mesh.quaternion.copy(localQuat)
+    // The mount comes from the part's own geometry (its flat axis onto the shaft),
+    // NOT from whatever world orientation it happened to have. That is what makes
+    // the same part mount identically on every servo. Parts with no clear flat
+    // axis (a cube) have no canonical answer, so they keep the old behaviour.
+    const canonical = this._canonicalMountQuat(mesh, rAxis)
+    mesh.quaternion.copy(canonical ?? localQuat)
     this._snapPropCenterToAxis(mesh, rotorGroup, rAxis)
+    this._setAttachBase(mesh)
     this.attachedObjects.set(objectId, motorId)
     return true
   }
@@ -606,6 +719,10 @@ class ObjectManager {
       position:   { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
       quaternion: { x: mesh.quaternion.x, y: mesh.quaternion.y, z: mesh.quaternion.z, w: mesh.quaternion.w },
       scale:      { x: mesh.scale.x, y: mesh.scale.y, z: mesh.scale.z },
+      // Enough to reconstruct the correction, not a second copy of the transform:
+      // base is the un-corrected mount, align is what the user changed.
+      ...(mesh.userData.attachBase  ? { base:  mesh.userData.attachBase  } : {}),
+      ...(mesh.userData.attachAlign ? { align: mesh.userData.attachAlign } : {}),
     }
   }
 
@@ -623,6 +740,13 @@ class ObjectManager {
     mesh.position.set(t.position.x, t.position.y, t.position.z)
     if (t.quaternion) mesh.quaternion.set(t.quaternion.x, t.quaternion.y, t.quaternion.z, t.quaternion.w)
     if (t.scale) mesh.scale.set(t.scale.x, t.scale.y, t.scale.z)
+    // Projects saved before attachment corrections existed carry no base; the
+    // restored transform IS their base, so corrections start from where they are.
+    mesh.userData.attachBase  = t.base ?? {
+      position:   { x: mesh.position.x, y: mesh.position.y, z: mesh.position.z },
+      quaternion: { x: mesh.quaternion.x, y: mesh.quaternion.y, z: mesh.quaternion.z, w: mesh.quaternion.w },
+    }
+    mesh.userData.attachAlign = t.align ?? null
     mesh.updateMatrixWorld(true)
     this.attachedObjects.set(objectId, motorId)
     return true
@@ -644,16 +768,23 @@ class ObjectManager {
 
     const worldPos = new THREE.Vector3()
     const worldQuat = new THREE.Quaternion()
+    const worldScale = new THREE.Vector3()
     mesh.getWorldPosition(worldPos)
     mesh.getWorldQuaternion(worldQuat)
+    mesh.getWorldScale(worldScale)
 
     mesh.removeFromParent()
     if (this.scene) {
       this.scene.add(mesh)
       mesh.position.copy(worldPos)
       mesh.quaternion.copy(worldQuat)
+      // Scale was relative to the rotor's chain; without this a detach silently
+      // resizes the part whenever that chain was not unit-scaled.
+      mesh.scale.copy(worldScale)
     }
 
+    delete mesh.userData.attachBase
+    delete mesh.userData.attachAlign
     this.attachedObjects.delete(objectId)
     return worldPos
   }
