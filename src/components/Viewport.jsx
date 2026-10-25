@@ -657,12 +657,14 @@ export default function Viewport() {
           return
         }
 
-        // Otherwise auto-detect the entire face and create a full-size patch
+        // Otherwise auto-detect the entire face and select a full-size patch for
+        // it. addOrSelectPatch (not addPatch) because pick() above can miss a
+        // patch that already covers this face — creating a second one there left
+        // both selections on one object, which can never be attached, so the
+        // Connect prompt just never showed up.
         const patch = patchManager.buildFacePatch(e, bounds)
         if (patch) {
-          const store = useSurfaceStore.getState()
-          store.addPatch(patch)
-          store.toggleSelectPatch(patch.id)
+          useSurfaceStore.getState().addOrSelectPatch(patch)
           snapshot()
         }
         return

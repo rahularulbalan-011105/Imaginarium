@@ -1,11 +1,33 @@
 import { useCallback, memo } from 'react'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
+import { useUiStore } from '../stores/uiStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 
+// One bar, one position, whatever the tool has to say — so the prompt never
+// just vanishes.
+function Shell({ accent, children }) {
+  return (
+    <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 pointer-events-auto select-none">
+      <div
+        className="flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl"
+        style={{
+          background: 'linear-gradient(135deg,#0c1a24 0%,#0f2230 100%)',
+          border: `1.5px solid ${accent}`,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+          maxWidth: 'min(92vw, 460px)',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
 function SurfaceAttachPrompt() {
+  const surfaceToolActive = useUiStore(s => s.surfaceToolActive)
   const patches          = useSurfaceStore(s => s.patches)
   const selectedPatchIds = useSurfaceStore(s => s.selectedIds)
   const removePatch         = useSurfaceStore(s => s.removePatch)
@@ -52,7 +74,41 @@ function SurfaceAttachPrompt() {
     }
   }, [selectedPatches, bonds, updateObject, cascadeBonds, addBond, removePatch, clearPatchSelection, snapshot])
 
-  if (!canAttach) return null
+  // The tool is off: nothing to say.
+  if (!surfaceToolActive) return null
+
+  // Every state below used to render NOTHING, which is why the prompt looked
+  // like it "sometimes doesn't appear": picking two faces on one part, or
+  // ending up with one selection, is indistinguishable from the feature being
+  // broken unless the UI says so.
+  if (!canAttach) {
+    const sameObject = selectedPatches.length === 2
+    const text = sameObject
+      ? 'Both surfaces are on the same part — pick a face on a different part to join them.'
+      : selectedPatches.length === 1
+        ? 'Now click a face on a different part.'
+        : 'Click a face to pick the first surface.'
+    return (
+      <Shell accent={sameObject ? '#f59e0b' : 'rgba(148,163,184,0.45)'}>
+        <div className="text-base shrink-0" style={{ color: sameObject ? '#f59e0b' : '#64748b' }}>
+          {sameObject ? '!' : '⬡'}
+        </div>
+        <div className="text-xs leading-tight text-gray-300">
+          {sameObject && <div className="font-semibold text-amber-300 mb-0.5">Can’t connect these</div>}
+          {text}
+        </div>
+        {selectedPatches.length > 0 && (
+          <button
+            onClick={clearPatchSelection}
+            className="text-gray-600 hover:text-gray-300 text-base leading-none transition-colors px-1"
+            title="Clear selection"
+          >
+            ✕
+          </button>
+        )}
+      </Shell>
+    )
+  }
 
   const [pA, pB] = selectedPatches
   const objA = objects.find(o => o.id === pA.objectId)
