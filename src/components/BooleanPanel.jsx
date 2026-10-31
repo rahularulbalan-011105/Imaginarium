@@ -6,6 +6,7 @@ import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { runBoolean, buildUnionMembers } from '../utils/csg.js'
 import { loadCSG } from '../utils/csgLib.js'
+import { noteIfStale } from '../utils/staleBuild.js'
 
 const OPERATIONS = [
   {
@@ -135,7 +136,10 @@ export default function BooleanPanel({ selectedId, secondaryId }) {
 
       snapshot()
     } catch (e) {
-      setError('Operation failed: ' + e.message)
+      // The CSG engine is a lazy chunk; after a deploy this tab's copy is gone.
+      setError(noteIfStale(e)
+        ? 'Constructa was updated — reload to use Boolean operations.'
+        : 'Operation failed: ' + e.message)
     }
 
     setBusy(false)

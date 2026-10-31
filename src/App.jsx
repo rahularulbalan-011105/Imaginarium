@@ -14,6 +14,7 @@ import EmailGate from './components/EmailGate.jsx'
 import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import CloudSaveBar from './components/CloudSaveBar.jsx'
+import StaleBuildNotice from './components/StaleBuildNotice.jsx'
 import { initCloudSync } from './managers/CloudProjectManager.js'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
@@ -521,6 +522,7 @@ function AppEditor() {
       {/* Mirrors onboarding flags into the overlay coordinator so the View Cube
           yields to the welcome card / tour / coach / reference modals. */}
       <OverlayBridge />
+      <StaleBuildNotice />
       <CloudSaveBar />
       <EmailCapture />
       <EmailGate />

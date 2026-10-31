@@ -1,4 +1,5 @@
 import { Component } from 'react'
+import { noteIfStale, isStaleBuildError, isStaleBuild } from '../utils/staleBuild.js'
 
 // Contains a crashing panel so it can't take down the whole editor.
 export default class PanelErrorBoundary extends Component {
@@ -10,10 +11,25 @@ export default class PanelErrorBoundary extends Component {
     return { error }
   }
   componentDidCatch(error, info) {
+    // A lazy panel whose chunk 404'd isn't broken — this tab just outlived the
+    // build that shipped it. Raise the reload notice instead of a stack trace.
+    // React.lazy retries a failed import and reports the SECOND failure as
+    // "Cannot read properties of undefined (reading 'default')", so once any
+    // chunk is known missing, stop attributing failures here to the panel.
+    if (noteIfStale(error) || isStaleBuild()) return
     console.error('[PanelErrorBoundary]', error, info)
   }
   render() {
     if (this.state.error) {
+      // StaleBuildNotice is already telling the user to reload; don't also
+      // accuse the panel of crashing.
+      if (isStaleBuildError(this.state.error) || isStaleBuild()) {
+        return (
+          <div className="p-4 text-xs" style={{ color: 'rgb(var(--g-400))' }}>
+            {this.props.label ?? 'This panel'} needs the updated app — reload to open it.
+          </div>
+        )
+      }
       return (
         <div className="p-4 text-xs text-red-300">
           <div className="font-semibold text-red-400 mb-1">{this.props.label ?? 'Panel'} crashed</div>

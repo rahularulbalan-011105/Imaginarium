@@ -26,7 +26,10 @@ let _ArticulatedSession = null
 let _roboticsPromise = null
 export function loadRobotics() {
   if (!_roboticsPromise) {
-    _roboticsPromise = import('./physics/robotics/ArticulatedSession.js').then(m => { _ArticulatedSession = m.ArticulatedSession; return m })
+    // Drop a failed promise so the next Start can retry (see csgLib for why).
+    _roboticsPromise = import('./physics/robotics/ArticulatedSession.js')
+      .then(m => { _ArticulatedSession = m.ArticulatedSession; return m })
+      .catch(e => { _roboticsPromise = null; throw e })
   }
   return _roboticsPromise
 }

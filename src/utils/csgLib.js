@@ -7,7 +7,14 @@ let _lib = null
 let _promise = null
 
 export function loadCSG() {
-  if (!_promise) _promise = import('three-bvh-csg').then((m) => { _lib = m; return m })
+  // Don't keep a REJECTED promise: a failed load would then be permanent for
+  // the tab, so even a transient network blip could never be retried. (After a
+  // deploy the retry fails too — staleBuild turns that into a reload prompt.)
+  if (!_promise) {
+    _promise = import('three-bvh-csg')
+      .then((m) => { _lib = m; return m })
+      .catch((e) => { _promise = null; throw e })
+  }
   return _promise
 }
 

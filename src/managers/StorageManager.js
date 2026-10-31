@@ -91,22 +91,34 @@ class StorageManager {
     this._unwatch = (watch ?? []).map(([store, sel]) =>
       store.subscribe((st, prev) => { if (sel(st) !== sel(prev)) this._dirty = true }))
     const watching = !!(watch && watch.length)
-    this._timer = setInterval(async () => {
-      if (watching && !this._dirty) return
-      const data = getProjectData()
-      if (!data) return
-      // Dirty-check: skip the write entirely when nothing changed since last save.
-      const serial = this._serialize(data)
-      this._dirty = false
-      if (serial && serial === this._lastSaved) return
-      this._emitStatus('saving')
-      try { await this.saveProject(data); this._emitStatus('saved') }
-      catch (e) { console.error(e); this._dirty = true; this._emitStatus('error') }
-    }, intervalMs)
+    this._getProjectData = getProjectData
+    this._watching = watching
+    this._timer = setInterval(() => this.saveNow(), intervalMs)
+  }
+
+  /**
+   * Run one autosave pass immediately, outside the interval. Used when the user
+   * is about to lose the tab (reloading onto a new build) and the next periodic
+   * save is up to 30 s away. Honours the same dirty-check, so a no-op session
+   * still writes nothing.
+   */
+  async saveNow() {
+    if (!this._getProjectData) return
+    if (this._watching && !this._dirty) return
+    const data = this._getProjectData()
+    if (!data) return
+    // Dirty-check: skip the write entirely when nothing changed since last save.
+    const serial = this._serialize(data)
+    this._dirty = false
+    if (serial && serial === this._lastSaved) return
+    this._emitStatus('saving')
+    try { await this.saveProject(data); this._emitStatus('saved') }
+    catch (e) { console.error(e); this._dirty = true; this._emitStatus('error') }
   }
 
   disableAutoSave() {
     if (this._timer) { clearInterval(this._timer); this._timer = null }
+    this._getProjectData = null
     for (const u of this._unwatch ?? []) { try { u() } catch { /* ignore */ } }
     this._unwatch = []
   }
