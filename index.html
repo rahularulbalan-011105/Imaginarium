@@ -66,8 +66,13 @@
         } catch (e) {}
       })();
     </script>
+    <!-- Real icon FILES, not a data: URI — a data: favicon paints in the tab but
+         can't be crawled, so Google shows the generic globe instead. .ico first:
+         it's the one Google's favicon crawler asks for. -->
+    <link rel="icon" href="./favicon.ico" sizes="48x48" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-    <link rel="apple-touch-icon" href="./constructa-logo.png" />
+    <link rel="icon" type="image/png" sizes="96x96" href="./favicon-96.png" />
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Constructa — design 3D robots, wire up electronics, program them with Arduino code or blocks, and battle them with physics, all in your browser." />
     <title>Constructa — Robot Builder &amp; Simulation</title>
@@ -87,11 +92,11 @@
         document.documentElement.style.background = (t === 'light') ? '#F7F7F7' : '#121212';
       })();
     </script>
-    <script type="module" crossorigin src="./assets/main-DTJEAhJo.js"></script>
+    <script type="module" crossorigin src="./assets/main-BEeVkj5y.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/utmTracking-Bnfn-pC2.js">
     <link rel="stylesheet" crossorigin href="./assets/main-o7vBFi2b.css">
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"></div>
   </body>
 </html>
