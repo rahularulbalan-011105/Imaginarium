@@ -55,6 +55,17 @@ export function isCloudMode() {
   return p.has('project') || p.has('share')
 }
 
+/**
+ * Opened to LOOK at someone else's build, not to make one — a community entry
+ * (?ro=1) or a share link (?share=…). Nothing here can be edited or saved, so
+ * these visitors are not asked for anything: browsing the community is public.
+ */
+export function isReadOnlyView() {
+  if (typeof window === 'undefined') return false
+  const p = new URLSearchParams(window.location.search)
+  return p.get('ro') === '1' || p.has('share')
+}
+
 function setStatus(status, extra = {}) {
   S.status = status
   window.dispatchEvent(

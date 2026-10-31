@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react'
 import ConstructaLogo from './ConstructaLogo.jsx'
 import { getKnownEmail, onEmailChange, setGateEmail, isValidEmail } from '../utils/utmTracking.js'
-import { isCloudMode } from '../managers/CloudProjectManager.js'
+import { isCloudMode, isReadOnlyView } from '../managers/CloudProjectManager.js'
 import { useOverlay } from './ui/overlay.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EmailGate — nobody uses Constructa without an email.
 //
 // Logged-in users (opened from the dashboard) already have one from their
-// Supabase session, so they never see this. Anyone else (direct ?app=1 links,
-// share links, community links) must enter an email before the workshop
-// unlocks. The email is remembered on this browser and attached to every
-// analytics event (utmTracking). Skipped on localhost (dev / benchmarks).
+// Supabase session, so they never see this. Anyone else arriving to BUILD
+// (direct ?app=1 links) must enter an email before the workshop unlocks.
+//
+// Read-only visitors are exempt: opening a community build or a share link
+// (?ro=1 / ?share=) is browsing, not building — you can look at what other
+// people made without handing over anything. Asking there turned a shared
+// link into a wall for the one person it was shared with. The gate returns
+// the moment they act on it: Reuse makes a copy of their own, which needs an
+// account, and that copy opens editable (no ?ro=1) like any other project.
+//
+// The email is remembered on this browser and attached to every analytics
+// event (utmTracking). Skipped on localhost (dev / benchmarks).
 // ─────────────────────────────────────────────────────────────────────────────
 
 const LOGIN_URL = 'https://constructa-page.atumx.in/login'
@@ -31,7 +39,7 @@ export default function EmailGate() {
     return () => clearTimeout(t)
   }, [armed])
 
-  const open = !isLocal() && armed && !email
+  const open = !isLocal() && !isReadOnlyView() && armed && !email
   useOverlay('email-gate', open)
   if (!open) return null
 
