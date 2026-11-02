@@ -45,7 +45,8 @@ export class CombatEffectsManager {
     this.lastImpact = null      // dev/test: the most recent impact description
   }
 
-  configure({ scene, camera, canvas, shake, getRobot, getActor = null, playerId = null, robots = [], onDetach = null }) {
+  configure({ scene, camera, canvas, shake, getRobot, getActor = null, playerId = null, robots = [], onDetach = null, onWrecked = null }) {
+    this._onWrecked = onWrecked
     this._hits.configure(scene)
     this._numbers.mount()
     this._camera = camera
@@ -111,8 +112,13 @@ export class CombatEffectsManager {
       : type === 'explosion' ? 'blast' : 'kinetic'
     const robot = this._getRobot?.(targetId)
     const actor = this._getActor?.(targetId)
-    const maxHp = (actor?.armorMax ?? 100) + (actor?.coreMax ?? 100)
-    const frac = dealt / maxHp
+    // The impact itself (before any component soaked it — WeaponManager) is what
+    // the struck component takes; the robot's HP took `dealt`.
+    const impact = Number.isFinite(evt?.impact) ? Math.max(evt.impact, dealt) : dealt
+    // Impact size judged against the robot's structure (unscaled HP), so a hit
+    // reads the same however match pacing sets the HP layers.
+    const maxHp = robot?.stats?.structureMax ?? ((actor?.armorMax ?? 100) + (actor?.coreMax ?? 100))
+    const frac = impact / maxHp
     const level = frac < 0.02 ? 1 : frac < 0.07 ? 2 : 3
     const s = level === 1 ? 0.65 : level === 2 ? 1 : 1.45
 
@@ -182,7 +188,7 @@ export class CombatEffectsManager {
     const crit = !!evt?.crit
     const hot = crit ? 0xfff2a0 : 0xffc879
     _bias.copy(dir).reflect(N)                                   // ricochet direction
-    const info = { dealt, dir, point: P, normal: N, kick: 0, rock: 0 }
+    const info = { dealt: impact, kind, dir, point: P, normal: N, kick: 0, rock: 0 }
     // A grazing round glanced off: a bright streak along the surface, a scratch
     // instead of a hole (its reduced damage was already applied upstream).
     if (evt?.ricochet && (kind === 'kinetic' || kind === 'pellet')) {
@@ -257,6 +263,11 @@ export class CombatEffectsManager {
     info.surface = !!loc?.surface
     if (!info.surface) info.mark = null
     const res = loc ? this._damage.hit(targetId, loc.part, info) : null
+    // A blast loads the robot's OTHER parts too, by distance — once per part.
+    if (kind === 'blast' && evt?.hitPoint && res) {
+      const radius = def?.splashRadius || 8
+      res.mounts.push(...this._damage.blast(targetId, new THREE.Vector3(evt.hitPoint.x, evt.hitPoint.y, evt.hitPoint.z), radius, impact, info, loc.part))
+    }
     for (const m of res?.mounts ?? []) {
       // A mount giving way is heard before it is seen to fail.
       if (!m.failed) arenaAudio.play(m.state >= 3 ? 'clank' : 'zap', { minGap: 0.1 })
@@ -291,6 +302,9 @@ export class CombatEffectsManager {
     if (name === 'part_break') {
       arenaAudio.play('part_break')
       this._addShake(data.robotId === this._playerId ? 0.24 : 0.1)
+    } else if (name === 'part_wrecked') {
+      arenaAudio.play('armor_break', { minGap: 0.2 })
+      this._onWrecked?.(data.robotId, data.part)
     } else if (name === 'zap') arenaAudio.play('zap', { minGap: 0.5 })
     else if (name === 'pop') arenaAudio.play('impact_heavy', { minGap: 0.1 })
     else if (name === 'clank') arenaAudio.play('clank', { minGap: 0.08 })
@@ -333,6 +347,10 @@ export class CombatEffectsManager {
   exitPoint(robotId, entry, dir) { return this._damage.exitPoint(robotId, entry, dir) }
   partHealthForMesh(robotId, mesh) { const p = this._damage.partForMesh(robotId, mesh); return p ? this._damage.partHealth(p) : 1 }
   driveState(robotId) { return this._damage.driveState(robotId) }
+  shieldFor(robotId, partId) { return this._damage.shieldFor(robotId, partId) }
+  // What an opponent can SEE of a robot's components (position, visible
+  // condition) — the AI's target picking reads only this.
+  visibleParts(robotId) { return this._damage.visibleParts(robotId) }
 
   // Dev/test introspection.
   stats() { return { ...this._hits.stats(), loose: this._damage.looseCount } }

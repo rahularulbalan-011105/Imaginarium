@@ -1006,9 +1006,18 @@ class ObjectManager {
 
     // removeFromParent works whether parent is the scene or a rotorGroup
     o.removeFromParent()
+    // Per-part canvas textures (pin-label sprites, OLED screen faces) are unique
+    // to this part — free them too. GLB textures are shared by every clone and
+    // stay with the model cache.
+    const freeCanvasMap = (mat) => { for (const m of Array.isArray(mat) ? mat : [mat]) if (m?.map?.isCanvasTexture) m.map.dispose() }
     o.traverse(child => {
       if (child.isMesh) {
+        freeCanvasMap(child.material)
+        if (child.isSkinnedMesh) child.skeleton?.dispose()   // its own (cloned) skeleton's bone texture
         child.geometry?.dispose()
+        child.material?.dispose()
+      } else if (child.isSprite) {
+        freeCanvasMap(child.material)
         child.material?.dispose()
       }
     })

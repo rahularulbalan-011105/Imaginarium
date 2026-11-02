@@ -48,11 +48,12 @@ function CombatantCard({ a, side }) {
   const accent = right ? TEAM.enemy : TEAM.player
   const dead = a.state === 'destroyed'
   const heatWarn = a.heat > a.heatMax * 0.8
-  const weaponState = !a.weaponName ? null : a.reloading ? 'RELOADING' : a.ammo <= 0 ? 'EMPTY' : 'READY'
+  const weaponState = !a.weaponName ? null : a.weaponCondition === 'OFFLINE' || a.weaponCondition === 'JAMMED' ? a.weaponCondition
+    : a.reloading ? 'RELOADING' : a.ammo <= 0 ? 'EMPTY' : 'READY'
   return (
     <div style={{
       width: 'min(250px, 32vw)', padding: '11px 13px', borderRadius: 14, textAlign: right ? 'right' : 'left',
-      background: 'rgb(var(--g-900) / 0.92)', border: `1.5px solid ${accent}`,
+      background: 'linear-gradient(180deg, rgba(48,55,66,.94), rgba(20,25,32,.94))', border: `1.5px solid ${accent}`, borderTopWidth: 3,
       boxShadow: a.overheated ? '0 0 16px #ef444488' : '0 4px 18px rgba(0,0,0,.4)', opacity: dead ? 0.55 : 1,
     }}>
       <div style={{ display: 'flex', flexDirection: right ? 'row-reverse' : 'row', alignItems: 'center', gap: 6, marginBottom: 7, flexWrap: 'wrap' }}>
@@ -71,8 +72,8 @@ function CombatantCard({ a, side }) {
       <div style={{ display: 'flex', flexDirection: right ? 'row-reverse' : 'row', justifyContent: 'space-between', fontSize: 10, marginTop: 5, color: 'rgb(var(--g-300))' }}>
         <span>🔫 {a.weaponName || 'No weapon — melee only'}</span>
         {weaponState && (
-          <span style={{ color: weaponState === 'READY' ? '#86efac' : '#f59e0b', fontWeight: 700 }}>
-            {weaponState === 'READY' ? `${a.ammo}/${a.magSize}` : weaponState}
+          <span style={{ color: weaponState === 'READY' ? (a.weaponCondition === 'DAMAGED' ? '#fbbf24' : '#86efac') : weaponState === 'OFFLINE' ? '#f87171' : '#f59e0b', fontWeight: 700 }}>
+            {weaponState === 'READY' ? `${a.ammo}/${a.magSize}${a.weaponCondition === 'DAMAGED' ? ' · DMG' : ''}` : weaponState}
           </span>
         )}
       </div>
@@ -147,8 +148,10 @@ function Crosshair({ active }) {
 // Bottom weapon slots — real readiness from the actor mirror (WeaponManager).
 function WeaponSlots({ player }) {
   const slots = [
-    { key: 'LMB', icon: '🔫', name: player?.weaponName, ready: !!player?.weaponName && !player.reloading && player.ammo > 0, sub: player?.weaponName ? (player.reloading ? 'reload' : `${player.ammo}/${player.magSize}`) : 'none' },
-    { key: 'RMB', icon: '🗡', name: player?.secondaryName || 'Melee Strike', ready: player?.secondaryReady !== false, sub: player?.secondaryReady === false ? 'cooling' : 'ready' },
+    { key: 'LMB', icon: '🔫', name: player?.weaponName, ready: !!player?.weaponName && !player.reloading && player.ammo > 0 && player.weaponCondition !== 'OFFLINE' && player.weaponCondition !== 'JAMMED',
+      sub: player?.weaponName ? (player.weaponCondition === 'OFFLINE' || player.weaponCondition === 'JAMMED' ? player.weaponCondition.toLowerCase() : player.reloading ? 'reload' : `${player.ammo}/${player.magSize}`) : 'none' },
+    { key: 'RMB', icon: '🗡', name: player?.secondaryName || 'Melee Strike', ready: player?.secondaryReady !== false,
+      sub: player?.secondaryCondition === 'OFFLINE' || player?.secondaryCondition === 'JAMMED' ? player.secondaryCondition.toLowerCase() : player?.secondaryReady === false ? 'cooling' : 'ready' },
   ]
   return (
     <div style={{ display: 'flex', gap: 8 }}>
@@ -266,7 +269,7 @@ export default function CombatHUD() {
 
       {/* Match clock + difficulty + camera mode (top-centre) */}
       <div style={{ position: 'absolute', top: 14, left: '50%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-        <div style={{ fontSize: 22, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#fff', textShadow: '0 1px 3px #000', background: 'rgb(var(--g-900) / 0.75)', padding: '2px 14px', borderRadius: 10, border: '1px solid rgb(var(--g-700))' }}>
+        <div style={{ fontSize: 22, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: '#fff', textShadow: '0 1px 3px #000, 0 0 10px rgba(34,211,238,.35)', background: 'linear-gradient(180deg, rgba(58,65,76,.92), rgba(24,29,37,.92))', padding: '2px 16px', borderRadius: 10, border: '1px solid rgba(148,163,184,.35)', borderBottom: '2px solid #f59e0b' }}>
           {fmtTime(elapsed)}
         </div>
         <div style={{ fontSize: 9, color: 'rgb(var(--g-400))', marginTop: 4, background: 'rgb(var(--g-900) / 0.6)', padding: '2px 8px', borderRadius: 6, display: 'inline-block' }}>

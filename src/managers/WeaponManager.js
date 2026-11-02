@@ -55,6 +55,12 @@ const DEG = Math.PI / 180
 const RICOCHET_COS = 0.22          // a kinetic round meeting a surface flatter than ~77° glances off
 const RICOCHET_MUL = 0.25
 const AXES = { '+x': [1, 0, 0], '-x': [-1, 0, 0], '+y': [0, 1, 0], '-y': [0, -1, 0], '+z': [0, 0, 1], '-z': [0, 0, -1] }
+// A badly damaged weapon (function ≤ JAM_BELOW — its part SEVERE, or its mount
+// failing) jams: every Nth shot (N fixed per weapon part, 9–14, no dice) it
+// stops cycling for JAM_MS. Never a random penalty — only from its condition.
+const JAM_BELOW = 0.62
+const JAM_MS = 900
+const jamPeriod = (id) => { let h = 2166136261; for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619) } return 9 + ((h >>> 0) % 6) }
 
 class WeaponManager {
   constructor() {
@@ -72,10 +78,10 @@ class WeaponManager {
 
   // resolveShot(targetId, entry, dir) → component hit | null; exitPoint(…);
   // partHealth(robotId, mesh) → 0..1 — the robot component model (host-provided).
-  configure({ getRobot, getActor, onFire = null, resolveShot = null, exitPoint = null, partHealth = null }) {
+  configure({ getRobot, getActor, onFire = null, resolveShot = null, exitPoint = null, partHealth = null, shieldFor = null }) {
     this._scene = sceneManager.scene
     this._getRobot = getRobot; this._getActor = getActor; this._onFire = onFire
-    this._resolveShot = resolveShot; this._exitPoint = exitPoint; this._partHealth = partHealth
+    this._resolveShot = resolveShot; this._exitPoint = exitPoint; this._partHealth = partHealth; this._shieldFor = shieldFor
     this._aimTargets = {}
     // Shell sweeps report every robot box they touch; the component model says
     // whether the round really struck something. Returns false → it flies on.
@@ -126,6 +132,7 @@ class WeaponManager {
   _makeInst(def, weaponMesh = null) {
     const inst = {
       def, weaponMesh, ammo: def.magSize, cooldown: 0, reloading: false, reloadEndsAt: 0, recoilGrow: 0, flameMesh: null,
+      shots: 0, jammedUntil: 0, jamEvery: jamPeriod(String(weaponMesh?.userData?.id || def.key)),
       forwardLocal: null, muzzleLocal: null,
       // Mount swivel (mouse aim): current yaw/pitch (rad), the local rotation they
       // make, and whether the last goal had to be clamped to the arc.
@@ -265,6 +272,19 @@ class WeaponManager {
 
   weaponsFor(id) { return this._weapons[id] || null }
 
+  // A weapon instance's condition as the HUD / AI see it: null = sound,
+  // 'DAMAGED' (sprays, cycles slower, may jam) · 'JAMMED' · 'OFFLINE' (wrecked).
+  condition(robotId, inst, now = performance.now()) {
+    if (!inst) return null
+    const h = this._health(robotId, inst)
+    return h <= 0 ? 'OFFLINE' : now < inst.jammedUntil ? 'JAMMED' : h <= JAM_BELOW ? 'DAMAGED' : null
+  }
+
+  // Can this instance fire at all right now (attached, working, loaded, not jammed)?
+  usable(robotId, inst, now = performance.now()) {
+    return !!inst && this._health(robotId, inst) > 0 && !inst.reloading && inst.ammo > 0 && now >= inst.jammedUntil
+  }
+
   // A weapon part was physically torn off its robot (RobotDamageView): that
   // instance is gone for real; the others keep their state and are regrouped
   // (a lost RMB weapon falls back to melee; a lost LMB weapon leaves the group).
@@ -295,7 +315,9 @@ class WeaponManager {
       // fireInputs[id] may be a boolean (legacy = primary) or { primary, secondary }.
       const fi = fireInputs[id]
       const wantPrimary = typeof fi === 'boolean' ? fi : !!fi?.primary
-      const wantSecondary = typeof fi === 'boolean' ? false : !!fi?.secondary
+      // Every ranged weapon lost → LMB strikes with what's left (the RMB slot),
+      // so a disarmed robot can still fight with either button.
+      const wantSecondary = (typeof fi === 'boolean' ? false : !!fi?.secondary) || (wantPrimary && !slots.primaries.length)
       for (const inst of slots.all) this._stepAim(id, inst, dt)
       for (const inst of slots.primaries) this._stepSlot(id, robot, actor, inst, wantPrimary, dt, now)
       if (slots.secondary) this._stepSlot(id, robot, actor, slots.secondary, wantSecondary, dt, now)
@@ -306,7 +328,8 @@ class WeaponManager {
       useCombatStore.getState().patchActor(id, {
         weaponName: p ? (slots.primaries.length > 1 ? `${p.def.name} +${slots.primaries.length - 1}` : p.def.name) : null,
         ammo: p ? Math.ceil(p.ammo) : 0, magSize: p?.def.magSize ?? 0, reloading: !!p?.reloading,
-        secondaryName: s?.def.name ?? null, secondaryReady: s ? (!s.reloading && s.cooldown <= 0) : false,
+        secondaryName: s?.def.name ?? null, secondaryReady: s ? (!s.reloading && s.cooldown <= 0 && this.condition(id, s) !== 'OFFLINE' && now >= s.jammedUntil) : false,
+        weaponCondition: p ? this.condition(id, p) : null, secondaryCondition: s ? this.condition(id, s) : null,
       })
     }
   }
@@ -316,7 +339,7 @@ class WeaponManager {
     inst.cooldown = Math.max(0, inst.cooldown - dt)
     inst.recoilGrow = Math.max(0, inst.recoilGrow - dt * 6)
     const health = this._health(id, inst)
-    const firing = wantFire && health > 0 && !inst.reloading && inst.cooldown <= 0 && inst.ammo > 0 && !actor.overheated
+    const firing = wantFire && health > 0 && !inst.reloading && inst.cooldown <= 0 && inst.ammo > 0 && !actor.overheated && now >= inst.jammedUntil
     if (firing) this._fire(robot, actor, inst, now)
     else if (inst.flameMesh) inst.flameMesh.visible = false
   }
@@ -335,18 +358,21 @@ class WeaponManager {
       const muzzle = mesh.localToWorld(inst.muzzleLocal.clone())
       return { muzzle, forward, range: def.range, def }
     }
+    // No mesh (built-in melee): a strike along the robot's facing, cast from its
+    // CENTRE (the shooter's own body is excluded) with the same reach as from
+    // the nose + 0.4 — so it still lands when the robots are pressed together
+    // (a ray starting at the nose would begin inside the other robot and miss).
     const P = body.translation()
     const rot = body.rotation()
     const Q = new THREE.Quaternion(rot.x, rot.y, rot.z, rot.w)
     const forward = FWD.clone().applyQuaternion(Q)   // robot facing
-    const muzzle = new THREE.Vector3(P.x, P.y, P.z)
-      .addScaledVector(forward, (robot.radius || 1) + 0.4)
-      .addScaledVector(UP, def.muzzleY || 1.2)
-    return { muzzle, forward, range: def.range, def }
+    const muzzle = new THREE.Vector3(P.x, P.y, P.z)      // centre height; _fireRay sweeps it up/down the hull
+    return { muzzle, forward, range: def.range + (robot.radius || 1) + 0.4, def }
   }
 
-  // Yaw of a robot's LMB weapon relative to the robot's facing (0 when the gun
-  // points down the nose). The AI steers so the gun, not the nose, bears on you.
+  // Yaw of a robot's LMB weapon AS MOUNTED (its swivel removed) relative to the
+  // robot's facing (0 when the gun points down the nose). The AI steers so the
+  // gun's rest direction bears on you — never chasing its own turret swivel.
   weaponYawOffset(robotId) {
     const slots = this._weapons[robotId]
     const inst = slots?.primary
@@ -356,7 +382,7 @@ class WeaponManager {
     if (!body) return 0
     const r = body.rotation()
     const heading = Math.atan2(2 * (r.x * r.z + r.w * r.y), 1 - 2 * (r.x * r.x + r.y * r.y))
-    const f = inst.forwardLocal.clone().applyQuaternion(inst.weaponMesh.getWorldQuaternion(new THREE.Quaternion()))
+    const f = inst.forwardLocal.clone().applyQuaternion(inst.weaponMesh.getWorldQuaternion(new THREE.Quaternion()).multiply(inst.aimQ.clone().invert()))
     if (f.x * f.x + f.z * f.z < 1e-6) return 0
     const d = Math.atan2(f.x, f.z) - heading
     return Math.atan2(Math.sin(d), Math.cos(d))
@@ -366,13 +392,13 @@ class WeaponManager {
     const def = inst.def
     const body = physicsManager.getBody(robot.bodyId)
     if (!body) return
-    const { muzzle, forward } = this.aimRay(robot, inst, body)
+    const { muzzle, forward, range } = this.aimRay(robot, inst, body)
     const mass = body.mass() || 1
 
     if (!this._firedOnce) { this._firedOnce = true; console.log('[Combat] first shot fired:', def.name) }
     if (this._onFire) this._onFire(robot.id, def, inst.weaponMesh)
-    this._muzzleFlash(muzzle)
-    if (def.strategy === 'ray')          this._fireRay(robot, actor, inst, muzzle, forward, now)
+    if (inst.weaponMesh) this._muzzleFlash(muzzle)
+    if (def.strategy === 'ray')          this._fireRay(robot, actor, inst, muzzle, forward, now, range)
     else if (def.strategy === 'shell')   this._fireShell(robot, inst, muzzle, forward)
     else if (def.strategy === 'rocket')  this._fireRocket(robot, inst, muzzle, forward)
     else if (def.strategy === 'flame')   this._fireFlame(robot, actor, inst, muzzle, forward, now)
@@ -383,19 +409,27 @@ class WeaponManager {
     for (const s of def.selfStatus || []) statusEffectSystem.add(actor, s, now)
     inst.ammo -= 1
     // A damaged weapon cycles slower (down to half rate when wrecked).
-    inst.cooldown = 1 / (def.fireRateHz * (0.5 + 0.5 * this._health(robot.id, inst)))
+    const health = this._health(robot.id, inst)
+    inst.cooldown = 1 / (def.fireRateHz * (0.5 + 0.5 * health))
     if (inst.ammo <= 0) { inst.reloading = true; inst.reloadEndsAt = now + def.reloadMs }
+    inst.shots++
+    if (inst.weaponMesh && health <= JAM_BELOW && inst.shots % inst.jamEvery === 0) inst.jammedUntil = now + JAM_MS
   }
 
-  _fireRay(robot, actor, inst, muzzle, forward, now) {
+  _fireRay(robot, actor, inst, muzzle, forward, now, range = inst.def.range) {
     const def = inst.def
     const pellets = def.pellets || 1
     const wobble = (1 - this._health(robot.id, inst)) * 8      // a damaged barrel sprays
+    // A mesh-less strike (melee) sweeps the robot's own height — centre, then
+    // low, then high — so it meets a low chassis, a tall one, or one that just
+    // lost the gun that made its collision box tall.
+    const sweep = inst.weaponMesh ? [0] : [0, -0.3, 0.3].map(k => k * (robot.size?.y || 1.5))
     for (let k = 0; k < pellets; k++) {
       const dir = perturb(forward, def.spreadDeg + inst.recoilGrow + wobble)
-      const tr = this.traceShot(robot.id, muzzle, dir, def.range)
+      let tr = null
+      for (const dy of sweep) { tr = this.traceShot(robot.id, dy ? muzzle.clone().addScaledVector(UP, dy) : muzzle, dir, range); if (tr.targetId) break }
       if (tr.targetId) this._hitTarget(robot, tr.targetId, def, dir, now, tr.point, tr.res)
-      this._tracer(muzzle, tr.point)
+      if (inst.weaponMesh) this._tracer(muzzle, tr.point)
     }
     inst.recoilGrow = Math.min(6, inst.recoilGrow + 0.9)   // progressive recoil
   }
@@ -440,6 +474,18 @@ class WeaponManager {
     }
     const amounts = {}
     for (const [k, v] of Object.entries(def.damage)) amounts[k] = k === 'heat' ? v : v * mul
+    // The struck COMPONENT takes the whole impact (RobotDamageView, via the
+    // effects seam); how much of it gets through to the robot's armor/core
+    // depends on what was hit — an intact armour plate soaks most of it, a hit
+    // on a weapon mostly wrecks the weapon, critical electronics pass armour
+    // damage straight to the core.
+    const impact = (amounts.armor || 0) + (amounts.core || 0)
+    const sh = res?.partId && this._shieldFor ? this._shieldFor(targetId, res.partId) : null
+    if (sh) {
+      const a = (amounts.armor || 0) * sh.mul, c = (amounts.core || 0) * sh.mul
+      amounts.armor = a * (1 - sh.toCore)
+      amounts.core = c + a * sh.toCore
+    }
     const crit = !ricochet && !!def.crit && target.armor <= 0
     const p = point ? { x: point.x, y: point.y, z: point.z } : null
     damageManager.apply({
@@ -447,7 +493,7 @@ class WeaponManager {
       amounts, crit, critMul: def.critMul,
       weaponKey: def.key, hitPoint: p, hitDir: { x: dir.x, y: dir.y, z: dir.z },
       partId: res?.partId ?? null, hitNormal: res?.normal ? { x: res.normal.x, y: res.normal.y, z: res.normal.z } : null,
-      ricochet,
+      ricochet, impact,
     })
     if (!ricochet) for (const e of def.statusEffects || []) statusEffectSystem.add(target, e, now)
     if (def.knockback) {

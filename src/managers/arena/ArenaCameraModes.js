@@ -23,7 +23,7 @@ export const CAMERA_MODES = {
   // distance; tighter armSmooth so the camera stays glued behind the robot.
   default: {
     key: 'default', label: 'Combat',
-    distance: 13, height: 6, pitchDeg: 17, fov: 70, sideOffset: 0,
+    distance: 11.5, height: 5.2, pitchDeg: 16, fov: 64, sideOffset: 0,   // a touch closer + tighter FOV: the fight fills more of the frame
     followYaw: true, orbit: false, lookAhead: 0.5, armSmooth: 0.15,
   },
   // F1 — CLOSE SHOULDER. Tighter, lower, more visceral.

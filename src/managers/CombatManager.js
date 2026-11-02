@@ -17,6 +17,7 @@ import { explosionSystem } from '../combat/ExplosionSystem.js'
 import { weaponForType, isWeaponType } from '../combat/weaponRegistry.js'
 import { trackEvent } from '../utils/utmTracking.js'
 import { arenaCameraManager } from './arena/ArenaCameraManager.js'
+import { arenaEnvironment } from './arena/ArenaEnvironment.js'
 import { CombatEffectsManager } from './arena/CombatEffectsManager.js'
 import { ArenaAIController } from './arena/ArenaAIController.js'
 import { arenaAudio } from './arena/ArenaAudio.js'
@@ -295,16 +296,32 @@ class CombatManager {
       resolveShot: (id, entry, dir) => this._effects.resolveShot(id, entry, dir),
       exitPoint: (id, entry, dir) => this._effects.exitPoint(id, entry, dir),
       partHealth: (id, mesh) => this._effects.partHealthForMesh(id, mesh),
+      shieldFor: (id, partId) => this._effects.shieldFor(id, partId),
     })
     for (const r of this._robots) {
       weaponManager.equip(r.id, r.weapons)   // every mounted weapon part
       for (const mv of r.movers) mv.aim = weaponManager.instForMesh(mv.mesh)   // its swivel (aimQ) rides on the mounted pose
     }
     // Mouse-aim raycast set: the arena + every OTHER robot (never your own).
-    this._aimMeshes = [this._arena, ...this._robots.filter(r => r.id !== this._playerId).flatMap(r => r.movers.map(mv => mv.mesh))].filter(Boolean)
+    // (the venue's floor + walls only — never the stands / hall decoration)
+    this._aimMeshes = [...arenaEnvironment.aimTargets, ...this._robots.filter(r => r.id !== this._playerId).flatMap(r => r.movers.map(mv => mv.mesh))].filter(Boolean)
     this._meshOwner = new Map()
     for (const r of this._robots) for (const mv of r.movers) this._meshOwner.set(mv.mesh, r.id)
     this._ai.configure({ level: this._config?.difficulty || 'normal' })
+    this._aiOut = null
+    // What the AI may know — only what a player could see or read off the HUD:
+    // the other robot's visible components + their condition, its drive state,
+    // rockets in flight, and its OWN weapons (barrel rays, condition, a shot's
+    // path — the same trace the player's impact pip shows).
+    this._aiIntel = {
+      visibleParts: (id) => this._effects.visibleParts(id),
+      driveState: (id) => this._effects.driveState(id),
+      incoming: (id) => projectileManager.incoming(id),
+      condition: (id, inst) => weaponManager.condition(id, inst),
+      usable: (id, inst) => weaponManager.usable(id, inst),
+      aimRay: (robot, inst) => weaponManager.aimRay(robot, inst),
+      traceShot: (id, origin, dir, range) => weaponManager.traceShot(id, origin, dir, range),
+    }
     this._stats = {}
     for (const id in this._actors) this._stats[id] = { hits: 0, dealt: 0, taken: 0, partsLost: 0 }
 
@@ -323,9 +340,11 @@ class CombatManager {
       getRobot: (id) => this._robots.find(r => r.id === id),
       getActor: (id) => this._actors[id], playerId: this._playerId, robots: this._robots,
       onDetach: (robotId, mesh, part) => this._onPartDetached(robotId, mesh, part),
+      onWrecked: (robotId, part) => this._onPartWrecked(robotId, part),
     })
     arenaAudio.resume()
 
+    arenaEnvironment.setMatch(this._actors[this._playerId]?.name, this._actors[this._enemyId]?.name)
     // Publish initial actor state + player/enemy ids to the HUD.
     const actors = {}
     for (const id in this._actors) actors[id] = makeActorSnapshot(this._actors[id])
@@ -362,6 +381,16 @@ class CombatManager {
     const who = robotId === this._playerId ? 'You' : (this._actors[robotId]?.name || 'Enemy')
     const what = partObj?.name ? partObj.name.replace(/_\d+$/, '').replace(/^Weapon_/, '').replace(/_/g, ' ') : 'a part'
     useCombatStore.getState().notify(`${who} lost ${wasWeapon ? 'the ' : ''}${what}${wasWeapon ? ' — weapon offline' : ''}`)
+  }
+
+  // A weapon / drive unit was shot to pieces but still hangs on: it no longer
+  // works (partHealth 0). One short notice — only for parts that matter.
+  _onPartWrecked(robotId, part) {
+    if (!part || (part.role !== 'weapon' && part.role !== 'drive')) return
+    const who = robotId === this._playerId ? 'Your' : `${this._actors[robotId]?.name || 'Enemy'}'s`
+    const obj = useSceneStore.getState().objects.find(o => o.id === part.id)
+    const what = obj?.name ? obj.name.replace(/_\d+$/, '').replace(/^Weapon_/, '').replace(/_/g, ' ') : part.role === 'weapon' ? 'weapon' : 'drive unit'
+    useCombatStore.getState().notify(`${who} ${what} ${part.role === 'weapon' ? 'destroyed — offline' : 'wrecked — mobility down'}`)
   }
 
   // True if a world point is close to the player (for near-explosion shake).
@@ -479,7 +508,7 @@ class CombatManager {
     if (dt <= 0) return
     if (dt > 0.05) dt = 0.05
     const elapsed = Math.floor((now - this._startAt - this._pausedFor) / 1000)
-    if (elapsed !== useCombatStore.getState().elapsed) useCombatStore.getState().sync({ elapsed })
+    if (elapsed !== useCombatStore.getState().elapsed) { useCombatStore.getState().sync({ elapsed }); arenaEnvironment.setClock(elapsed) }
 
     // 1. Compute this frame's input per robot: the player robot from WASD + mouse,
     // the enemy from the AI controller, any extras idle. Then drive.
@@ -491,7 +520,7 @@ class CombatManager {
       if (!body) return
       let input
       if (r.id === this._playerId) input = this._readPlayerInput()
-      else if (r.id === this._enemyId) input = this._ai.update(dt, r, a, this._playerRobot(), now, weaponManager.weaponsFor(r.id))
+      else if (r.id === this._enemyId) input = this._aiOut = this._ai.update(dt, r, a, this._playerRobot(), now, weaponManager.weaponsFor(r.id), this._aiIntel)
       else input = { fwd: 0, turn: 0 }
       this._drive(body, r, input)
       fireInputs[r.id] = { primary: !!input.primary, secondary: !!input.secondary }
@@ -520,11 +549,13 @@ class CombatManager {
       })
     }
 
-    // 2b'. AI weapons: ELEVATION only — each AI gun keeps its mounted heading
-    // (its accuracy still comes from how the AI steers, as before) but pitches
-    // toward the player's centre, so level-mounted guns still meet a shorter or
-    // taller robot now that only real component hits count.
-    this._aiElevation()
+    // 2b'. AI weapons. Normal/Hard aim like the player does with the mouse: the
+    // controller outputs an aim POINT (its own lagged, imperfect estimate of you
+    // + lead) and the guns swivel toward it within their real arc and traverse
+    // speed. Easy: ELEVATION only — its guns keep their mounted heading
+    // (accuracy comes from how it steers) but pitch toward the player's centre.
+    if (this._aiOut?.aim) weaponManager.setAimTarget(this._enemyId, this._aiOut.aim)
+    else this._aiElevation()
 
     // 2c. Weapons: fire (raycast damage / spawn rockets), advance rockets +
     // explosions, and tracer/flame VFX. fireInputs was computed in step 1.
@@ -541,6 +572,7 @@ class CombatManager {
 
     // 4. Arena camera (chase the player), combat VFX/damage-numbers, movement audio.
     arenaCameraManager.update(dt)
+    arenaEnvironment.update(sceneManager.camera)
     this._effects.step(dt)
     if (arenaCameraManager.mode !== this._lastCamMode) {
       this._lastCamMode = arenaCameraManager.mode
@@ -694,6 +726,7 @@ class CombatManager {
     weaponManager.stepVFX(dt)
     explosionSystem.step(dt)
     arenaCameraManager.update(dt)
+    arenaEnvironment.update(sceneManager.camera)
     this._effects.step(dt)
   }
 
@@ -934,40 +967,37 @@ class CombatManager {
     }
   }
 
-  // ── Arena visuals + boundary walls ──────────────────────────────────────────
+  // ── Arena: physics boundary (here) + the venue visuals (ArenaEnvironment) ──
+  // The collision footprint is unchanged: a ±ARENA_HALF floor and four static
+  // wall boxes. Everything visual — floor finish, enclosure, towers, stands,
+  // hall, lights — is ArenaEnvironment, built on exactly that footprint and
+  // never part of physics.
   _buildArena() {
     this._clearArena()
-    const g = new THREE.Group()
-    g.userData.isArena = true
-    const mat = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, ...o })
-    const floor = new THREE.Mesh(new THREE.BoxGeometry(ARENA_HALF * 2, 0.4, ARENA_HALF * 2), mat(0x2b2f38))
-    floor.position.y = -0.2; floor.receiveShadow = true; g.add(floor)
-    const wallH = 3
-    const wallMat = mat(0x3a4048, { emissive: 0x11151a })
+    const wallH = 3, wallT = 0.6
     const walls = [
-      { x: 0, z: -ARENA_HALF, sx: ARENA_HALF * 2, sz: 0.6 },
-      { x: 0, z:  ARENA_HALF, sx: ARENA_HALF * 2, sz: 0.6 },
-      { x: -ARENA_HALF, z: 0, sx: 0.6, sz: ARENA_HALF * 2 },
-      { x:  ARENA_HALF, z: 0, sx: 0.6, sz: ARENA_HALF * 2 },
+      { x: 0, z: -ARENA_HALF, sx: ARENA_HALF * 2, sz: wallT },
+      { x: 0, z:  ARENA_HALF, sx: ARENA_HALF * 2, sz: wallT },
+      { x: -ARENA_HALF, z: 0, sx: wallT, sz: ARENA_HALF * 2 },
+      { x:  ARENA_HALF, z: 0, sx: wallT, sz: ARENA_HALF * 2 },
     ]
     this._wallIds = []
     walls.forEach((w, i) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w.sx, wallH, w.sz), wallMat)
-      m.position.set(w.x, wallH / 2, w.z); g.add(m)
       const wid = `arena_wall_${i}`
       physicsManager.createStaticObstacle(wid, { x: w.x, y: wallH / 2, z: w.z }, { x: w.sx / 2, y: wallH / 2, z: w.sz / 2 })
       this._wallIds.push(wid)
     })
-    sceneManager.scene.add(g)
-    this._arena = g
+    arenaEnvironment.build({
+      scene: sceneManager.scene, renderer: sceneManager.renderer, camera: sceneManager.camera, grid: sceneManager.grid, axes: sceneManager.axes,
+      half: ARENA_HALF, wallH, wallT,
+    })
+    this._arena = arenaEnvironment.group
   }
 
   _clearArena() {
     for (const wid of this._wallIds) physicsManager.removeBody(wid)
     this._wallIds = []
-    if (!this._arena) return
-    this._arena.traverse(c => { if (c.geometry) c.geometry.dispose(); if (c.material) c.material.dispose?.() })
-    this._arena.removeFromParent()
+    arenaEnvironment.dispose()          // frees geometry/materials/textures, restores background/fog/grid
     this._arena = null
   }
 

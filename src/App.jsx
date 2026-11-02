@@ -292,11 +292,14 @@ function AppEditor() {
   // Reveal pin interaction points only when needed: every board's pins while the
   // Wiring panel is open, or just the selected board's pins otherwise. Keeps the GLB
   // boards clean (no floating helper spheres/labels) until the user is actually wiring.
+  // Never in the battle arena: pins/labels are editor helpers, not part of a fight.
+  const arenaActive = useCombatStore((s) => s.arenaActive)
   useEffect(() => {
-    if (activePanel === 'wiring') wireManager.setReveal({ all: true })
-    else if (selectedId)         wireManager.setReveal({ components: [selectedId] })
-    else                         wireManager.setReveal({ components: [] })
-  }, [activePanel, selectedId])
+    if (arenaActive)                  wireManager.setReveal({ components: [] })
+    else if (activePanel === 'wiring') wireManager.setReveal({ all: true })
+    else if (selectedId)              wireManager.setReveal({ components: [selectedId] })
+    else                              wireManager.setReveal({ components: [] })
+  }, [activePanel, selectedId, arenaActive])
 
   useEffect(() => () => simulationManager.stop(), [])
 

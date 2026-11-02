@@ -532,6 +532,14 @@ export default function Viewport() {
       sceneManager.detachTransform()
       return
     }
+    // Battle arena: no editor gizmo, outline or selection tint on the fighting
+    // robots, however something got selected (e.g. the Objects list). Leaving
+    // the arena re-runs this effect and the editor selection shows again.
+    if (arenaActive) {
+      sceneManager.detachTransform()
+      objectManager.setSelectionHighlights(null, null)
+      return
+    }
     // Don't attach transform gizmo to objects riding a motor rotor
     if (selectedId && !attachments[selectedId]) {
       const mesh = objectManager.getMesh(selectedId)
@@ -540,7 +548,7 @@ export default function Viewport() {
       sceneManager.detachTransform()
     }
     objectManager.setSelectionHighlights(selectedId, secondaryId)
-  }, [selectedId, secondaryId, attachments, simActive])
+  }, [selectedId, secondaryId, attachments, simActive, arenaActive])
 
   // Sync grid/axes visibility
   useEffect(() => {
@@ -725,6 +733,9 @@ export default function Viewport() {
     (e) => {
       if (!initialized.current || dragging.current) return
       if (suppressClickRef.current) { suppressClickRef.current = false; return }
+      // In a battle a click is a trigger pull, never an editor pick: selecting
+      // would hang the gizmo + selection outline on a fighting robot.
+      if (useCombatStore.getState().arenaActive || useGameStore.getState().battleActive) return
       if (wireManager.isDragging) return
       const bounds = canvasRef.current.getBoundingClientRect()
 

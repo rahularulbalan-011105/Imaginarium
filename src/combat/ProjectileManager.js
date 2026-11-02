@@ -104,6 +104,14 @@ class ProjectileManager {
 
   get shellCount() { return this._shells.length }
 
+  // Rockets in flight that `robotId` did not fire — visible projectiles an
+  // opponent can react to (the AI's dodge reads only this).
+  incoming(robotId) {
+    const out = []
+    for (const rk of this._rockets) if (rk.ownerId !== robotId) out.push({ pos: rk.pos, dir: rk.dir, speed: rk.speed, splash: rk.def.splashRadius || 0, id: rk })
+    return out
+  }
+
   _acquireShellMesh() {
     let m = this._shellPool.pop()
     if (!m) {

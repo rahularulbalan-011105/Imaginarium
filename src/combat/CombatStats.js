@@ -14,6 +14,16 @@ import { useSceneStore } from '../stores/sceneStore.js'
 
 export const ROBOT_CLASSES = ['light', 'medium', 'heavy']
 
+// Match pacing — ONE knob, the same for every robot and every AI difficulty.
+// The robot-level armor/core layers are the mass-derived base × HP_SCALE. With
+// the base layers alone, one autocannon (8 Hz) took a 300 HP robot apart in
+// ~4.5 s of accurate fire: the robot was gone before any component could wear,
+// sag or break off. The COMPONENT structure (mounts, part integrity —
+// RobotDamageView) is sized from the unscaled base (`structureMax`), so parts
+// still fail after a few seconds of focused fire while the robot fights on.
+// Difficulty never touches this (see ArenaAIController TIERS).
+export const HP_SCALE = 2.6
+
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
 export function classForMass(kg) {
@@ -28,13 +38,18 @@ export function computeRobotStats(rootId) {
   const objs = assemblyMembers(rootId).map(id => byId.get(id)).filter(Boolean)
   const mass = Math.max(0.3, totalMass(objs))          // kg
   const cls  = classForMass(mass)
+  const armorBase = Math.round(clamp(40 + mass * 12, 40, 400))
+  const coreBase  = Math.round(clamp(60 + mass * 8,  60, 300))
 
   return {
     class: cls,
     mass,                                               // fed to the Rapier body
-    // Health layers: heavier robots carry more armor + core.
-    armorMax:     Math.round(clamp(40 + mass * 12, 40, 400)),
-    coreMax:      Math.round(clamp(60 + mass * 8,  60, 300)),
+    // Health layers: heavier robots carry more armor + core (× match pacing).
+    armorMax:     Math.round(armorBase * HP_SCALE),
+    coreMax:      Math.round(coreBase * HP_SCALE),
+    // Component structure budget (unscaled): what mounts / part integrity are
+    // sized from, so breaking parts off doesn't stretch with HP_SCALE.
+    structureMax: armorBase + coreBase,
     heatMax:      100,
     stabilityMax: 100,
     // Mobility: heavier robots are slower and turn lazier — but all robots turn

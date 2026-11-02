@@ -35,6 +35,15 @@ import { isWeaponType } from '../../combat/weaponRegistry.js'
 //                 smoke/sparks driven by the real armor/core state, loose parts
 //                 following their own Rapier bodies, the destruction sequence
 //
+// Damage kinds: a hit wears the struck PART (integrity → DAMAGED → SEVERE →
+// WRECKED: still attached but dead — a wrecked gun can't fire, a wrecked drive
+// unit doesn't drive), loads its MOUNT (structure, below), and reaches the
+// robot's armor/core only through what the part lets past (shieldFor: an intact
+// armour plate soaks most of a hit, a weapon or drive unit takes it itself,
+// electronics pass armour damage straight to the core). Blasts load every part
+// in their radius once, by distance (blast). Wear shows on the part's own
+// materials (scorch tint, rougher), plus smoke / arcing / glowing breaches.
+//
 // Parts vs mounts: every non-root part hangs on its parent by a MOUNT — the
 // Robot-Builder bond, anchored where the two parts meet. Hitting a part damages
 // the part; how much of that reaches its mount depends on how close to the mount
@@ -54,15 +63,32 @@ export const MOUNT_STATE = { HEALTHY: 0, DAMAGED: 1, WEAKENED: 2, CRITICAL: 3, F
 
 const TUNE = {
   weaponBreakoff: true,      // a weapon whose mount fails really comes off (and can no longer fire)
-  // Mount strength = share of the robot's total HP (real damage) its mount can take.
-  weaponMount: 0.45, partMountMin: 0.12, partMountMax: 0.3,
+  // Mount strength = share of the robot's STRUCTURE budget (CombatStats
+  // structureMax — the unscaled HP, so match pacing never makes parts immortal)
+  // its mount can take. Focused fire on a gun's base tears it off in a few
+  // seconds; the same rounds spread over the robot never do.
+  weaponMount: 0.42, partMountMin: 0.14, partMountMax: 0.34,
   mountAt: [0.25, 0.5, 0.78, 1],   // DAMAGED / WEAKENED / CRITICAL / FAILED (fraction of mount strength)
   mountNear: 0.25,           // su — a hit this close to the mount goes straight into it
   mountReach: 0.7,           // su — beyond this only the shock reaches the mount…
-  mountFar: 0.2,             // …this share of the hit
+  mountFar: 0.3,             // …this share of the hit (the part levers on its bracket)
   mountRadius: 0.9,          // su — hits on the PARENT this close to a mount strain it
-  partCapMin: 0.2, partCapMax: 0.5,
-  damagedAt: 0.3, severeAt: 0.65,
+  partCapMin: 0.45, partCapMax: 0.9,   // part integrity (share of the structure budget)
+  damagedAt: 0.3, severeAt: 0.65, // part integrity used: ≥ 1 = WRECKED (no function, still attached)
+  wreckedStrain: 1.5,        // a wrecked part's mount takes this much more of every hit
+  // How hard each impact kind loads STRUCTURE (mounts) per point of damage.
+  strainByKind: { kinetic: 1, pellet: 0.85, blast: 1.5, blunt: 1.4, collision: 1.1, heat: 0.3 },
+  blastShare: 0.18,          // a blast loads every OTHER part in its radius by this × falloff²
+  // Share of a hit's ROBOT damage (armor/core) an intact component soaks itself
+  // — armour plates protect what's behind them until they're shot through; a
+  // hit on a weapon / drive unit mostly wrecks that unit. Electronics are the
+  // robot's critical systems: they soak nothing and pass half the armour
+  // damage straight to the core.
+  shield: { armor: 0.6, weapon: 0.5, drive: 0.4, electronics: 0, chassis: 0, part: 0 },
+  electronicsToCore: 0.5,
+  tintSoot: 0x231f1c, tintMax: 0.55, tintRough: 0.35,   // progressive scorch / wear on a part's own materials
+  looseMax: 36,              // live debris bodies; past this the oldest SETTLED piece is frozen in place
+  settleSpeed: 0.25, settleTime: 1,                     // su/s, s — a resting piece goes to sleep
   maxDecals: 48,             // impact marks per robot (oldest are recycled)
   clusterRadius: 0.75,       // su — hits this close together wear the surface down
   tiltK: 170, tiltC: 13, tiltMax: 0.13,     // chassis rock spring (rad)
@@ -91,6 +117,7 @@ const _e = new THREE.Euler()
 const _box = new THREE.Box3()
 const _rc = new THREE.Raycaster()
 const _nm = new THREE.Matrix3()
+const _c = new THREE.Color()
 const rand = (a, b) => a + Math.random() * (b - a)
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v)
 
@@ -99,18 +126,20 @@ export class RobotDamageView {
     this._fx = fx
     this._views = new Map()      // robotId → view
     this._loose = []             // detached parts (own physics bodies)
+    this._orig = new Map()       // material → its original look (wear tint / glow are undone from this)
     this._host = null
     this._t = 0
   }
 
-  // host: { getActor(id), onDetach(robotId, mesh), onEvent(name, data) }
+  // host: { getActor(id), onDetach(robotId, mesh, part), onEvent(name, data) }
+  // (events: part_break · part_wrecked · zap · pop · clank)
   bind(robots, host) {
     this._host = host
     const objs = new Map(useSceneStore.getState().objects.map(o => [o.id, o]))
     const bonds = useRigidStore.getState().getBonds()
     for (const robot of robots) {
       const actor = host.getActor(robot.id)
-      const totalHp = (actor?.armorMax ?? 100) + (actor?.coreMax ?? 100)
+      const totalHp = robot.stats?.structureMax ?? ((actor?.armorMax ?? 100) + (actor?.coreMax ?? 100))
       const ids = new Set(robot.movers.map(mv => mv.mesh.userData.id))
       const parts = []
       let volSum = 0
@@ -146,6 +175,8 @@ export class RobotDamageView {
           children: new Set(bonds.filter(b => b.parentId === id && ids.has(b.childId)).map(b => b.childId)),
           top: mesh.worldToLocal(new THREE.Vector3(_box.min.x + size.x / 2, _box.max.y, _box.min.z + size.z / 2)),
           damage: 0, cap: 1, state: PART_STATE.HEALTHY,
+          wrecked: false,                   // integrity used up: still attached, no longer works
+          tint: 0,                          // scorch / wear shown on its own materials (0..1)
           last: null,                       // last hit point, part-local
           kick: new THREE.Vector3(), kickVel: new THREE.Vector3(),
           sag: null,                        // how far a failing mount lets the part hang off true
@@ -282,7 +313,31 @@ export class RobotDamageView {
 
     if (view.dead || part.state === PART_STATE.DETACHED) return { state: part.state, changed: false, detached: false, mounts: [] }
 
-    // Part wear (how beaten-up the part itself looks).
+    // Part wear (how beaten-up the part itself looks, and whether it still works).
+    const { changed, wrecked } = this._condition(view, part, point, normal)
+
+    // Structure: the hit strains this part's own mount (more the closer it landed
+    // to it) and any mount on this part that sits right next to the impact. How
+    // much a point of damage loads structure depends on the impact kind (a blast
+    // or a blow wrenches brackets; flame barely does).
+    const mounts = []
+    const load = pd * (TUNE.strainByKind[info.kind] ?? 1)
+    if (load > 0 && info.surface !== false) {
+      if (part.mount) this._strain(view, part, load * this._transfer(part, point) * (part.wrecked ? TUNE.wreckedStrain : 1), info, mounts)
+      for (const cid of part.children) {
+        const c = view.byId.get(cid)
+        if (!c?.mount || c.mount.parent !== part || c.state === PART_STATE.DETACHED) continue
+        const d = part.mesh.localToWorld(_v.copy(c.mount.aParent)).distanceTo(point)
+        if (d < TUNE.mountRadius) this._strain(view, c, load * (1 - d / TUNE.mountRadius), info, mounts)
+      }
+    }
+    return { state: part.state, changed, wrecked, detached: part.state === PART_STATE.DETACHED, mounts }
+  }
+
+  // Integrity → state (HEALTHY → DAMAGED → SEVERE), WRECKED once it is used up
+  // (the part hangs on but no longer works), and the scorch / wear on its own
+  // materials. Deterministic thresholds; states only ever get worse.
+  _condition(view, part, point, normal) {
     const f = part.damage / part.cap
     const next = f >= TUNE.severeAt ? PART_STATE.SEVERE : f >= TUNE.damagedAt ? PART_STATE.DAMAGED : PART_STATE.HEALTHY
     const changed = next > part.state
@@ -290,21 +345,87 @@ export class RobotDamageView {
       part.state = next
       if (next === PART_STATE.SEVERE) this._mark(view, part, point, normal, 'hot', 0.4)   // exposed, glowing damage
     }
-
-    // Structure: the hit strains this part's own mount (more the closer it landed
-    // to it) and any mount on this part that sits right next to the impact.
-    const mounts = []
-    const dealt = pd
-    if (dealt > 0 && info.surface !== false) {
-      if (part.mount) this._strain(view, part, dealt * this._transfer(part, point), info, mounts)
-      for (const cid of part.children) {
-        const c = view.byId.get(cid)
-        if (!c?.mount || c.mount.parent !== part || c.state === PART_STATE.DETACHED) continue
-        const d = part.mesh.localToWorld(_v.copy(c.mount.aParent)).distanceTo(point)
-        if (d < TUNE.mountRadius) this._strain(view, c, dealt * (1 - d / TUNE.mountRadius), info, mounts)
-      }
+    let wrecked = false
+    if (!part.wrecked && !part.isRoot && f >= 1) {
+      part.wrecked = wrecked = true
+      // The unit dies where it was hit: a burst of sparks, a glowing breach,
+      // and from now on it smokes (step) and does nothing (partHealth = 0).
+      this._fx.flash(point, { size: 0.6, color: 0xffd9a0, life: 0.08 })
+      this._fx.sparks(point, normal, { count: 18, speed: 11, spread: 1.1, color: 0xffc46a, life: 0.35 })
+      this._fx.debris(point, normal, { count: 3, speed: 5, size: 0.1, life: 1 })
+      this._mark(view, part, point, normal, 'hot', 0.55)
+      this._host.onEvent('part_wrecked', { robotId: view.robot.id, part, pos: point })
     }
-    return { state: part.state, changed, detached: part.state === PART_STATE.DETACHED, mounts }
+    this._setTint(part, part.wrecked ? 1 : Math.min(1, f))
+    return { changed, wrecked }
+  }
+
+  // Scorch / wear on the part's OWN materials (colour toward soot, rougher),
+  // proportional to how much of its integrity is gone. Restored by clear().
+  _setTint(part, k) {
+    if (k - part.tint < 0.02) return
+    part.tint = k
+    const soot = _c.setHex(TUNE.tintSoot)
+    for (const r of this._partMats(part)) {
+      if (r.col != null) r.m.color.setHex(r.col).lerp(soot, k * TUNE.tintMax)
+      if (r.rough != null) r.m.roughness = r.rough + (1 - r.rough) * k * TUNE.tintRough
+    }
+  }
+
+  // The materials one part draws with — each recorded ONCE with its original
+  // values (a material shared between parts is restored exactly).
+  _partMats(p) {
+    if (p.mats) return p.mats
+    p.mats = []
+    const seen = new Set()
+    for (const m of p.meshes) for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
+      if (!mat || seen.has(mat)) continue
+      seen.add(mat)
+      let r = this._orig.get(mat)
+      if (!r) {
+        r = { m: mat, hex: mat.emissive ? mat.emissive.getHex() : null, i: mat.emissiveIntensity ?? 1, col: mat.color ? mat.color.getHex() : null, rough: typeof mat.roughness === 'number' ? mat.roughness : null }
+        this._orig.set(mat, r)
+      }
+      p.mats.push(r)
+    }
+    return p.mats
+  }
+
+  // How a hit on this component reaches the robot's armor / core — read BEFORE
+  // the damage is applied (WeaponManager). { mul, toCore }: mul = share of the
+  // robot damage that gets past the component (an intact armour plate soaks
+  // most of it; a shot-through one nothing), toCore = share of the armour
+  // damage that goes straight to the core (critical electronics).
+  shieldFor(robotId, partId) {
+    const p = this._views.get(robotId)?.byId.get(partId)
+    if (!p || p.state === PART_STATE.DETACHED) return { mul: 1, toCore: 0 }
+    const integrity = p.wrecked ? 0 : 1 - clamp(p.damage / p.cap, 0, 1)
+    return { mul: 1 - (TUNE.shield[p.role] ?? 0) * integrity, toCore: p.role === 'electronics' ? TUNE.electronicsToCore : 0 }
+  }
+
+  // A blast centred at `pos` (radius `radius`) loads every OTHER attached part of
+  // this robot by its distance — once per part per explosion (`skip` = the part
+  // that took the direct hit). `impact` = the blast's damage at this robot.
+  // Returns the mount transitions it caused.
+  blast(robotId, pos, radius, impact, info, skip = null) {
+    const view = this._views.get(robotId)
+    const events = []
+    if (!view || view.dead || !(impact > 0) || !(radius > 0)) return events
+    const c = new THREE.Vector3()
+    for (const p of [...view.parts]) {
+      if (p === skip || p.state === PART_STATE.DETACHED) continue
+      p.mesh.getWorldPosition(c)
+      const fall = 1 - Math.max(0, c.distanceTo(pos) - p.size.length() * 0.5) / radius
+      if (fall <= 0) continue
+      const amount = impact * TUNE.blastShare * fall * fall       // the parts nearest the blast take most of it
+      const dir = new THREE.Vector3().subVectors(c, pos)
+      if (dir.lengthSq() < 1e-6) dir.copy(info.dir)
+      dir.normalize()
+      p.damage += amount * p.toughness
+      this._condition(view, p, c, _v2.copy(dir).negate())
+      if (p.mount) this._strain(view, p, amount * TUNE.strainByKind.blast * (p.wrecked ? TUNE.wreckedStrain : 1) * 0.5, { ...info, dir, force: Math.max(0.4, fall) }, events)
+    }
+    return events
   }
 
   // Share of a hit on `part` that reaches its mount: all of it at the mount,
@@ -422,7 +543,7 @@ export class RobotDamageView {
     part.sag = null
     part.kick.set(0, 0, 0); part.kickVel.set(0, 0, 0)
     part.loose = {
-      bodyId, halfY: half.y, t: 0, landed: false, smokeIn: 0,
+      bodyId, halfY: half.y, t: 0, landed: false, smokeIn: 0, still: 0, settled: false, frozen: false,
       q0: mesh.getWorldQuaternion(new THREE.Quaternion()),
       off: mesh.getWorldPosition(new THREE.Vector3()).sub(center),
     }
@@ -478,11 +599,29 @@ export class RobotDamageView {
   // ── Function from structure (read by weapons + drive) ──────────────────────
   // 0..1: how well a component still does its job (state × mount condition).
   partHealth(part) {
-    if (!part || part.state === PART_STATE.DETACHED) return 0
+    if (!part || part.state === PART_STATE.DETACHED || part.wrecked) return 0
     return STATE_HEALTH[part.state] * (part.mount ? MOUNT_HEALTH[part.mount.state] : 1)
   }
 
   partForId(robotId, id) { return this._views.get(robotId)?.byId.get(id) ?? null }
+
+  // What an opponent can SEE of a robot: its attached components, where they
+  // are, and their visible condition (wear, sag, smoke — all shown on screen).
+  visibleParts(robotId) {
+    const view = this._views.get(robotId)
+    if (!view) return []
+    const out = []
+    for (const p of view.parts) {
+      if (p.state === PART_STATE.DETACHED) continue
+      out.push({
+        id: p.id, role: p.role, isWeapon: p.isWeapon, side: p.side, mesh: p.mesh,
+        center: p.mesh.getWorldPosition(new THREE.Vector3()),
+        health: this.partHealth(p), wear: Math.min(1, p.damage / p.cap),
+        mountState: p.mount?.state ?? 0, breakable: p.breakable && !p.isRoot,
+      })
+    }
+    return out
+  }
 
   partForMesh(robotId, mesh) { return this._views.get(robotId)?.parts.find(p => p.mesh === mesh) ?? null }
 
@@ -548,10 +687,12 @@ export class RobotDamageView {
     const view = this._views.get(robotId)
     if (!view || view.dead) return
     const d = dir && dir.lengthSq() > 1e-6 ? dir.clone().setY(0).normalize() : new THREE.Vector3(rand(-1, 1), 0, rand(-1, 1)).normalize()
-    // The final blow only finishes mounts that were ALREADY critical; every other
-    // part stays on the wreck. Outermost first (a part goes before its carrier).
+    // The final blow finishes mounts that were already WEAKENED or worse, and
+    // parts already wrecked; every sound part stays on the wreck. Outermost first
+    // (a part goes before its carrier).
     const depth = (p, seen = new Set()) => { let n = 0; for (const c of p.children) if (!seen.has(c)) { seen.add(c); const cp = view.byId.get(c); if (cp) n = Math.max(n, 1 + depth(cp, seen)) } return n }
-    const queue = view.parts.filter(p => !p.isRoot && p.state !== PART_STATE.DETACHED && p.mount?.state === MOUNT_STATE.CRITICAL && this._canFail(view, p))
+    const queue = view.parts.filter(p => !p.isRoot && p.state !== PART_STATE.DETACHED && p.mount && p.breakable &&
+      (p.mount.state >= MOUNT_STATE.WEAKENED || p.wrecked))
       .sort((a, b) => depth(a) - depth(b))
     view.dead = { t: 0, next: 0.1, queue, pops: [0.28, 0.6, 1.05], dir: d, emberFor: 6 }
     // The machine gives out: it slumps over and drops on its suspension.
@@ -622,13 +763,27 @@ export class RobotDamageView {
       }
       this._stepGlow(p, dt)
     }
-    // Wrecked weapons and drive units smoulder.
+    // Badly damaged parts smoulder where they were hit — wrecked ones heavily,
+    // severe working units (weapons / drive) lightly, severe plates now and
+    // then; damaged electronics arc. Bounded per tick.
     view.partSmokeIn = (view.partSmokeIn ?? 0.5) - dt
     if (view.partSmokeIn <= 0) {
       view.partSmokeIn = 0.35
+      view.smokeTick = (view.smokeTick ?? 0) + 1
+      let n = 0
       for (const p of view.parts) {
-        if (p.state !== PART_STATE.SEVERE || (p.role !== 'weapon' && p.role !== 'drive')) continue
-        this._fx.smoke(this._emitPoint(p, _v), { size: 0.22, rise: 1.8, life: 0.8, color: 0x7a7e85, opacity: 0.28, grow: 1.6 })
+        if (p.state === PART_STATE.DETACHED || n >= 6) continue
+        const working = p.role === 'weapon' || p.role === 'drive'
+        if (p.wrecked) {
+          n++; this._fx.smoke(this._emitPoint(p, _v), { size: 0.32, rise: 2.2, life: 1, color: 0x5f636a, opacity: 0.4, grow: 1.8 })
+        } else if (p.state === PART_STATE.SEVERE && (working || view.smokeTick % 3 === 0)) {
+          n++; this._fx.smoke(this._emitPoint(p, _v), { size: 0.22, rise: 1.8, life: 0.8, color: 0x7a7e85, opacity: 0.28, grow: 1.6 })
+        }
+        if (p.role === 'electronics' && p.state >= PART_STATE.DAMAGED && Math.random() < (p.wrecked ? 0.5 : 0.22)) {
+          this._emitPoint(p, _v)
+          this._fx.sparks(_v, UP, { count: 5, speed: 6, spread: 1.3, color: 0xa8d8ff, life: 0.16, size: 0.05 })
+          this._fx.flash(_v, { size: 0.18, color: 0xbfe4ff, life: 0.04 })
+        }
       }
     }
 
@@ -696,15 +851,9 @@ export class RobotDamageView {
   // Localized emissive glow on ONE part (heat / white-hot impact), decaying.
   _stepGlow(p, dt) {
     if (p.glow <= 0 && !p._glowing) return
-    if (!p.mats) {
-      p.mats = []
-      const seen = new Set()
-      for (const m of p.meshes) for (const mat of Array.isArray(m.material) ? m.material : [m.material]) {
-        if (mat?.emissive && !seen.has(mat)) { seen.add(mat); p.mats.push({ m: mat, hex: mat.emissive.getHex(), i: mat.emissiveIntensity ?? 1 }) }
-      }
-    }
     p.glow = Math.max(0, p.glow - dt * 2.2)
-    for (const r of p.mats) {
+    for (const r of this._partMats(p)) {
+      if (r.hex == null) continue
       r.m.emissive.setHex(r.hex).lerp(p.glowColor, Math.min(1, p.glow) * 0.7)
       r.m.emissiveIntensity = r.i + p.glow * 0.5
     }
@@ -719,7 +868,7 @@ export class RobotDamageView {
     if (d.queue.length && d.t >= d.next) {
       d.next += rand(0.1, 0.18)
       const p = d.queue.shift()
-      if (p.state !== PART_STATE.DETACHED) {
+      if (p.state !== PART_STATE.DETACHED && this._canFail(view, p)) {   // its own children went first
         const out = p.mesh.getWorldPosition(_v2).sub(root.mesh.getWorldPosition(_v)).setY(0)
         if (out.lengthSq() < 0.04) out.set(rand(-1, 1), 0, rand(-1, 1))
         out.normalize().addScaledVector(d.dir, 0.6).normalize()
@@ -758,6 +907,7 @@ export class RobotDamageView {
   _stepLoose(dt) {
     for (const p of this._loose) {
       const L = p.loose
+      if (L.frozen) continue
       const body = physicsManager.getBody(L.bodyId)
       if (!body) continue
       const bp = body.translation(), br = body.rotation()
@@ -777,7 +927,25 @@ export class RobotDamageView {
         this._fx.smoke(_v, { size: 0.45, rise: 0.6, life: 0.6, color: 0x6b6f76, opacity: 0.22 })
         this._host.onEvent('clank', { pos: _v })
       }
+      // Settled debris: once it has been at rest for a moment its body sleeps
+      // (Rapier wakes it if something hits it again).
+      if (L.landed && !L.settled) {
+        const v = body.linvel(), w = body.angvel()
+        if (Math.hypot(v.x, v.y, v.z) < TUNE.settleSpeed && Math.hypot(w.x, w.y, w.z) < 0.6) {
+          L.still += dt
+          if (L.still >= TUNE.settleTime) { L.settled = true; body.sleep?.() }
+        } else L.still = 0
+      }
       this._stepGlow(p, dt)
+    }
+    // Bounded: past looseMax live bodies, the oldest settled pieces are frozen
+    // where they lie (body removed, mesh stays put — they no longer simulate).
+    let live = 0
+    for (const p of this._loose) if (!p.loose.frozen) live++
+    for (const p of this._loose) {
+      if (live <= TUNE.looseMax) break
+      if (p.loose.frozen || !p.loose.settled) continue
+      physicsManager.removeBody(p.loose.bodyId); p.loose.frozen = true; live--
     }
   }
 
@@ -790,7 +958,8 @@ export class RobotDamageView {
       tilt: Math.hypot(view.tilt.x, view.tilt.z),
       parts: view.parts.map(p => ({
         id: p.id, isRoot: p.isRoot, isWeapon: p.isWeapon, role: p.role, breakable: p.breakable, side: p.side, mass: +p.mass.toFixed(3), health: +this.partHealth(p).toFixed(3),
-        state: p.state, damage: +p.damage.toFixed(1), cap: +p.cap.toFixed(1), hits: p.hits.length,
+        state: p.state, wrecked: p.wrecked, tint: +p.tint.toFixed(2), damage: +p.damage.toFixed(1), cap: +p.cap.toFixed(1), hits: p.hits.length,
+        loose: p.loose ? { settled: !!p.loose.settled, frozen: !!p.loose.frozen } : null,
         wear: p.wear.map(w => w.level),
         mount: p.mount ? { state: p.mount.state, damage: +p.mount.damage.toFixed(1), cap: +p.mount.cap.toFixed(1), parent: p.mount.parent.id, anchor: p.state === PART_STATE.DETACHED ? null : p.mesh.localToWorld(new THREE.Vector3().copy(p.mount.aChild)).toArray() } : null,
       })),
@@ -801,10 +970,14 @@ export class RobotDamageView {
   get looseCount() { return this._loose.length }
 
   clear() {
-    for (const view of this._views.values()) {
-      for (const d of view.decals) this._fx.releaseDecal(d)
-      for (const p of view.parts) if (p.mats) for (const r of p.mats) { r.m.emissive.setHex(r.hex); r.m.emissiveIntensity = r.i }
+    for (const view of this._views.values()) for (const d of view.decals) this._fx.releaseDecal(d)
+    // Every material back exactly as it was (wear tint, roughness, glow).
+    for (const r of this._orig.values()) {
+      if (r.hex != null) { r.m.emissive.setHex(r.hex); r.m.emissiveIntensity = r.i }
+      if (r.col != null) r.m.color.setHex(r.col)
+      if (r.rough != null) r.m.roughness = r.rough
     }
+    this._orig.clear()
     for (const p of this._loose) physicsManager.removeBody(p.loose.bodyId)
     this._views.clear()
     this._loose = []

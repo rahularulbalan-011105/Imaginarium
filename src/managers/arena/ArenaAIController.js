@@ -1,3 +1,4 @@
+import * as THREE from 'three'
 import { physicsManager } from '../physics/PhysicsManager.js'
 import { weaponManager } from '../WeaponManager.js'
 import { useCombatStore } from '../../stores/combatStore.js'
@@ -27,25 +28,66 @@ import { wrapAngle } from './smoothing.js'
 //
 // Fairness: adaptation only changes DECISIONS. When the AI is winning it makes
 // more mistakes and eases off; when losing it gets more decisive. Stats never move.
+//
+// Weapons (Normal / Hard): the AI aims like a player with a mouse — it outputs
+// an aim POINT (`out.aim`: its lagged estimate of you, led by the round's flight
+// time, offset by this window's aim error) and its guns swivel toward it within
+// their real arc + traverse speed; shots leave the real muzzles along the real
+// barrels. It fires a weapon only when THAT barrel bears on its aim point. Easy
+// keeps the old fixed-gun behaviour (it steers the hull to aim).
+//
+// What it may know (CombatManager's intel): your robot's visible components and
+// their visible condition (wear / sag / smoke are on screen), your drive state,
+// rockets in flight, and its own weapons — including whether its barrel's path
+// is blocked (the same trace your impact pip shows). Never your inputs, never
+// the future, never a hidden stat.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Difficulty tiers. configure() accepts { level, ...overrides }; the legacy keys
-// (reactionMin/Max, accuracy, aimTol) are still honoured.
+// Difficulty tiers — THE place difficulty lives. configure() accepts
+// { level, ...overrides }; the legacy keys (reactionMin/Max, accuracy, aimTol)
+// are still honoured. No tier changes health, damage, ammo, cooldowns, speed or
+// physics — only how well the AI perceives, decides and aims.
+//   reactionMin/Max   ms between decisions          perceptionLag  s (smoothing of what it sees)
+//   accuracy          → per-window aim error         predict        0..1 lead quality
+//   aimTol            fire tolerance (rad)            wobble         hand shake (rad)
+//   mistakes / brilliance   chance of a slip / a sharp read per window
+//   openMin/Max       ms it sizes you up before the first shot
+//   turret            swivels its guns at an aim point (else steers the hull)
+//   verify            checks its barrel's path; never fires into a wall
+//   fireOnMove        keeps shooting while circling / dodging when a gun bears
+//   burst / rest      trigger-hold / pause lengths (ms)
+//   orbitLeg / turnIn while circling: ms spent orbiting vs turning in to shoot
+//   dodge             chance it sidesteps a rocket it sees coming
+//   partAim           chance per window it aims at a chosen component (your gun,
+//                     a damaged drive unit, a failing mount) instead of the hull
+//   rocketDiscipline  holds splash weapons for a good shot (slow / close target)
+//   exploit           how strongly it adapts to the state of the fight (your lost
+//                     weapons / mobility, its own damage, a blocked line of fire)
+//   ease              how much it eases off while winning (rubber band)
 const TIERS = {
   easy: {
     reactionMin: 420, reactionMax: 650, accuracy: 0.62, aimTol: 0.2, turnGain: 1.5,
     perceptionLag: 0.34, predict: 0.25, learnTime: 22, obsTau: 9, wobble: 0.09,
     mistakes: 0.2, brilliance: 0.03, noise: 0.2, openMin: 1800, openMax: 3200,
+    turret: false, verify: false, fireOnMove: false, burst: [500, 1400], rest: [120, 520],
+    dodge: 0, partAim: 0, rocketDiscipline: false, exploit: 0.2, ease: 1.6,
+    orbitLeg: [800, 1900], turnIn: [450, 900],
   },
   normal: {
-    reactionMin: 280, reactionMax: 480, accuracy: 0.72, aimTol: 0.16, turnGain: 1.8,
-    perceptionLag: 0.22, predict: 0.55, learnTime: 13, obsTau: 6, wobble: 0.06,
-    mistakes: 0.12, brilliance: 0.07, noise: 0.14, openMin: 1100, openMax: 2300,
+    reactionMin: 280, reactionMax: 480, accuracy: 0.68, aimTol: 0.16, turnGain: 1.8,
+    perceptionLag: 0.26, predict: 0.5, learnTime: 13, obsTau: 6, wobble: 0.07,
+    mistakes: 0.14, brilliance: 0.07, noise: 0.14, openMin: 1100, openMax: 2300,
+    turret: true, verify: false, fireOnMove: true, burst: [600, 1500], rest: [160, 520],
+    dodge: 0.3, partAim: 0.2, rocketDiscipline: false, exploit: 0.6, ease: 1.0,
+    orbitLeg: [700, 1600], turnIn: [550, 1000],
   },
   hard: {
-    reactionMin: 190, reactionMax: 330, accuracy: 0.85, aimTol: 0.13, turnGain: 2.1,
-    perceptionLag: 0.13, predict: 0.8, learnTime: 8, obsTau: 4.5, wobble: 0.035,
-    mistakes: 0.05, brilliance: 0.12, noise: 0.1, openMin: 600, openMax: 1400,
+    reactionMin: 170, reactionMax: 290, accuracy: 0.88, aimTol: 0.12, turnGain: 2.3,
+    perceptionLag: 0.11, predict: 0.9, learnTime: 7, obsTau: 4, wobble: 0.03,
+    mistakes: 0.05, brilliance: 0.14, noise: 0.08, openMin: 250, openMax: 600,
+    turret: true, verify: true, fireOnMove: true, burst: [1100, 2400], rest: [60, 220],
+    dodge: 0.75, partAim: 0.65, rocketDiscipline: true, exploit: 1, ease: 0.35,
+    orbitLeg: [450, 1000], turnIn: [750, 1400],
   },
 }
 const DEFAULT_LEVEL = 'normal'
@@ -162,11 +204,31 @@ export class ArenaAIController {
     }
     this._dominance = 0
     this._mistakeRate = this._difficulty.mistakes
+
+    // weapons / tactics on the real state of the fight
+    this._aim = new THREE.Vector3()
+    this._aimErrY = 0
+    this._aimPart = null                      // a component of the player it is aiming at (id)
+    this._vp = []; this._vpAt = -1e9          // cached visible parts of the player
+    this._blocked = false                     // its barrel's path meets a wall first
+    this._blockedFor = 0
+    this._verifyIn = 0
+    this._rocketSeen = new WeakMap()          // rocket → { at, dodge, done }
+    this._dodgeReadyAt = 0
+    this._intel = { playerArmed: true, playerDrive: 1, selfDrive: 1 }
+    this.stats = { dodges: 0, blockedHolds: 0, partPicks: 0, shotsCalled: 0, hold: {} }
+  }
+
+  // Dev / test: what it is doing and why.
+  debug() {
+    return { level: this._difficulty.level, state: this._state, persona: this._persona.name, style: this._model.style,
+      aimPart: this._aimPart, blocked: this._blocked, blockedFor: +this._blockedFor.toFixed(2), los: this._los,
+      intel: { ...this._intel }, stats: { ...this.stats, hold: { ...this.stats.hold } } }
   }
 
   // Compute this frame's input for `self` fighting `targetRobot`.
-  update(dt, self, selfActor, targetRobot, now, weapons) {
-    const out = { fwd: 0, turn: 0, primary: false, secondary: false }
+  update(dt, self, selfActor, targetRobot, now, weapons, intel = null) {
+    const out = { fwd: 0, turn: 0, primary: false, secondary: false, aim: null }
     if (!self || !targetRobot || !selfActor || selfActor.state === 'destroyed') return out
     const body = physicsManager.getBody(self.bodyId)
     const tgtBody = physicsManager.getBody(targetRobot.bodyId)
@@ -200,24 +262,29 @@ export class ArenaAIController {
     const dist = Math.max(0.01, Math.hypot(dx, dz))
     const bearing = Math.atan2(dx, dz)
 
-    // Weapon envelope from the equipped weapons.
-    const prim = weapons?.primary ?? null
-    const sec = weapons?.secondary ?? null
-    const pDef = prim?.def ?? null
-    const sDef = sec?.def ?? null
+    // Weapon envelope from the equipped weapons that still WORK (a wrecked gun
+    // still hangs on but is no use; a torn-off one has already left the groups).
+    const works = (i) => !!i && (!intel || intel.condition(self.id, i) !== 'OFFLINE')
+    const prim = works(weapons?.primary) ? weapons.primary : (weapons?.primaries || []).find(works) || null
+    const sec = works(weapons?.secondary) ? weapons.secondary : null
+    const main = prim || (sec?.weaponMesh ? sec : null)        // the weapon it fights with
+    const pDef = main?.def ?? null
+    const sDef = (main === sec ? null : sec?.def) ?? null
     const env = this._envelope(pDef, sDef, self, targetRobot)
 
     const selfHp = hpFrac(selfActor)
     const playerActor = useCombatStore.getState().actors?.[targetRobot.id]
     const playerHp = hpFrac(playerActor)
 
-    this._observe(dt, now, P, T, TV, SV, dist, targetHeading, selfActor, playerActor, targetRobot, prim, sec)
+    this._observe(dt, now, P, T, TV, SV, dist, targetHeading, selfActor, playerActor, targetRobot, weapons?.primary, weapons?.secondary)
 
     // ── Strategic decision (reaction-time ticks only) ────────────────────────
     if (now >= this._decideAt) {
       this._decideAt = now + rand(d.reactionMin, d.reactionMax)
-      this._decide(now, P, body, targetRobot, dist, bearing, env, selfActor, selfHp, playerHp, prim)
+      this._decide(now, P, body, targetRobot, dist, bearing, env, selfActor, selfHp, playerHp, main, self, intel)
     }
+    // A rocket it can see coming: sidestep (a reflex, not a tactic re-think).
+    if (d.dodge > 0 && intel) this._watchRockets(now, P, self, intel, bearing)
 
     // ── Unstick: barely moved while trying to → wiggle out (legacy behaviour) ─
     const moved = Math.hypot(P.x - this._prevX, P.z - this._prevZ)
@@ -238,7 +305,10 @@ export class ArenaAIController {
     // ── Execute the current tactic ────────────────────────────────────────────
     // Aim point: perceived position + lead (projectile flight / reaction), with
     // the decision's persistent aim error. The lead can be wrong (leadSign).
-    const flight = pDef?.projectileSpeed ? dist / pDef.projectileSpeed : 0.12   // rockets + shells travel
+    // Its guns share one aim point: lead for the weapon that fires most (the
+    // sustained gun), not the occasional rocket.
+    const leadDef = [prim, sec].filter(i => i?.weaponMesh).sort((a, b) => (b.def.fireRateHz || 0) - (a.def.fireRateHz || 0))[0]?.def ?? pDef
+    const flight = leadDef?.projectileSpeed ? dist / leadDef.projectileSpeed : 0.12   // rockets + shells travel
     const lead = d.predict * flight * this._leadSign
     const ax = s.x + s.vx * lead, az = s.z + s.vz * lead
     const aimYaw = Math.atan2(ax - P.x, az - P.z) + this._aimError
@@ -264,8 +334,8 @@ export class ArenaAIController {
     } else if (st === 'strafe') {
       // Orbit the player at the preferred radius; periodically turn in to shoot.
       if (now >= this._turnInAt && now >= this._turnInUntil) {
-        this._turnInUntil = now + rand(450, 900)
-        this._turnInAt = this._turnInUntil + rand(800, 1900) * (1.2 - this._aggr * 0.5)
+        this._turnInUntil = now + rand(d.turnIn[0], d.turnIn[1])
+        this._turnInAt = this._turnInUntil + rand(d.orbitLeg[0], d.orbitLeg[1]) * (1.2 - this._aggr * 0.5)
       }
       if (now < this._turnInUntil) {
         desiredYaw = aimYaw
@@ -275,7 +345,7 @@ export class ArenaAIController {
         const ox = s.x + Math.sin(around) * env.ideal, oz = s.z + Math.cos(around) * env.ideal
         desiredYaw = Math.atan2(ox - P.x, oz - P.z)
         fwd = 0.9
-        mayFire = false
+        mayFire = d.fireOnMove        // a swivelling gun keeps firing while it circles
       }
     } else if (st === 'charge') {
       // Full-speed ram (the existing collision damage rewards the faster robot).
@@ -289,7 +359,7 @@ export class ArenaAIController {
       // Sidestep out of the player's line of fire.
       desiredYaw = bearing + this._evadeDir * 1.35
       fwd = 1
-      mayFire = false
+      mayFire = d.fireOnMove
     } else if (st === 'recover') {
       // Overheated / staggered / empty: create space, face the threat.
       desiredYaw = aimYaw
@@ -307,35 +377,117 @@ export class ArenaAIController {
     this._lastFwd = fwd
     this._lastFwdAbs = Math.abs(fwd)
 
+    // ── Aim point (turret tiers) ──────────────────────────────────────────────
+    // Where it BELIEVES the target point is: a chosen component (else the
+    // hull), shifted by its perception lag, led by the round's flight time, and
+    // offset by this window's aim error turned into a miss distance. The guns
+    // swivel toward it at their real traverse speed (WeaponManager).
+    const wob = Math.sin(t * 3.1 + this._weavePhase) * d.wobble
+    if (d.turret) {
+      let bx = T.x, by = T.y, bz = T.z
+      const tp = this._aimPart && intel ? this._partsOf(intel, targetRobot.id, now).find(p => p.id === this._aimPart) : null
+      if (tp) { bx = tp.center.x; by = tp.center.y; bz = tp.center.z } else this._aimPart = null
+      const px = bx + (s.x - T.x) + s.vx * lead, pz = bz + (s.z - T.z) + s.vz * lead
+      const miss = Math.tan(this._aimError + wob) * dist
+      const lx = (pz - P.z) / dist, lz = -(px - P.x) / dist          // across the line of sight
+      out.aim = this._aim.set(px + lx * miss, by + this._aimErrY * dist, pz + lz * miss)
+    }
+
     // ── Fire discipline ───────────────────────────────────────────────────────
     // "Aimed" is judged against where the AI BELIEVES the target is (aim error
     // and a small hand wobble included), so a bad read produces real misses.
-    const aimErrNow = Math.abs(wrapAngle(aimYaw + Math.sin(t * 3.1 + this._weavePhase) * d.wobble - heading - gunOff))
     const angularSize = Math.atan2((targetRobot.radius || 1.5) * 0.9, dist)
-    const spread = ((pDef?.spreadDeg ?? 2) * Math.PI) / 180
-    const tol = Math.max(0.03, d.aimTol * 0.5 + angularSize + spread * 0.4 + this._fireLoose)
-    const aimed = aimErrNow < tol
+    const tolFor = (def) => Math.max(0.03, d.aimTol * 0.5 + angularSize + ((def?.spreadDeg ?? 2) * Math.PI / 180) * 0.4 + this._fireLoose)
+    const hullAimed = (def, off) => Math.abs(wrapAngle(aimYaw + wob - heading - off)) < tolFor(def)
+    // Turret tiers: THIS weapon's real barrel must bear on the aim point (and the
+    // aim point be inside its arc) — it never fires a gun that points elsewhere.
+    const aligned = (inst) => {
+      if (!d.turret || !inst?.weaponMesh || !intel || !out.aim) return hullAimed(inst?.def, inst?.weaponMesh ? gunOff : 0)
+      if (inst.outOfArc) return false
+      const ray = intel.aimRay(self, inst)
+      if (!ray) return false
+      const e = Math.abs(wrapAngle(Math.atan2(ray.forward.x, ray.forward.z) - Math.atan2(out.aim.x - ray.muzzle.x, out.aim.z - ray.muzzle.z)))
+      return e < tolFor(inst.def) * 0.8
+    }
+    // Verify tiers: is its head weapon's path blocked by the arena (a wall in
+    // the way)? Then it holds fire and (in _decide) repositions.
+    if (d.verify && intel && main?.weaponMesh && (this._verifyIn -= dt) <= 0) {
+      this._verifyIn = 0.1
+      const ray = intel.aimRay(self, main)
+      if (ray) {
+        const tr = intel.traceShot(self.id, ray.muzzle, ray.forward, Math.min(main.def.range, dist + 6))
+        this._blocked = !tr.targetId && tr.dist < dist - (targetRobot.radius || 1.5) - 0.5
+      }
+    } else if (!d.verify) this._blocked = false
+    this._blockedFor = this._blocked ? this._blockedFor + dt : Math.max(0, this._blockedFor - dt * 2)
     const hot = selfActor.overheated || selfActor.heat > selfActor.heatMax * this._persona.heat
     const pressing = playerHp < 0.25 && selfActor.heat < selfActor.heatMax * 0.95   // finish-off exception
     // Opening: size the opponent up before the first shot (unless shot first).
     const opening = now < this._openUntil && now - this._obs.lastPlayerShot > 1500
     const canShoot = mayFire && !opening && this._los && now >= this._hesitateUntil && (!hot || pressing) &&
       now < this._burstUntil && st !== 'recover'
+    if (canShoot && this._blocked) this.stats.blockedHolds++
     // Self-safety for splash weapons uses the nearer of perceived/actual distance
     // (it only prevents blowing itself up; it never helps it hit).
     const safeDist = Math.min(dist, Math.hypot(T.x - P.x, T.z - P.z))
-    if (canShoot && aimed) {
-      if (prim && pDef && !prim.reloading && dist <= pDef.range * 0.98 &&
-          !(pDef.splashRadius && safeDist < pDef.splashRadius + 2)) out.primary = true
-      if (sec && sDef && !sec.reloading && dist <= sDef.range * 0.92 &&
-          !(sDef.splashRadius && safeDist < sDef.splashRadius + 2)) out.secondary = true
+    const ready = (inst) => !!inst && (intel ? intel.usable(self.id, inst) : !inst.reloading)
+    // Splash weapons are held for a shot that will tell (Hard): a slow or close
+    // target, a staggered one, or the finish.
+    const goodShot = (def) => !def?.splashRadius || !d.rocketDiscipline ||
+      Math.hypot(s.vx, s.vz) < 7 || dist < 32 || playerActor?.staggered || playerHp < 0.3
+    const call = (inst, rangeK) => inst && ready(inst) && dist <= inst.def.range * rangeK &&
+      !(inst.def.splashRadius && safeDist < inst.def.splashRadius + 2) && goodShot(inst.def) && aligned(inst)
+    if (canShoot && !this._blocked) {
+      if (call(prim, 0.98)) out.primary = true
+      if (call(sec, 0.92)) out.secondary = true
+      if (out.primary || out.secondary) this.stats.shotsCalled++
+    }
+    // Dev instrumentation: why it is NOT firing this frame (first reason wins).
+    if (!out.primary && !out.secondary) {
+      const why = !mayFire ? 'moving' : opening ? 'opening' : !this._los ? 'no-los' : now < this._hesitateUntil ? 'hesitating'
+        : hot && !pressing ? 'heat' : now >= this._burstUntil ? 'burst-rest' : st === 'recover' ? 'recover' : this._blocked ? 'blocked'
+        : ![prim, sec].some(i => ready(i)) ? 'not-ready' : ![prim, sec].some(i => i && dist <= i.def.range * 0.95) ? 'range'
+        : ![prim, sec].some(i => i && aligned(i)) ? ([prim, sec].some(i => i?.outOfArc) ? 'out-of-arc' : 'aligning') : 'holding'
+      this.stats.hold[why] = (this.stats.hold[why] || 0) + 1
     }
     // Bursts: hold the trigger in human-length bursts with short rests.
     if (now >= this._burstUntil && now >= this._burstRestUntil) {
-      this._burstUntil = now + rand(500, 1400) * (0.7 + this._aggr * 0.6)
-      this._burstRestUntil = this._burstUntil + rand(120, 520) * (1.3 - this._aggr * 0.6)
+      this._burstUntil = now + rand(d.burst[0], d.burst[1]) * (0.7 + this._aggr * 0.6)
+      this._burstRestUntil = this._burstUntil + rand(d.rest[0], d.rest[1]) * (1.3 - this._aggr * 0.6)
     }
     return out
+  }
+
+  // The player's visible components (refreshed ~10×/s, not every frame).
+  _partsOf(intel, id, now) {
+    if (now - this._vpAt > 100) { this._vp = intel.visibleParts(id) || []; this._vpAt = now }
+    return this._vp
+  }
+
+  // Watch the rockets in flight it did not fire. Each one is judged ONCE after
+  // its reaction time (dodge chance = tier): if its line passes inside the
+  // blast radius soon, step out of it to the side the line is already passing.
+  _watchRockets(now, P, self, intel, bearing) {
+    const d = this._difficulty
+    for (const rk of intel.incoming(self.id)) {
+      let r = this._rocketSeen.get(rk.id)
+      if (!r) { r = { at: now, dodge: Math.random() < d.dodge, done: false }; this._rocketSeen.set(rk.id, r) }
+      if (r.done || now - r.at < d.reactionMin) continue
+      r.done = true
+      if (!r.dodge || now < this._dodgeReadyAt) continue
+      const rx = P.x - rk.pos.x, ry = P.y - rk.pos.y, rz = P.z - rk.pos.z
+      const along = rx * rk.dir.x + ry * rk.dir.y + rz * rk.dir.z
+      if (along <= 0 || along / rk.speed > 1.6) continue                  // going away / far off
+      const cx = rx - rk.dir.x * along, cz = rz - rk.dir.z * along         // line → me
+      if (Math.hypot(cx, cz) > rk.splash * 0.8 + (self.radius || 1.5)) continue
+      this._enter('evade', now, bearing, P, 0, null)
+      // Move further off the rocket's line (the side it would pass on).
+      const yawA = bearing + 1.35, yawB = bearing - 1.35
+      const da = Math.sin(yawA) * cx + Math.cos(yawA) * cz, db = Math.sin(yawB) * cx + Math.cos(yawB) * cz
+      this._evadeDir = Math.abs(da - db) < 1e-3 ? (this._wallAhead ? -this._evadeDir : this._evadeDir) : da > db ? 1 : -1
+      this._dodgeReadyAt = now + 900
+      this.stats.dodges++
+    }
   }
 
   // Preferred distances for the equipped weapons.
@@ -451,7 +603,7 @@ export class ArenaAIController {
   }
 
   // ── Decision tick ───────────────────────────────────────────────────────────
-  _decide(now, P, body, targetRobot, dist, bearing, env, selfActor, selfHp, playerHp, prim) {
+  _decide(now, P, body, targetRobot, dist, bearing, env, selfActor, selfHp, playerHp, prim, self = null, intel = null) {
     const d = this._difficulty, m = this._model, per = this._persona
     this._classify()
 
@@ -460,12 +612,25 @@ export class ArenaAIController {
     const flow = (o.dealt - o.taken) / Math.max(20, o.dealt + o.taken)
     this._dominance = clamp(0.6 * flow + 0.6 * (selfHp - playerHp), -1, 1)
     const dom = this._dominance
-    // Winning → sloppier and calmer; losing → sharper and more decisive.
-    this._mistakeRate = clamp(d.mistakes * (1 + 1.6 * Math.max(0, dom)) * (1 - 0.6 * Math.max(0, -dom)), 0.01, 0.45)
+    // Winning → sloppier and calmer; losing → sharper and more decisive. How
+    // much it eases off while ahead is the tier's `ease`.
+    this._mistakeRate = clamp(d.mistakes * (1 + 1.6 * d.ease * Math.max(0, dom)) * (1 - 0.6 * Math.max(0, -dom)), 0.01, 0.45)
+
+    // The state of the fight as it can see it: are your guns still working,
+    // how is your drivetrain, how is its own?
+    if (intel && self) {
+      const vp = this._partsOf(intel, targetRobot.id, now)
+      const pd = intel.driveState(targetRobot.id), sd = intel.driveState(self.id)
+      this._intel = {
+        playerArmed: vp.some(p => p.role === 'weapon' && p.health > 0),
+        playerDrive: pd.units ? pd.mean : 1,
+        selfDrive: sd.units ? sd.mean : 1,
+      }
+    }
 
     this._aggrWalk = clamp(this._aggrWalk + rand(-0.08, 0.08) * per.chaos, -0.2, 0.2)
     const aggrTarget = clamp01(per.aggr + 0.3 * (selfHp - playerHp) + this._aggrWalk
-      - 0.18 * Math.max(0, dom - 0.2) + 0.12 * Math.max(0, -dom - 0.2)
+      - 0.18 * d.ease * Math.max(0, dom - 0.2) + 0.12 * Math.max(0, -dom - 0.2)
       + (playerHp < 0.3 ? 0.15 : 0) - (selfHp < 0.3 ? 0.15 : 0))
     this._aggr += (aggrTarget - this._aggr) * 0.3
 
@@ -478,8 +643,17 @@ export class ArenaAIController {
     // Fresh execution noise for this reaction window.
     // Comfortably ahead → aims a little lazier; behind → no change (never sharper
     // than its tier).
-    const spreadAim = (1 - d.accuracy) * 0.55 * (1 + 0.9 * Math.max(0, dom - 0.15))
+    const spreadAim = (1 - d.accuracy) * 0.55 * (1 + 0.9 * d.ease * Math.max(0, dom - 0.15))
     this._aimError = rand(-spreadAim, spreadAim)
+    this._aimErrY = rand(-spreadAim, spreadAim) * 0.3
+    // Component targeting: now and then it picks the part that matters most and
+    // aims at it instead of the hull — your working gun (more so if its mount
+    // is already failing), a damaged drive unit, a part hanging off.
+    this._aimPart = null
+    if (d.partAim > 0 && intel && dist < 48 && Math.random() < d.partAim * (0.5 + 0.5 * m.conf)) {
+      this._aimPart = this._pickPart(this._partsOf(intel, targetRobot.id, now))
+      if (this._aimPart) this.stats.partPicks++
+    }
     this._leadSign = 1
     this._fireLoose = rand(-0.02, 0.03)
     const sharp = Math.random() < d.brilliance * (1 + Math.max(0, -dom))
@@ -531,6 +705,19 @@ export class ArenaAIController {
     u.recover = needRecover ? 0.75 + (selfActor.overheated ? 0.3 : 0) : null
     if (prim?.reloading && !env.melee) {
       u.strafe += 0.2; u.retreat += 0.12; u.attack -= 0.15; u.charge -= 0.1
+    }
+    // Adapt to what the fight has done to both robots (weight = tier `exploit`).
+    const ex = d.exploit, it = this._intel
+    if (!it.playerArmed) {                 // you can't shoot back: press in and stay on you
+      u.attack += 0.25 * ex; u.charge += 0.15 * ex; u.retreat -= 0.3 * ex
+      if (u.evade != null) u.evade -= 0.2 * ex
+    }
+    if (it.playerDrive < 0.6) u.strafe += 0.22 * ex        // you turn badly: work round your flank
+    if (it.selfDrive < 0.5) {             // its own drive is shot: stand and shoot, don't dance
+      u.charge -= 0.4 * ex; u.strafe -= 0.25 * ex; u.approach -= 0.15 * ex; u.retreat -= 0.2 * ex; u.attack += 0.3 * ex
+    }
+    if (this._blockedFor > 0.6) {         // its line of fire is blocked: move to open it
+      u.strafe += 0.5 * ex; u.approach += 0.25 * ex; u.attack -= 0.45 * ex
     }
 
     // Bounded noise so equal situations don't always play out the same way.
@@ -587,6 +774,19 @@ export class ArenaAIController {
       if (this._wallAhead) this._evadeDir = -this._evadeDir
       this._evadeReadyAt = now + rand(1800, 3600)
     }
+  }
+
+  // The component worth shooting (visible parts of the player), or null = hull.
+  _pickPart(parts) {
+    let best = null, bv = 0.5
+    for (const p of parts) {
+      let v = 0
+      if (p.role === 'weapon' && p.health > 0) v = 2 + (1 - p.health) * 2 + p.mountState * 0.6
+      else if (p.role === 'drive' && p.health > 0) v = 0.9 + (1 - p.health) * 1.5 + p.mountState * 0.4
+      else if (p.breakable && p.mountState >= 2) v = 0.6 + p.mountState * 0.3
+      if (v > bv) { bv = v; best = p }
+    }
+    return best?.id ?? null
   }
 
   _recentRetreatMs(now) {
