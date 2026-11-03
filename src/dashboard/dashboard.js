@@ -2,6 +2,7 @@
 // cx_events / cx_links tabs (key-protected, JSONP) and renders everything from
 // the pure functions in analyze.js.
 import { COLLECTOR_ENDPOINT } from '../utils/utmTracking.js'
+import { getJson as collectorGet, readError } from './collector.js'
 import { parseRows, resolveIdentities, analyze, linkStats, makeExcluder, buildCampaignUrl, slug, resolveRange, liveSnapshot, LIVE_WINDOW_MS } from './analyze.js'
 import { createGlobe } from './globe.js'
 
@@ -14,33 +15,7 @@ let EVENTS = [], LINKS = []
 let RESULT = null
 
 // ── data ────────────────────────────────────────────────────────────────────
-// The dashboard key is NEVER put in a URL: query strings end up in Google's
-// request logs and in Referer headers. Each read carries a timestamp plus
-// HMAC-SHA256(timestamp, key); the collector recomputes it and accepts a ±5 min
-// window, so a captured signature is useless shortly afterwards.
-const b64url = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
-
-async function signedParams() {
-  const ts = String(Date.now())
-  const enc = new TextEncoder()
-  const k = await crypto.subtle.importKey('raw', enc.encode(KEY), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
-  return { ts, sig: b64url(await crypto.subtle.sign('HMAC', k, enc.encode(ts))) }
-}
-
-// Cookie-free fetch: when the browser is signed in to Google (often several
-// accounts), a credentialed request to an Apps Script web app gets an HTML
-// sign-in page instead of data. There is deliberately NO JSONP fallback — JSONP
-// executes the response as script, which would hand the page to anyone who could
-// impersonate the collector.
-async function getJson(params) {
-  const auth = params.what === 'ping' ? {} : await signedParams()
-  const r = await fetch(COLLECTOR_ENDPOINT + '?' + new URLSearchParams({ ...params, ...auth, _: Date.now() }),
-    { credentials: 'omit', cache: 'no-store', redirect: 'follow' })
-  const text = await r.text()
-  try { return JSON.parse(text) } catch {
-    throw new Error(`The collector answered with a non-JSON page (HTTP ${r.status}): ${text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}`)
-  }
-}
+const getJson = (params) => collectorGet(params, KEY)
 
 async function load() {
   const st = $('gateStatus')
@@ -49,10 +24,7 @@ async function load() {
   try {
     const [ev, lk] = await Promise.all([getJson({ what: 'events' }), getJson({ what: 'links' })])
     if (Array.isArray(ev)) throw new Error('The collector is still the old version — paste docs/utm-collector.gs into Apps Script and deploy a new version.')
-    if (!ev.ok) {
-      if (ev.error === 'bad key') { const p = await getJson({ what: 'ping' }).catch(() => null); throw new Error(p && !p.keySet ? 'No key set yet — run the "setup" function in Apps Script.' : 'Wrong dashboard key.') }
-      throw new Error(ev.error || 'Collector error')
-    }
+    if (!ev.ok) throw new Error(await readError(ev))
     EVENTS = resolveIdentities(parseRows(ev.headers, ev.rows))
     LINKS = lk.ok ? lk.rows : []
     ls.set(KEY_LS, KEY)

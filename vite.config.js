@@ -10,13 +10,14 @@ export default defineConfig({
     exclude: ['@dimforge/rapier3d-compat'],
   },
   build: {
-    // Multi-page: the app (index.html) + the analytics dashboard (utm-dashboard.html).
+    // Multi-page: the app (index.html) + the analytics dashboards (utm-dashboard.html, ads-dashboard.html).
     // Declaring both as inputs is the supported way to emit a second HTML page
     // (a public/*.html with inline <style> collides with Vite's inline-css proxy).
     rollupOptions: {
       input: {
         main: 'index.html',
         utm:  'utm-dashboard.html',
+        ads:  'ads-dashboard.html',
       },
     },
   },

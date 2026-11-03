@@ -11,6 +11,8 @@
  * "links", "landing", "by_user" are NOT read any more and can be deleted):
  *   cx_events  — one row per event
  *   cx_links   — campaign links saved from the dashboard's link generator
+ *   ads_*      — Google Ads stats, written by docs/google-ads-script.js and
+ *                served read-only to ads-dashboard.html (GET what=ads)
  *
  * Accuracy guards:
  *   • unknown event names / apps are rejected (keeps junk out of the sheet)
@@ -123,7 +125,7 @@ function saveLink_(v) {
   return json_({ ok: true });
 }
 
-// GET ?key=…&what=events|links|ping [&callback=fn]  (JSONP for the dashboard)
+// GET ?ts=…&sig=…&what=events|links|ads|ping [&callback=fn]
 function doGet(e) {
   var p = (e && e.parameter) || {};
   if (p.what === 'ping') return reply_({ ok: true, keySet: !!getKey_() }, p);
@@ -139,6 +141,8 @@ function doGet(e) {
     }
     return reply_({ ok: true, rows: links }, p);
   }
+
+  if (p.what === 'ads') return reply_({ ok: true, ads: readAds_() }, p);
 
   var vals = tab_(EVENTS_TAB, EVENT_HEADERS).getDataRange().getValues();
   var rows = [];
@@ -156,6 +160,31 @@ function doGet(e) {
 }
 
 function iso_(d) { return d && d.toISOString ? d.toISOString() : String(d || ''); }
+
+/**
+ * The tabs the Google Ads Script (docs/google-ads-script.js) rewrites every hour.
+ * Read-only here: a tab that does not exist yet comes back with no rows, so the
+ * dashboard can tell "not set up" apart from "no spend".
+ */
+var ADS_TABS = { daily: 'ads_daily', keywords: 'ads_keywords', terms: 'ads_terms', meta: 'ads_meta' };
+
+function readAds_() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var tz = ss.getSpreadsheetTimeZone();
+  var out = {};
+  for (var k in ADS_TABS) {
+    var sh = ss.getSheetByName(ADS_TABS[k]);
+    var vals = sh && sh.getLastRow() > 0 ? sh.getDataRange().getValues() : [[]];
+    out[k] = {
+      headers: vals[0].map(String),
+      // The script writes plain text, but a hand-edited cell may have become a Date.
+      rows: vals.slice(1).map(function (r) {
+        return r.map(function (v) { return v instanceof Date ? Utilities.formatDate(v, tz, 'yyyy-MM-dd') : v; });
+      })
+    };
+  }
+  return out;
+}
 
 function getKey_() { return PropertiesService.getScriptProperties().getProperty('DASH_KEY') || ''; }
 

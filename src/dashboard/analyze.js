@@ -150,7 +150,7 @@ export function resolveRange(choice, start = '', end = '', now = Date.now()) {
 
 /**
  * Main aggregation.
- * opts: { from (ms|0), to (ms|Infinity), source, campaign, exclude(email)→bool, includeTest }
+ * opts: { from (ms|0), to (ms|Infinity), source, medium, campaign, exclude(email)→bool, includeTest }
  */
 export function analyze(allEvents, opts = {}) {
   const from = opts.from || 0, to = opts.to ?? Infinity
@@ -169,7 +169,8 @@ export function analyze(allEvents, opts = {}) {
     p.signupAt = p.evs.find(e => e.event === 'signup')?.received ?? null
   }
 
-  const matches = (a) => (!opts.source || a.source === opts.source) && (!opts.campaign || a.campaign === opts.campaign)
+  const matches = (a) => (!opts.source || a.source === opts.source) && (!opts.medium || a.medium === opts.medium) &&
+    (!opts.campaign || a.campaign === opts.campaign)
   const inRange = (e) => e.received >= from && e.received < to
   const ranged = events.filter(inRange)
 
