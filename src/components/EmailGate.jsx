@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import ConstructaLogo from './ConstructaLogo.jsx'
-import { getKnownEmail, onEmailChange, setGateEmail, isValidEmail } from '../utils/utmTracking.js'
+import { getKnownEmail, onEmailChange, setGateEmail, isValidEmail, trackEvent } from '../utils/utmTracking.js'
 import { isCloudMode } from '../managers/CloudProjectManager.js'
 import { useOverlay } from './ui/overlay.js'
 
@@ -18,8 +18,14 @@ const LOGIN_URL = 'https://constructa-page.atumx.in/login'
 const CLOUD_GRACE_MS = 6000   // let a dashboard session hand its email over first
 const isLocal = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
 
+// Visitors may skip the gate and try everything without an email. The choice
+// lasts for this tab's session, so it doesn't pop up again on every reload.
+const SKIP_KEY = 'constructa:email-gate-skipped'
+const wasSkipped = () => { try { return sessionStorage.getItem(SKIP_KEY) === '1' } catch { return false } }
+
 export default function EmailGate() {
   const [email, setEmail] = useState(getKnownEmail)
+  const [skipped, setSkipped] = useState(wasSkipped)
   const [armed, setArmed] = useState(() => !isCloudMode())
   const [value, setValue] = useState('')
   const [err, setErr] = useState('')
@@ -31,9 +37,17 @@ export default function EmailGate() {
     return () => clearTimeout(t)
   }, [armed])
 
-  const open = !isLocal() && armed && !email
+  const open = !isLocal() && armed && !email && !skipped
   useOverlay('email-gate', open)
   if (!open) return null
+
+  const skip = () => {
+    try { sessionStorage.setItem(SKIP_KEY, '1') } catch { /* private mode: skip for this page only */ }
+    // The collector only accepts names on its EVENTS list (docs/utm-collector.gs),
+    // so reuse popup_dismiss and tell it apart from the WhatsApp popup via meta.
+    trackEvent('popup_dismiss', { popup: 'email_gate' })
+    setSkipped(true)
+  }
 
   const submit = (e) => {
     e.preventDefault()
@@ -45,8 +59,13 @@ export default function EmailGate() {
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 190, display: 'flex', alignItems: 'center', justifyContent: 'center',
       background: 'rgb(var(--g-950) / 0.82)', backdropFilter: 'blur(6px)', padding: 16 }}>
-      <form onSubmit={submit} noValidate style={{ width: '100%', maxWidth: 380, borderRadius: 16, padding: '22px 22px 18px',
+      <form onSubmit={submit} noValidate style={{ position: 'relative', width: '100%', maxWidth: 380, borderRadius: 16, padding: '22px 22px 18px',
         background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500))', boxShadow: '0 20px 50px rgba(0,0,0,0.45)' }}>
+        <button type="button" onClick={skip} aria-label="Close" title="Close"
+          style={{ position: 'absolute', top: 10, right: 10, width: 30, height: 30, borderRadius: 8, border: 'none',
+            background: 'transparent', color: 'rgb(var(--g-400))', fontSize: 20, lineHeight: 1, cursor: 'pointer' }}>
+          ×
+        </button>
         <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}><ConstructaLogo width={160} /></div>
         <div style={{ fontSize: 16, fontWeight: 800, color: 'rgb(var(--g-100))', textAlign: 'center' }}>Enter your email to start building</div>
         <p style={{ margin: '6px 0 14px', fontSize: 12, lineHeight: 1.5, color: 'rgb(var(--g-400))', textAlign: 'center' }}>
@@ -63,6 +82,11 @@ export default function EmailGate() {
         <button type="submit" style={{ width: '100%', marginTop: 12, padding: '10px 12px', borderRadius: 9, fontSize: 14,
           fontWeight: 800, color: '#fff', background: 'rgb(var(--a-500))', border: 'none', cursor: 'pointer' }}>
           Start building →
+        </button>
+        <button type="button" onClick={skip}
+          style={{ width: '100%', marginTop: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600,
+            color: 'rgb(var(--g-400))', background: 'transparent', border: 'none', cursor: 'pointer' }}>
+          Continue without email
         </button>
         <div style={{ marginTop: 12, fontSize: 11, color: 'rgb(var(--g-500))', textAlign: 'center' }}>
           Have an account? <a href={LOGIN_URL} style={{ color: 'rgb(var(--a-500))', fontWeight: 700 }}>Log in</a> to open your saved robots.
