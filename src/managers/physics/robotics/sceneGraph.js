@@ -184,14 +184,36 @@ export function buildGraphFromScene(opts) {
   // Base = group containing the assembly root, else the heaviest non-rotor group.
   let baseKey = rootId && memberIds.has(rootId) ? dsu.find(rootId) : null
   if (!baseKey || groups.get(baseKey)?.rotorOf) {
-    let best = -1
-    for (const [k, g] of groups) if (!g.rotorOf) { const m = massOf(g); if (m > best) { best = m; baseKey = k } }
+    // The chassis is what the drive servos are mounted on: prefer the fixed
+    // group carrying the most servos/motors, then the heaviest. (Mass alone
+    // made a spider's heavy top plate the "body" and hung the real chassis off
+    // one hip bracket.)
+    const drivers = (g) => [...g.ids].filter(i => SERVO_TYPES.has(byId.get(i)?.type) || MOTOR_TYPES.has(byId.get(i)?.type)).length
+    let bestN = -1, best = -1
+    for (const [k, g] of groups) if (!g.rotorOf) {
+      const nDrv = drivers(g), m = massOf(g)
+      if (nDrv > bestN || (nDrv === bestN && m > best)) { bestN = nDrv; best = m; baseKey = k }
+    }
   }
   if (!baseKey) baseKey = [...groups.keys()][0]
 
   // Merge loose groups (no rotor, not base, not a joint child) into what they touch.
   const servosIn = (g) => [...g.ids].filter(i => SERVO_TYPES.has(byId.get(i)?.type) || MOTOR_TYPES.has(byId.get(i)?.type))
   const isJointChildGroup = (g) => [...g.ids].some(i => jointChildren.has(i))
+  // Is g2 driven (directly or further down the chain) by one of `own` servos?
+  // A loose hip servo touching its OWN knee's rotor must not ride on it — that
+  // hangs the hip off its own leg (a cycle, so the robot was rejected).
+  const groupHolding = (id) => { for (const g of groups.values()) if (g.ids.has(id)) return g; return null }
+  const downstreamOf = (g2, own) => {
+    for (let s = g2.rotorOf, hops = 0; s && hops < 64; hops++) {
+      if (own.has(s)) return true
+      s = groupHolding(s)?.rotorOf ?? null
+    }
+    return false
+  }
+  // Parts that touch nothing: welded to the base so the robot still builds,
+  // but reported — on a real robot they'd fall off (diagnosis.looseIssue).
+  const loose = []
   let changed = true
   while (changed) {
     changed = false
@@ -201,14 +223,18 @@ export function buildGraphFromScene(opts) {
       const own = new Set(servosIn(g))
       let target = null, bestVol = -1, targetIsRotor = false
       for (const [k2, g2] of groups) {
-        if (k2 === k || (g2.rotorOf && own.has(g2.rotorOf))) continue   // never ride on your own horn
+        if (k2 === k || (g2.rotorOf && downstreamOf(g2, own))) continue   // never ride on your own leg
         const inter = box.clone().intersect(aabbOf(g2))
         if (inter.isEmpty()) continue
         const sz = inter.getSize(new THREE.Vector3()), vol = sz.x * sz.y * sz.z
         const isRotor = !!g2.rotorOf
-        if ((isRotor && !targetIsRotor) || (isRotor === targetIsRotor && vol > bestVol)) { target = k2; bestVol = vol; targetIsRotor = isRotor }
+        // Join what it overlaps MOST (a knee servo sits deep in its thigh; a
+        // hip servo sits in the chassis and only grazes a neighbour's bracket).
+        // Near-ties go to the moving part, as before.
+        if (vol > bestVol * 1.25 || (isRotor && !targetIsRotor && vol > bestVol * 0.8)) { target = k2; bestVol = vol; targetIsRotor = isRotor }
       }
       const into = target ?? baseKey
+      if (!target) for (const i of g.ids) loose.push(i)
       for (const i of g.ids) groups.get(into).ids.add(i)
       groups.delete(k)
       changed = true
@@ -245,12 +271,15 @@ export function buildGraphFromScene(opts) {
     if (g.rotorOf && pivotFrame(g.rotorOf)) origin = pivotFrame(g.rotorOf).anchor.clone()
     else {
       origin = new THREE.Vector3(); let w = 0
-      for (const i of g.ids) { const o = objectOBB(objectMgr.getMesh(i)); const m = Math.max(1e-3, getMassForObject(byId.get(i))); origin.addScaledVector(o.center, m); w += m }
+      for (const i of g.ids) { if (objectMgr.getMesh(i)?.userData?.simBuried) continue; const o = objectOBB(objectMgr.getMesh(i)); const m = Math.max(1e-3, getMassForObject(byId.get(i))); origin.addScaledVector(o.center, m); w += m }
       origin.divideScalar(Math.max(1e-9, w))
     }
     const colliders = []
     for (const i of g.ids) {
       const obj = byId.get(i), mesh = objectMgr.getMesh(i)
+      // A part buried under the floor (flagged by DriveManager) is not matter
+      // the robot can stand on — its collider would also break foot detection.
+      if (mesh?.userData?.simBuried) continue
       colliders.push(colliderFor(obj, mesh, origin, undefined))
     }
     links.push({ id: lid, name: lid, origin: { x: origin.x, y: origin.y, z: origin.z }, colliders, objectIds: [...g.ids] })
@@ -315,6 +344,6 @@ export function buildGraphFromScene(opts) {
       power: robotConfig.power,
       locomotion: { type: 'legs', gait: robotConfig.gait, balance: robotConfig.balance },
     },
-    linkNodes, warnings,
+    linkNodes, warnings, loose,
   }
 }

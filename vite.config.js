@@ -6,6 +6,12 @@ export default defineConfig({
   // GitHub Pages serves under /Imaginarium/; Netlify/Vercel serve at the domain
   // root, so they set VITE_BASE=/ at build time. Falls back to the GH Pages path.
   base: process.env.VITE_BASE ?? '/Imaginarium/',
+  // Dev server only: let ngrok tunnels reach `npm run dev` for sharing a
+  // preview. The leading dot allows any *.ngrok-free.dev subdomain, since the
+  // free tunnel URL changes each time ngrok restarts. No effect on builds.
+  server: {
+    allowedHosts: ['.ngrok-free.dev'],
+  },
   optimizeDeps: {
     exclude: ['@dimforge/rapier3d-compat'],
   },
