@@ -8,6 +8,7 @@ import { recordSnapshot } from '../managers/history/editorDispatch.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import { driveManager } from '../managers/DriveManager.js'
 import { ENVIRONMENTS } from '../managers/physics/EnvironmentConfig.js'
+import SimIssues, { SimModeBadge } from './SimIssues.jsx'
 
 const LEGGED_SPEED = 8     // scene units/s
 const LEGGED_TURN  = 1.8   // rad/s
@@ -31,6 +32,8 @@ export default function DrivePanel() {
   const airDensity      = usePhysicsStore(s => s.airDensity)
   const gravity         = usePhysicsStore(s => s.gravity)
   const isLeggedRobot   = usePhysicsStore(s => s.isLeggedRobot)
+  const leggedCaps      = usePhysicsStore(s => s.leggedCaps)
+  const canTurn         = leggedCaps?.canTurn !== false
   const setLeggedControl = usePhysicsStore(s => s.setLeggedControl)
 
   const [running,   setRunning]   = useState(false)
@@ -66,9 +69,15 @@ export default function DrivePanel() {
     const left = k.has('ArrowLeft')  || b.has('left')
     const right= k.has('ArrowRight') || b.has('right')
     const speed = (fwd ? LEGGED_SPEED : 0) + (back ? -LEGGED_SPEED : 0)
-    const turn  = (left ? LEGGED_TURN : 0) + (right ? -LEGGED_TURN : 0)
+    // A robot that can't turn (no twist joint) ignores ←/→ — DriveManager
+    // enforces it too; this just keeps the UI honest.
+    let turn    = canTurn ? (left ? LEGGED_TURN : 0) + (right ? -LEGGED_TURN : 0) : 0
+    // Steer like a car: reversing with → swings the robot's back to ITS right
+    // (facing north: ↓ + → heads south-east), so the spin flips in reverse.
+    // Turning on the spot (no ↑/↓) is unchanged: → still turns clockwise.
+    if (speed < 0) turn = -turn
     setLeggedControl(speed, turn)
-  }, [setLeggedControl])
+  }, [setLeggedControl, canTurn])
 
   useEffect(() => {
     if (!isLeggedRobot) return
@@ -158,7 +167,7 @@ export default function DrivePanel() {
   const hasSubo   = objects.some(o => o.type === 'subo')
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/97 border-t border-yellow-700/40 shadow-2xl">
+    <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/95 border-t border-yellow-700/40 shadow-2xl">
 
       {/* Title bar */}
       <div className="flex items-center gap-3 px-4 py-1.5 bg-gray-900/80 border-b border-gray-700/40">
@@ -171,6 +180,7 @@ export default function DrivePanel() {
             Code running
           </span>
         )}
+        <SimModeBadge />
         <RealtimeBadge />
         <button
           data-tour="sim-exit"
@@ -267,6 +277,9 @@ export default function DrivePanel() {
         </div>
       )}
 
+      {/* Why isn't it moving? — CAD / Electronics / Code issues */}
+      <SimIssues />
+
       {/* ── Legged controls ─────────────────────────────────────────────────── */}
       {isLeggedRobot ? (
         <div className="flex items-center gap-5 px-4 py-2.5">
@@ -282,13 +295,15 @@ export default function DrivePanel() {
             <button
               onMouseDown={() => btnDown('left')} onMouseUp={() => btnUp('left')}
               onMouseLeave={() => btnUp('left')}  onTouchStart={() => btnDown('left')} onTouchEnd={() => btnUp('left')}
-              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
+              disabled={!canTurn} title={canTurn ? undefined : leggedCaps.reason}
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 disabled:opacity-30 disabled:hover:bg-gray-700 disabled:cursor-not-allowed rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
             >◄</button>
             <div className="flex items-center justify-center bg-gray-800/60 rounded text-[9px] text-gray-600">●</div>
             <button
               onMouseDown={() => btnDown('right')} onMouseUp={() => btnUp('right')}
               onMouseLeave={() => btnUp('right')}  onTouchStart={() => btnDown('right')} onTouchEnd={() => btnUp('right')}
-              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
+              disabled={!canTurn} title={canTurn ? undefined : leggedCaps.reason}
+              className="flex items-center justify-center bg-gray-700 hover:bg-green-700 active:bg-green-600 disabled:opacity-30 disabled:hover:bg-gray-700 disabled:cursor-not-allowed rounded text-gray-100 text-[14px] select-none cursor-pointer transition-colors"
             >►</button>
             <div />
             <button
@@ -312,8 +327,9 @@ export default function DrivePanel() {
               )}
             </div>
             <div className="text-[10px] text-gray-400 space-y-0.5">
-              <div>Hold <kbd className="px-1 py-0.5 text-[9px] bg-gray-700 rounded">↑↓←→</kbd> arrow keys to walk · buttons above work too</div>
-              <div className="text-gray-500">Gait runs automatically — no code needed</div>
+              <div>Hold <kbd className="px-1 py-0.5 text-[9px] bg-gray-700 rounded">{canTurn ? '↑↓←→' : '↑↓'}</kbd> arrow keys to walk · buttons above work too</div>
+              {!canTurn && <div className="text-amber-400">Forward / back only — {leggedCaps.reason.replace(/^Can't turn: /, '')}</div>}
+              <div className="text-gray-500">Gait runs automatically when the legs can step — no code needed</div>
               {running && (
                 <div className="text-indigo-400">Code running · servos may override gait</div>
               )}

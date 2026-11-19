@@ -69,6 +69,17 @@ export const useUiStore = create((set, get) => ({
   // C++ editor workspace: 'full' covers the 3D view, 'split' keeps it visible beside the code.
   codeLayout: 'full',
   setCodeLayout: (v) => set({ codeLayout: v }),
+  // Code workspace pane: collapsed to an edge strip (full 3D view) + its width
+  // in split mode (% of the workspace). Session-scoped like quickTools.
+  codePane: (() => {
+    try { return { collapsed: false, splitPct: 55, ...JSON.parse(sessionStorage.getItem('constructa.codePane') || '{}') } }
+    catch { return { collapsed: false, splitPct: 55 } }
+  })(),
+  setCodePane: (patch) => {
+    const codePane = { ...get().codePane, ...patch }
+    try { sessionStorage.setItem('constructa.codePane', JSON.stringify(codePane)) } catch { /* private mode */ }
+    set({ codePane })
+  },
   setSidebarCollapsed: (value) => set({ sidebarCollapsed: value }),
   setStatusMessage: (msg) => set({ statusMessage: msg }),
   setTransformMode: (mode) => set({ transformMode: mode }),

@@ -6,6 +6,8 @@ import { createSensorLibraries } from '../arduino/sensorLibs.js'
 import { runSketchSandboxed } from './sketchSandbox.js'
 import { ESP32_PINS } from '../utils/esp32Board.js'
 import { parseControlAnnotations, controlDefaults } from '../utils/esp32Controls.js'
+import { servoWiring, attachIssue } from './physics/robotics/diagnosis.js'
+import { reportIssue, clearIssues, setSerialSink } from './simIssues.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
 
@@ -132,6 +134,9 @@ class SimulationManager {
     // Reset code-driven legged locomotion each run.
     this.leggedDrive = { speed: 0, turn: 0 }
     this._leggedCmd  = false
+    this.actuatorCalls = 0    // Servo.write/walk/turn calls this run (diagnosis: is the code commanding anything?)
+    // "Why isn't it moving" notes go to this sketch's Serial monitor.
+    setSerialSink(this._onSerialOut ? (t) => this._onSerialOut?.(t) : null)
 
     const pinMap    = buildPinToComponentMap(this._connections, this._objects)
     const sensorMap = buildSensorInputMap(this._connections, this._objects)
@@ -331,33 +336,24 @@ class SimulationManager {
     }
 
     // ── Servo binding (the sandboxed Servo class forwards here) ───────────────
-    // Auto-bind so the CODE drives real servos even when the user hasn't
-    // manually wired them (common for legged robots). If NO servo is wired to
-    // this pin, claim the next unclaimed scene servo — in scene order, which
-    // usually matches how the legs were built — so Servo.write() animates actual
-    // leg servos (and the body then walks). Wired setups are untouched: this
-    // only fires when the pin has no servo from the wiring.
+    // STRICT electronics — like a real board: Servo.attach(pin) reaches only a
+    // servo whose SIGNAL is wired to that pin, and a servo moves only when its
+    // VCC and GND are wired too. (The old auto-bind quietly claimed an unwired
+    // servo, which no real Arduino can do.) A miss is reported with WHERE to
+    // fix it: Electronics (a servo isn't wired) or Code (wrong pin number).
+    const sceneServos = self._objects.filter(o => o.type === 'servo').map(o => ({ id: o.id, name: o.name }))
+    const servoWire = servoWiring(sceneServos, self._connections)
     const _servoAttach = (pin) => {
       const p = Number(pin)
-      const hasWired = (pinMap[p] || []).some(c => c.type === 'servo')
-      if (hasWired) return
-      const claimed = self._autoServoIds || (self._autoServoIds = new Set())
-      const wiredIds = new Set()
-      for (const arr of Object.values(pinMap))
-        for (const c of arr) if (c.type === 'servo') wiredIds.add(c.id)
-      const next = self._objects.find(
-        (o) => o.type === 'servo' && !wiredIds.has(o.id) && !claimed.has(o.id)
-      )
-      if (next) {
-        claimed.add(next.id)
-        ;(pinMap[p] ||= []).push({ id: next.id, type: 'servo', terminal: 'A' })
-        console.log(`[Sim] auto-bound servo ${next.id} → pin ${p} (no wire; code-driven)`)
-      }
+      if ((pinMap[p] || []).some(c => c.type === 'servo')) return
+      if (sceneServos.length) reportIssue(attachIssue(p, sceneServos, servoWire))
     }
     const _servoWrite = (pin, angle) => {
+      self.actuatorCalls++
       const a = Math.max(0, Math.min(180, Number(angle) || 0))
       for (const comp of (pinMap[Number(pin)] || [])) {
         if (comp.type === 'servo') {
+          if (servoWire.get(comp.id)?.powered === false) continue   // no VCC/GND → it can't move
           self.servoAngles[comp.id] = a
           if (self._onServoAngle) self._onServoAngle(comp.id, a)
         }
@@ -664,6 +660,8 @@ class SimulationManager {
 
   stop() {
     this._running = false
+    setSerialSink(null)
+    clearIssues('elec:attach'); clearIssues('code:attach')
     if (this._stopOsc) this._stopOsc()        // silence the buzzer
     for (const o of this._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, '')   // blank OLED screens
     for (const o of this._objects) if (o.type === 'subo') objectManager.setSuboMatrix(o.id, 'clear')  // blank SUBO matrix

@@ -8,6 +8,7 @@ import { objectManager } from '../managers/ObjectManager.js'
 import { defineArduinoBlocks, ARDUINO_TOOLBOX } from '../blockly/arduinoBlocks.js'
 import { arduinoGenerator } from '../blockly/arduinoGenerator.js'
 import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
+import { enterSimForCode } from '../managers/simForCode.js'
 import CompilerOutput from './CompilerOutput.jsx'
 
 // A fresh workspace starts with a setup/loop container.
@@ -121,7 +122,7 @@ export default function BlocksPanel({ workspace = false }) {
 
   const sendToEditor = () => { setCode(code); useUiStore.getState().setActivePanel('code') }
 
-  const handleRun = () => {
+  const handleRun = async () => {
     setError(null)
     setCode(code)
     window.dispatchEvent(new Event('constructa:code-run'))   // → community popup (first run only)
@@ -131,6 +132,7 @@ export default function BlocksPanel({ workspace = false }) {
     const report = analyzeArduino(code, { board })
     setDiag(report)
     if (!report.ok) return   // blocking errors — withhold execution
+    await enterSimForCode()   // robot moves only under the simulator (no-op if on / no actuators)
     simulationManager.configure(
       connections, objects, setMotorSpeed,
       (errMsg) => { setError(errMsg); stopSimulation() },

@@ -302,6 +302,44 @@ export class ArticulatedRobot {
     }
   }
 
+  /**
+   * Can the gait walk this robot? Walking means lifting a foot clear of the
+   * ground while the others stand, so every leg must be able to raise its foot
+   * straight up from its neutral stance. A leg with one hip-pitch servo (a
+   * "micro duck" / Otto-style biped) can only swing its foot along an arc and
+   * is reported here instead of failing silently at run time with `unreachable`.
+   * @returns {{ ok: boolean, reason: string|null, legs: number, stuckLegs: string[] }}
+   */
+  walkability() {
+    if (!this.legs.length) return { ok: false, reason: 'no feet found', legs: 0, stuckLegs: [] }
+    const lift = 0.5 * (this.gait?.params?.stepHeight ?? 0.8)
+    const stuck = []
+    for (const leg of this.legs) {
+      const tgt = leg.neutral.clone().addScaledVector(this.axes.up, lift)
+      const res = leg.chain.ik(tgt, leg.jointIds.map(() => 0), { tolerance: 0.01, maxIterations: 60 })
+      if (!(res.error <= lift * 0.25)) stuck.push(leg.id)
+    }
+    if (stuck.length) {
+      return { ok: false, reason: `${stuck.length} of ${this.legs.length} legs cannot lift a foot straight up`, legs: this.legs.length, stuckLegs: stuck }
+    }
+    // A biped stands on ONE foot while the other swings, so it must lean its
+    // body over that foot: some joint has to move the foot sideways (hip or
+    // ankle roll). Hip+knee pitch only can lift a foot but not balance on the
+    // other — under real physics it just rocks in place.
+    if (this.legs.length === 2) {
+      const shift = 0.5
+      for (const leg of this.legs) {
+        const tgt = leg.neutral.clone().addScaledVector(this.axes.right, shift)
+        const res = leg.chain.ik(tgt, leg.jointIds.map(() => 0), { tolerance: 0.01, maxIterations: 60 })
+        if (!(res.error <= shift * 0.25)) stuck.push(leg.id)
+      }
+      if (stuck.length) {
+        return { ok: false, reason: 'a two-legged robot needs a side-to-side (hip or ankle roll) servo to balance on one foot', legs: 2, stuckLegs: stuck }
+      }
+    }
+    return { ok: true, reason: null, legs: this.legs.length, stuckLegs: [] }
+  }
+
   _emptyContact() {
     return {
       contact: false, point: { x: 0, y: 0, z: 0 }, normal: { x: 0, y: 1, z: 0 },
@@ -357,6 +395,15 @@ export class ArticulatedRobot {
     return true
   }
 
+  /**
+   * Electronics: a servo with no power or no signal wire can't drive its joint
+   * (it goes limp, back-drivable). null/true = driven.
+   */
+  setServoPowered(componentId, on) {
+    const A = this.actuators.get(this.byComponent.get(componentId))
+    if (A) A.powered = on !== false
+  }
+
   control(h) {
     this.host.step(h, { robot: this })
   }
@@ -402,9 +449,16 @@ export class ArticulatedRobot {
   driveActuators(h) {
     const V = this.battery.voltage
     const env = { busVoltage: V, supplyScale: this.battery.supplyScale, enabled: !this.battery.brownout }
+    const off = { ...env, enabled: false }
     for (const [aid, A] of this.actuators) {
       const J = this.joints.get(A.jointId)
       if (!J) continue
+      if (A.powered === false) {             // no power / no signal wire → limp
+        this.measureJoint(J)
+        A.servo.update(h, J.angle, J.velocity, this.jointInertiaSI(J), off)
+        this._applyServo(J, A.servo, h)
+        continue
+      }
       this.measureJoint(J)
       let tgt
       if (this.mode === 'direct' && this.directTargets.has(aid)) tgt = this.directTargets.get(aid)

@@ -4,7 +4,9 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { simulationManager } from '../managers/SimulationManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
+import { enterSimForCode } from '../managers/simForCode.js'
 import CompilerOutput from './CompilerOutput.jsx'
+import { LEGGED_TEMPLATES } from '../utils/leggedTemplates.js'
 
 const TEMPLATES = [
   {
@@ -37,7 +39,7 @@ void setup() {
 void loop() {
   walk(80);        // walk forward
   delay(2000);
-  turn(60);        // curve to the right while walking
+  turn(60);        // curve to the left while walking (negative = right)
   delay(1200);
   walk(-60);       // walk backward
   delay(1500);
@@ -45,6 +47,7 @@ void loop() {
   delay(1000);
 }`,
   },
+  ...LEGGED_TEMPLATES,
   {
     label: 'Servo sweep',
     code: `// Servo SIGNAL → Pin ~9, VCC → 5V, GND → GND
@@ -210,6 +213,7 @@ export default function CodeEditor({ full = false }) {
   const serialRef    = useRef(null)
   const templatesRef = useRef(null)
   const codeRef      = useRef(null)   // textarea, for jump-to-error
+  const startingRef  = useRef(false)  // Run pressed, waiting for the simulator to come up
   const gutterRef    = useRef(null)   // line numbers (full editor), scroll-synced to the textarea
 
   useEffect(() => {
@@ -274,7 +278,8 @@ export default function CodeEditor({ full = false }) {
     requestAnimationFrame(() => ta.setSelectionRange(caret, caret))
   }
 
-  const handleRun = () => {
+  const handleRun = async () => {
+    if (startingRef.current) return
     setRuntimeError(null)
     setSerialLog('')
     window.dispatchEvent(new Event('constructa:code-run'))   // → community popup + code_run analytics (App listener)
@@ -283,6 +288,11 @@ export default function CodeEditor({ full = false }) {
     const report = analyzeArduino(code, { board })
     setDiag(report)
     if (!report.ok) return   // blocking errors — do not start the simulation
+
+    // A robot only moves under the simulator — enter it first (no-op when it's
+    // already on, or when the scene has no servos/motors).
+    startingRef.current = true
+    try { await enterSimForCode() } finally { startingRef.current = false }
 
     simulationManager.configure(
       connections,

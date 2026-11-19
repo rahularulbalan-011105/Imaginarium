@@ -3,6 +3,7 @@ import { simulationManager } from './SimulationManager.js'
 import { physicsManager } from './physics/PhysicsManager.js'
 import { DifferentialDrive } from './robot/DifferentialDrive.js'
 import { LeggedSystem } from './robot/LeggedSystem.js'
+import { stepTraction } from './robot/legTraction.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
@@ -16,12 +17,19 @@ import { aiRuntime } from '../robot/ai/AIRuntime.js'
 import { execPathFor } from '../robot/RobotBlueprint.js'
 import { autoBlueprintForObjects } from '../robot/autoBlueprint.js'
 import { resolveRobotConfig } from './physics/robotics/config.js'
+import { frontFromView, inferForward } from './physics/robotics/forwardAxis.js'
+import { servoWiring, servoWiringIssues, engineIssue } from './physics/robotics/diagnosis.js'
+import { reportIssue, clearIssues } from './simIssues.js'
+import { sceneManager } from './SceneManager.js'
 import { getCurrentQuality } from '../utils/devicePerformance.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { useJointStore } from '../stores/jointStore.js'
 
 // The articulated engine (robotics runtime, IK, gait, contacts, debug draw) is
 // loaded on demand together with Rapier — not on the startup path.
+const FOOT_PLANTED   = 0.08  // su — a foot this close to the lowest one is on the floor too
+const MAX_FOOT_DRIVE = 12    // su/s — cap on body speed from foot push
+const BURIED_Y = -1     // su — a part whose top is below this is under the floor
 let _ArticulatedSession = null
 let _roboticsPromise = null
 export function loadRobotics() {
@@ -232,6 +240,23 @@ class DriveManager {
     }
     if (topLevel.length === 0) return
 
+    // Parts lying ENTIRELY below the floor (a lost/misplaced copy hundreds of
+    // units underground) can't belong to a working robot: they'd drag the
+    // "lowest point" down so no foot is found and the body floats. Flag them
+    // for this run only (sceneGraph + _lowestVisibleY skip them); exit clears it.
+    this._buried = []
+    for (const obj of objects) {
+      const m = this.objectMgr.getMesh(obj.id)
+      if (!m || standaloneSet.has(obj.id)) continue
+      m.updateMatrixWorld(true)
+      const bb = new THREE.Box3().setFromObject(m)
+      if (!bb.isEmpty() && bb.max.y < BURIED_Y) {
+        m.userData.simBuried = true
+        this._buried.push(m)
+        console.warn(`[Drive] "${obj.name}" is buried ${(-bb.max.y).toFixed(0)} units below the floor — ignored by the simulation (delete or move it)`)
+      }
+    }
+
     // ── Metadata-driven path selection ───────────────────────────────────────
     // If these objects belong to a Robot Blueprint, its locomotion type SELECTS
     // the execution path ('wheeled' | 'legged' | 'freefall') — geometry is NOT
@@ -255,7 +280,22 @@ class DriveManager {
     // link, servo torque actuators, contact physics. Anything it can't model
     // (no actuated joints, Rapier not ready, user chose 'kinematic') falls
     // through to the legacy kinematic path below, unchanged.
-    if (forcedPath === 'legged' && this._startArticulated(topLevel, standaloneObjects)) return
+    clearIssues()
+    usePhysicsStore.getState().setSimMode(null)
+    this._leggedBlocked = false
+    if (forcedPath === 'legged') {
+      if (this._startArticulated(topLevel, standaloneObjects)) {
+        usePhysicsStore.getState().setSimMode('real')
+        return
+      }
+      // STRICT physics: the simplified (kinematic) walk runs only when the user
+      // chose it (Physics → Robot → Physics model). Otherwise a robot the real
+      // engine can't model doesn't walk — and the user is told why.
+      if (this._articulatedFail) {
+        this._leggedBlocked = true
+        reportIssue(engineIssue(this._articulatedFail))
+      }
+    }
 
     // Bonded (surface-welded) parts fall as ONE rigid body — a Rapier COMPOUND
     // body (a collider per part) so the weld tumbles and lands on a real face,
@@ -370,6 +410,22 @@ class DriveManager {
           }
         }
         if (n > 0) { pivotX /= n; pivotZ /= n }
+
+        // A legged robot turns about its own middle. The lowest-layer rule above
+        // picks whichever foot sits a hair lower — a duck's pivot landed under
+        // ONE foot, so turning toward that side cancelled the forward step
+        // (↑+← spun on the spot) while the other side swept wide (↑+→ arced).
+        if (forcedPath === 'legged') {
+          const all = new THREE.Box3()
+          for (const obj of topLevel) {
+            const mesh = this.objectMgr.getMesh(obj.id)
+            if (mesh) all.union(new THREE.Box3().setFromObject(mesh))
+          }
+          if (!all.isEmpty()) {
+            const c = all.getCenter(new THREE.Vector3())
+            pivotX = c.x; pivotZ = c.z
+          }
+        }
       }
     }
 
@@ -381,7 +437,13 @@ class DriveManager {
       if (legSys.build(topLevel, this.objectMgr, attachments)) {
         this._leggedSystem = legSys
         this._isLegged     = true
+        // Walk the way the robot FACES (↑ = its forward, ← = its left), not
+        // world −Z: a duck built facing ±X otherwise walked sideways.
+        this._yawOffset    = this._leggedYawOffset(legSys)
+        this._turnWarned   = null
+        usePhysicsStore.getState().setLeggedCaps(legSys.caps)
         usePhysicsStore.getState().setIsLeggedRobot(true)
+        usePhysicsStore.getState().setSimMode(this._leggedBlocked ? 'blocked' : 'simplified')
       }
     }
 
@@ -713,12 +775,120 @@ class DriveManager {
     this._lastTime = null
   }
 
+  /**
+   * Heading of a kinematic legged robot as a yaw offset (the legged step moves
+   * along (−sin yaw, −cos yaw), so 0 = world −Z). Sources, in order:
+   *   1. Physics → Robot → Forward axis, when the author set one.
+   *   2. The leg layout: a biped faces perpendicular to the line between its
+   *      feet; 4+ legs face along the longer spread (a body is longer than wide).
+   *      The front is the side carrying a distance sensor (the robot's "eyes");
+   *      with none, the side facing away from the camera (↑ = into the screen).
+   */
+  _leggedYawOffset(legSys) {
+    const all = useSceneStore.getState().objects
+    const rootObj = all.find(o => o.physics?.robot?.forward) ?? null
+    const toOffset = (fx, fz) => Math.atan2(-fx, -fz)
+    if (rootObj) {
+      const f = resolveRobotConfig(rootObj, this._blueprint).forwardVector
+      if (f) return toOffset(f.x, f.z)
+    }
+    const legs = legSys.legs
+    if (legs.length < 2) return 0
+    const cx = legs.reduce((s, l) => s + l.mountX, 0) / legs.length
+    const cz = legs.reduce((s, l) => s + l.mountZ, 0) / legs.length
+
+    // 1st choice — the same rule as the physics engine (forwardAxis.js): legs
+    // swing at right angles to their servo hinges, so the hinge axes give the
+    // walking axis; the eyes then pick the front end, else the camera does.
+    // (A head turned sideways must not make the robot crab-walk.)
+    {
+      const q = new THREE.Quaternion(), hinges = []
+      // HIP hinges only: the hip makes the stride. A knee hinge says which way
+      // the foot LIFTS (a spider's knees), not which way the robot walks.
+      for (const l of legs) for (const sid of [l.servoId]) {
+        const m = sid && this.objectMgr.getMesh(sid)
+        if (!m) continue
+        m.updateMatrixWorld(true); m.getWorldQuaternion(q)
+        const n = m.userData?.rotorAxis ?? 'y'
+        const a = new THREE.Vector3(n === 'x' ? 1 : 0, n === 'y' ? 1 : 0, n === 'z' ? 1 : 0).applyQuaternion(q)
+        hinges.push({ type: 'revolute', axis: { x: a.x, y: a.y, z: a.z } })
+      }
+      const f = inferForward(hinges, { x: cx, z: cz }, this._eyePositions(), this._viewDir())
+      if (f) return toOffset(f.x, f.z)
+    }
+
+    // Fallback (every hinge vertical, e.g. yaw-only hips): the leg layout.
+    // Principal direction of the leg mounts (2×2 covariance, XZ plane).
+    let sxx = 0, szz = 0, sxz = 0
+    for (const l of legs) { const dx = l.mountX - cx, dz = l.mountZ - cz; sxx += dx * dx; szz += dz * dz; sxz += dx * dz }
+    const ang = 0.5 * Math.atan2(2 * sxz, sxx - szz)
+    let ax = Math.cos(ang), az = Math.sin(ang)          // along the spread
+    if (legs.length < 4) { const t = ax; ax = -az; az = t }   // biped: across it
+    // The robot's "eyes" (a distance sensor) mark its front. Offset from the
+    // middle of the legs they give a direction; with 4+ legs that direction
+    // also picks the AXIS — the leg layout alone can't tell a wide robot from
+    // a long one (a guard bot wider than it is long walked sideways).
+    const EYES = new Set(['ultrasonic', 'ir_sensor'])
+    const standalone = new Set(useSceneStore.getState().standaloneIds)
+    const p = new THREE.Vector3()
+    let eye = null
+    for (const o of all) {
+      if (!EYES.has(o.type) || standalone.has(o.id)) continue
+      const m = this.objectMgr.getMesh(o.id)
+      if (!m) continue
+      m.updateMatrixWorld(true); m.getWorldPosition(p)
+      const ex = p.x - cx, ez = p.z - cz
+      if (Math.hypot(ex, ez) > 0.5) { eye = { x: ex, z: ez }; break }
+    }
+    const swap = () => { const t = ax; ax = -az; az = t }
+    if (legs.length >= 4) {
+      if (eye) {
+        if (Math.abs(-az * eye.x + ax * eye.z) > Math.abs(ax * eye.x + az * eye.z)) swap()
+      } else {
+        // No eyes and a square-ish layout (spider legs in a diamond): either
+        // body axis is as good as the other — take the one nearer the camera.
+        const half = (sxx + szz) / 2, rad = Math.hypot((sxx - szz) / 2, sxz)
+        const view = this._viewDir()
+        if (view && half - rad > 0.6 * (half + rad)) {
+          if (Math.abs(-az * view.x + ax * view.z) > Math.abs(ax * view.x + az * view.z)) swap()
+        }
+      }
+    }
+    let sign = 0
+    if (eye) { const d = eye.x * ax + eye.z * az; if (Math.abs(d) > 0.2) sign = Math.sign(d) }
+    if (!sign) sign = frontFromView(ax, az, this._viewDir())   // no eyes → away from the camera
+    return toOffset(ax * sign, az * sign)
+  }
+
+  /** World XZ positions of the robot's distance sensors ("eyes"). */
+  _eyePositions() {
+    const standalone = new Set(useSceneStore.getState().standaloneIds)
+    const out = [], p = new THREE.Vector3()
+    for (const o of useSceneStore.getState().objects) {
+      if ((o.type !== 'ultrasonic' && o.type !== 'ir_sensor') || standalone.has(o.id)) continue
+      const m = this.objectMgr.getMesh(o.id)
+      if (m) { m.updateMatrixWorld(true); m.getWorldPosition(p); out.push({ x: p.x, z: p.z }) }
+    }
+    return out
+  }
+
+  /** Horizontal direction the editor camera looks (null if unknown). */
+  _viewDir() {
+    const cam = sceneManager?.camera
+    if (!cam) return null
+    const d = cam.getWorldDirection(new THREE.Vector3())
+    return Math.hypot(d.x, d.z) > 1e-3 ? { x: d.x, z: d.z } : null
+  }
+
   _startArticulated(topLevel, standaloneObjects) {
     const all = useSceneStore.getState().objects
     const rootObj = all.find(o => o.physics?.robot) ?? all.find(o => o.id === this._blueprint?.rootId) ?? null
     const robotConfig = resolveRobotConfig(rootObj, this._blueprint)
-    if (robotConfig.model === 'kinematic') return false
-    if (!_ArticulatedSession) { loadRobotics(); return false }   // not loaded yet → kinematic this run
+    this._articulatedFail = null
+    if (robotConfig.model === 'kinematic') return false            // user chose the simplified walk
+    if (!_ArticulatedSession) {                                     // not loaded yet → can't simulate this run
+      loadRobotics(); this._articulatedFail = 'the physics engine is still loading — exit and start again'; return false
+    }
     const ps = usePhysicsStore.getState()
     const session = new _ArticulatedSession({ scene: this.scene, objectMgr: this.objectMgr, physicsManager, simulation: simulationManager })
     const ok = session.start({
@@ -736,8 +906,19 @@ class DriveManager {
         return q ? { ...wc, timestep: Math.max(wc.timestep, q.physicsMinTimestep ?? 0), telemetryHz: q.telemetryHz } : wc
       })(),
       debugLayers: ps.debugLayers,
+      viewDir: this._viewDir(),
+      // Electronics: which servo is wired to which pin, and powered — a running
+      // sketch can only drive servos it is actually connected to.
+      ...(() => {
+        const ids = new Set(topLevel.map(o => o.id))
+        const servos = all.filter(o => o.type === 'servo' && ids.has(o.id))
+        const wiring = servoWiring(servos, useElectronicsStore.getState().connections)
+        return { wiring, wiringIssues: servoWiringIssues(servos, wiring) }
+      })(),
+      onIssue: reportIssue,
+      onResolve: clearIssues,
     })
-    if (!ok) return false
+    if (!ok) { this._articulatedFail = session.failReason || 'unknown reason'; return false }
     this._articulated = session
     this._lastTime = null
     ps.setIsLeggedRobot(true)
@@ -748,6 +929,10 @@ class DriveManager {
   get articulated() { return this._articulated ?? null }
 
   exit(updateObject) {
+    // Un-flag buried parts first (every exit path below returns early somewhere).
+    for (const m of this._buried ?? []) delete m.userData.simBuried
+    this._buried = []
+    this._footPrev = null; this._legWalkSpeed = 0     // planted-foot drive state
     // Tear down the executable module host (Stage 4) regardless of path.
     if (this._moduleHost) { this._moduleHost.exit(); this._moduleHost = null }
     this._hostTried = false
@@ -758,7 +943,10 @@ class DriveManager {
       this._articulated = null
       this._lastTime = null
       usePhysicsStore.getState().setIsLeggedRobot(false)
+      usePhysicsStore.getState().setLeggedCaps(null)
       usePhysicsStore.getState().setLeggedControl(0, 0)
+      usePhysicsStore.getState().setSimMode(null)
+      clearIssues()
       return
     }
 
@@ -831,6 +1019,7 @@ class DriveManager {
     for (const id of this._obstacleIds) physicsManager.removeBody(id)
     this._obstacleIds = []
     this._vy = 0
+    this._legVel = null      // traction state (legTraction.js)
     this._groundY = null     // smoothed resting Y (re-snaps on next sim)
     this._robotMinY = 0
     this._pitch     = 0
@@ -840,7 +1029,12 @@ class DriveManager {
     if (this._integrator) { this._integrator.reset(); this._integrator = null }
     if (this._leggedSystem) { this._leggedSystem.reset(); this._leggedSystem = null }
     this._isLegged = false
+    this._turnWarned = null
+    this._leggedBlocked = false
+    usePhysicsStore.getState().setSimMode(null)
+    clearIssues()
     usePhysicsStore.getState().setIsLeggedRobot(false)
+    usePhysicsStore.getState().setLeggedCaps(null)
     usePhysicsStore.getState().setLeggedControl(0, 0)
   }
 
@@ -1223,6 +1417,7 @@ class DriveManager {
       const ud = o.userData || {}
       if (ud.isSelectionOutline || ud.isPin || ud.isPinLabel) return
       if (!isVisible(o)) return
+      for (let n = o; n; n = n.parent) if (n.userData?.simBuried) return
       const g = o.geometry
       if (!g.boundingBox) g.computeBoundingBox()
       const bb = g.boundingBox
@@ -1300,62 +1495,63 @@ class DriveManager {
   // WALK whose SPEED tracks the leg cadence (so it steps with the code instead of
   // gliding) in the model's forward direction.
   _footDriveForward(dt) {
+    // Raw Servo.write() walking: the body moves the way the PLANTED foot pushes.
+    // A foot on the floor doesn't slip, so the body travels forward exactly as
+    // fast as the lowest foot sweeps backward beneath it (measured in the
+    // robot's own frame). Real stepping → its true stride speed and direction;
+    // legs that wiggle in sync or never lift a foot → the body rocks in place.
+    // (The old rule — "legs are moving, so walk forward at 3% of servo speed" —
+    // made any wiggle walk and hid gaits that couldn't work.)
     if (!(dt > 0)) return 0
     const legs = this._leggedSystem?.legs || []
-
-    // ── Leg cadence: how fast the code is cycling the servos (deg/s) ───────────
-    const angles = simulationManager.servoAngles || {}
-    if (!this._prevAngles) this._prevAngles = {}
-    let rateSum = 0, nAng = 0
-    for (const id in angles) {
-      const prev = this._prevAngles[id]
-      if (prev != null) { rateSum += Math.abs(angles[id] - prev) / dt; nAng++ }
-      this._prevAngles[id] = angles[id]
+    if (legs.length < 2) return 0
+    this.rootGroup.updateMatrixWorld(true)
+    const rootInv = this.rootGroup.matrixWorld.clone().invert()
+    const bx = Math.sin(this._yawOffset), bz = Math.cos(this._yawOffset)   // robot's backward axis (local)
+    if (!this._footPrev) this._footPrev = {}
+    const feet = []
+    for (const leg of legs) {
+      const mesh = this.objectMgr.getMesh(leg.kneeServoId || leg.armId || leg.id)
+      const c = mesh && this._footContact(mesh, rootInv)
+      if (!c) continue
+      const back = c.x * bx + c.z * bz
+      const prev = this._footPrev[leg.id]
+      this._footPrev[leg.id] = back
+      feet.push({ y: c.y, vel: prev == null ? null : (back - prev) / dt })
     }
-    const rate = nAng ? rateSum / nAng : 0
-    // Smooth so a delay-based gait (servos briefly static between steps) keeps walking.
-    this._legCadence = (this._legCadence || 0) + (rate - (this._legCadence || 0)) * (1 - Math.exp(-dt / 0.5))
-
-    // ── Propulsion DIRECTION from real foot motion (works when the legs lift) ──
-    let fd = 0
-    if (legs.length >= 2) {
-      this.rootGroup.updateMatrixWorld(true)
-      const rootInv = this.rootGroup.matrixWorld.clone().invert()
-      if (!this._footState) this._footState = {}
-      if (!this._footBox) this._footBox = new THREE.Box3()
-      const box = this._footBox
-      let sumZ = 0, wsum = 0
-      for (const leg of legs) {
-        const mesh = this.objectMgr.getMesh(leg.kneeServoId || leg.armId || leg.id)
-        if (!mesh) continue
-        box.setFromObject(mesh)
-        if (box.isEmpty()) continue
-        const p = new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2)
-        p.applyMatrix4(rootInv)
-        const st = this._footState[leg.id] || (this._footState[leg.id] = { midY: p.y, z: p.z })
-        st.midY += (p.y - st.midY) * (1 - Math.exp(-dt / 0.6))     // this foot's own stance midline
-        const stance = Math.max(0, Math.min(1, (st.midY - p.y) / 0.5 + 0.5))  // below midline → planted
-        sumZ += stance * (p.z - st.z) / dt
-        wsum += stance
-        st.z = p.z
-      }
-      if (wsum > 1e-4) fd = sumZ / wsum
+    let target = 0
+    if (feet.length) {
+      const low = Math.min(...feet.map(f => f.y))
+      const planted = feet.filter(f => f.y <= low + FOOT_PLANTED && f.vel != null)
+      if (planted.length) target = planted.reduce((s, f) => s + f.vel, 0) / planted.length
     }
-    // Direction bias averaged over a LONG window (~2.5s ≈ several strides). A
-    // swing-only leg's foot just oscillates fwd/back, so its signal cancels toward
-    // 0 here (no false direction → no rocking in place). A genuine lift-based gait
-    // drags the planted feet consistently ONE way, so its bias survives.
-    this._fdBias = (this._fdBias || 0) + (fd - (this._fdBias || 0)) * (1 - Math.exp(-dt / 2.5))
-    // Only a strong, SUSTAINED propulsion signal picks the direction; otherwise walk
-    // the model's forward (−1 → toward local +Z, the way this GLB duck faces). One
-    // sign to flip per model if a robot walks the wrong way.
-    const dir = Math.abs(this._fdBias) > 0.5 ? Math.sign(this._fdBias) : -1
-
-    // ── Speed tracks leg cadence so it STEPS with the code (not a constant slide) ──
-    const walking = this._legCadence > 2                 // legs meaningfully cycling
-    const target  = walking ? dir * Math.min(6, this._legCadence * 0.03) : 0
-    this._legWalkSpeed = (this._legWalkSpeed || 0) + (target - (this._legWalkSpeed || 0)) * (1 - Math.exp(-dt / 0.15))
+    target = Math.max(-MAX_FOOT_DRIVE, Math.min(MAX_FOOT_DRIVE, target))
+    // Light smoothing: a servo that jumps (delay()-style gaits) slams the foot in
+    // one frame; spread that shove over ~0.1 s instead of a single-frame teleport.
+    this._legWalkSpeed = (this._legWalkSpeed || 0) + (target - (this._legWalkSpeed || 0)) * (1 - Math.exp(-dt / 0.1))
     return Math.abs(this._legWalkSpeed) < 0.05 ? 0 : this._legWalkSpeed
+  }
+
+  /** Contact point of a leg (its lowest part) in rootGroup space: { x, y, z }. */
+  _footContact(mesh, rootInv) {
+    const boxes = this._footBoxes ?? (this._footBoxes = [])
+    let n = 0, low = Infinity
+    mesh.updateMatrixWorld(true)
+    mesh.traverse((o) => {
+      if (!o.isMesh || !o.geometry || o.visible === false) return
+      const ud = o.userData || {}
+      if (ud.isSelectionOutline || ud.isPin || ud.isPinLabel || ud.simBuried) return
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox()
+      const bb = boxes[n] ?? (boxes[n] = new THREE.Box3())
+      bb.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld)
+      if (bb.isEmpty()) return
+      low = Math.min(low, bb.min.y); n++
+    })
+    if (!n) return null
+    // The foot = the part(s) at the bottom; its centre is where it meets the floor.
+    let x = 0, z = 0, k = 0
+    for (let i = 0; i < n; i++) if (boxes[i].min.y <= low + 0.15) { x += (boxes[i].min.x + boxes[i].max.x) / 2; z += (boxes[i].min.z + boxes[i].max.z) / 2; k++ }
+    return new THREE.Vector3(x / k, low, z / k).applyMatrix4(rootInv)
   }
 
   _stepLegged(dt) {
@@ -1385,6 +1581,21 @@ class DriveManager {
       speed = simulationManager.leggedDrive.speed
       turn  = simulationManager.leggedDrive.turn
     }
+    // Strict physics: the real engine couldn't model this robot (issue already
+    // reported) and the user didn't choose the simplified walk → it stays put.
+    if (this._leggedBlocked) { speed = 0; turn = 0 }
+    // A robot whose joints can't turn it doesn't turn — whoever asks (D-pad,
+    // arrow keys or turn() in code). Tell the sketch once instead of silently
+    // ignoring it.
+    const caps = this._leggedSystem.caps
+    if (caps && !caps.canTurn && turn !== 0) {
+      // Once per sketch run (each run gets a fresh leggedDrive object).
+      if (codeDriving && this._turnWarned !== simulationManager.leggedDrive) {
+        this._turnWarned = simulationManager.leggedDrive
+        simulationManager._onSerialOut?.(`[sim] turn() ignored — ${caps.reason}\n`)
+      }
+      turn = 0
+    }
     // Keep the gait engine off whenever the code is animating legs itself (so we
     // never fight the sketch's Servo.write), but still let the body translate.
     const skipGait = rawCodeWalk || (speed === 0 && turn === 0)
@@ -1403,7 +1614,7 @@ class DriveManager {
     // goes the way the legs push (correct direction + real stepping) instead of a
     // faked constant slide. Planted feet dragging backward → body moves forward.
     if (rawCodeWalk) {
-      targetV     = this._footDriveForward(dt)
+      targetV     = this._leggedBlocked ? 0 : this._footDriveForward(dt)
       targetOmega = 0
     }
 
@@ -1454,7 +1665,12 @@ class DriveManager {
     this._vy = Math.max(this._vy + gravAccel * dt, -MAX_V)
     this.rootGroup.position.y += this._vy * dt
     const minY = this._lowestVisibleY()
-    if (isFinite(minY)) {
+    // Airborne = moving away from the floor (zero-G push-off) or clearly above
+    // it. Gravity — not a clamp — is what brings it back, so in zero-G a robot
+    // that kicked off keeps floating. Under gravity _vy is never > 0, so the
+    // grounded branch below is exactly the old behaviour.
+    const airborne = isFinite(minY) && minY > -0.02 && (this._vy > 0 || minY > 0.3)
+    if (isFinite(minY) && !airborne) {
       // Smoothed grounding (same as the wheeled path): snap a big jump, ignore
       // small wobble (swing feet lifting), ease moderate changes — so the body
       // doesn't bounce as the gait cycles.
@@ -1464,18 +1680,25 @@ class DriveManager {
       else if (gap > 0.15)                          this._groundY += (target - this._groundY) * 0.2
       this.rootGroup.position.y = this._groundY
       if (this._vy < 0) this._vy = 0
+    } else if (airborne) {
+      this._groundY = null
     }
     if (window.__DRIVE_DEBUG && ((this._dbgN = (this._dbgN || 0) + 1) % 60 === 0)) console.log('[Drive] legged minY', +minY.toFixed(3), 'posY', +this.rootGroup.position.y.toFixed(3))
 
-    if (body) {
-      const rq = body.rotation()
-      this._q.set(rq.x, rq.y, rq.z, rq.w)
-      this._euler.setFromQuaternion(this._q, 'YXZ')
-      const yaw = this._euler.y + this._yawOffset
-      this._leggedSystem.setBodyYaw(yaw)
+    // Feet can only push as hard as gravity presses them down (legTraction.js):
+    // grip limits acceleration/turning, √g limits walking speed, zero-G gives
+    // no grip at all (momentum is kept, kicking legs push off the floor).
+    const yawNow = (body ? (() => { const rq = body.rotation(); this._q.set(rq.x, rq.y, rq.z, rq.w); return this._euler.setFromQuaternion(this._q, 'YXZ').y })() : this.rootGroup.rotation.y) + this._yawOffset
+    if (!this._legVel) this._legVel = { vx: 0, vz: 0, omega: 0 }
+    const tr = stepTraction(this._legVel,
+      { vx: -targetV * Math.sin(yawNow), vz: -targetV * Math.cos(yawNow), omega: targetOmega },
+      { gravity: physEnv.gravity, grounded: !airborne, dt, walking: targetV !== 0 || targetOmega !== 0 })
+    if (tr.pushOff) this._vy = Math.max(this._vy, tr.pushOff)
 
-      body.setLinvel({ x: -targetV * Math.sin(yaw), y: 0, z: -targetV * Math.cos(yaw) }, true)
-      body.setAngvel({ x: 0, y: targetOmega, z: 0 }, true)
+    if (body) {
+      this._leggedSystem.setBodyYaw(yawNow)
+      body.setLinvel({ x: tr.vx, y: 0, z: tr.vz }, true)
+      body.setAngvel({ x: 0, y: tr.omega, z: 0 }, true)
       physicsManager.step(dt)
 
       const pos = body.translation()
@@ -1485,11 +1708,10 @@ class DriveManager {
       this.rootGroup.position.set(pos.x, this.rootGroup.position.y, pos.z)
       this.rootGroup.rotation.y = this._euler.y
     } else {
-      const yaw = this.rootGroup.rotation.y + this._yawOffset
-      this._leggedSystem.setBodyYaw(yaw)
-      this.rootGroup.position.x -= targetV * Math.sin(yaw) * dt
-      this.rootGroup.position.z -= targetV * Math.cos(yaw) * dt
-      this.rootGroup.rotation.y += targetOmega * dt
+      this._leggedSystem.setBodyYaw(yawNow)
+      this.rootGroup.position.x += tr.vx * dt
+      this.rootGroup.position.z += tr.vz * dt
+      this.rootGroup.rotation.y += tr.omega * dt
     }
   }
 }
