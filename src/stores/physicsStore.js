@@ -87,7 +87,20 @@ export const usePhysicsStore = create((set, get) => ({
   isLeggedRobot:   false,
   leggedControl:   { speed: 0, turn: 0 },
   leggedGaitType:  'auto',
+  // What the robot's joints physically allow (kinematic legged path decides it
+  // from the hinge axes — see LeggedSystem.turnCapability). Default: no limits.
+  leggedCaps:      { canTurn: true, reason: null },
+  setLeggedCaps:   (caps)         => set({ leggedCaps: caps ?? { canTurn: true, reason: null } }),
   setIsLeggedRobot: (v)           => set({ isLeggedRobot: v }),
+  // Why the robot isn't moving (diagnosis.js issues, tagged cad/electronics/code)
+  // and which engine runs it: 'real' (joint physics) | 'simplified' (opt-in
+  // kinematic walk) | null (no simulation). Reported via managers/simIssues.js.
+  simIssues:       [],
+  simMode:         null,
+  upsertSimIssue:  (issue)        => set(s => ({ simIssues: [...s.simIssues.filter(i => i.id !== issue.id), issue] })),
+  removeSimIssue:  (id)           => set(s => ({ simIssues: s.simIssues.filter(i => i.id !== id) })),
+  clearSimIssues:  (prefix)       => set(s => ({ simIssues: prefix ? s.simIssues.filter(i => !i.id.startsWith(prefix)) : [] })),
+  setSimMode:      (mode)         => set({ simMode: mode }),
   setLeggedControl: (speed, turn) => set({ leggedControl: { speed, turn } }),
   setLeggedGaitType: (type)       => set({ leggedGaitType: type }),
 }))
