@@ -46,6 +46,7 @@ const S = {
   timer: null,
   unsub: [],
   started: false,
+  ready: false,   // true once the loaded project is in the stores + baseline taken
 }
 
 /** Is the editor currently in dashboard/cloud mode? (project or share in the URL) */
@@ -123,16 +124,34 @@ async function consumeSessionHandoff(supabase) {
 
 // ── Loading ─────────────────────────────────────────────────────────────────
 
-function applyContent(content) {
-  const snap = content && typeof content === 'object' ? content : null
-  // Remember what we loaded so the first auto-save doesn't rewrite an identical body.
-  S.lastSerialized = safeSerialize(snap ?? { version: '1.1', objects: [] })
+// Load the stored snapshot into the editor and resolve once the stores hold it.
+// The save baseline is then taken from the EDITOR'S OWN re-serialisation, not the
+// raw row: loading normalises a project (default physics/robots/settings keys,
+// name, attached-part positions…), so comparing against the raw row made merely
+// opening a robot look like an edit — and bumped "Edited N ago" on the dashboard.
+function applyContent(content, rowId) {
+  const raw = content && typeof content === 'object' ? content : null
   // A valid snapshot has an `objects` array; dispatch even when empty (fresh canvas).
-  window.dispatchEvent(
-    new CustomEvent('constructa:load-project', {
-      detail: snap && Array.isArray(snap.objects) ? snap : { version: '1.1', objects: [] },
-    }),
-  )
+  const snap = raw && Array.isArray(raw.objects) ? raw : { version: '1.1', objects: [] }
+  // Dashboard-created robots have no projectId; without one the editor mints a fresh
+  // random uuid on EVERY open, which the server rightly sees as a content change.
+  // The cloud row id is stable, so use it.
+  const detail = !snap.projectId && rowId ? { ...snap, projectId: rowId } : snap
+  return new Promise((resolve) => {
+    const done = () => {
+      window.removeEventListener('constructa:project-applied', done)
+      // Let the viewport build the meshes (attached parts report world positions
+      // from them) before fingerprinting. setTimeout, not rAF: rAF never fires in
+      // a background tab.
+      setTimeout(() => {
+        S.lastSerialized = fingerprint(currentSnapshot())
+        S.ready = true
+        resolve()
+      }, 50)
+    }
+    window.addEventListener('constructa:project-applied', done)
+    window.dispatchEvent(new CustomEvent('constructa:load-project', { detail }))
+  })
 }
 
 async function loadProject(supabase, id) {
@@ -145,7 +164,9 @@ async function loadProject(supabase, id) {
       return
     }
     S.title = data.title || 'Untitled robot'
-    applyContent(data.content)
+    // Wait for the load to land BEFORE subscribing to the stores — otherwise the
+    // load itself (async, after the GLBs) looks like a structural edit and saves.
+    await applyContent(data.content, id)
     if (S.readOnly) {
       setStatus('readonly')
     } else {
@@ -169,7 +190,7 @@ async function loadShared(supabase, token) {
     }
     S.title = row.title || 'Shared robot'
     S.readOnly = true
-    applyContent(row.content)
+    await applyContent(row.content)
     setStatus('readonly')
   } catch (e) {
     console.warn('[cloud] loadShared failed:', e?.message ?? e)
@@ -239,6 +260,15 @@ function safeSerialize(o) {
   }
 }
 
+// Comparison key for "did anything change?". buildProjectSnapshot stamps fresh
+// `created`/`modified` times on every call, so they must be left out — otherwise
+// two snapshots of an untouched robot never match and every tab-hide writes.
+function fingerprint(snap) {
+  if (!snap || typeof snap !== 'object') return safeSerialize(snap)
+  const { created: _c, modified: _m, ...rest } = snap
+  return safeSerialize(rest)
+}
+
 function snapIsEmpty(snap) {
   return !snap || !Array.isArray(snap.objects) || snap.objects.length === 0
 }
@@ -258,13 +288,13 @@ function prevHadObjects() {
 // if changes arrive while it's running we save again afterwards with the latest
 // snapshot. This makes an out-of-order overwrite impossible — the last write wins.
 async function runSave() {
-  if (S.readOnly || !S.projectId) return
+  if (S.readOnly || !S.projectId || !S.ready) return
   if (S.saving) {
     S.pending = true
     return
   }
   const snap = currentSnapshot()
-  const serialized = safeSerialize(snap)
+  const serialized = fingerprint(snap)
   if (serialized && serialized === S.lastSerialized) {
     setStatus('saved')
     return
@@ -337,9 +367,9 @@ function onHide(e) {
 // Best-effort synchronous save when the tab is closing. Uses fetch keepalive so
 // the request survives page teardown (sendBeacon can't send a PATCH with auth).
 function flushKeepalive() {
-  if (S.readOnly || !S.projectId || !SUPABASE_REST || !S.accessToken) return
+  if (S.readOnly || !S.projectId || !S.ready || !SUPABASE_REST || !S.accessToken) return
   const snap = currentSnapshot()
-  const serialized = safeSerialize(snap)
+  const serialized = fingerprint(snap)
   if (serialized && serialized === S.lastSerialized) return
   // Same safety net as runSave: don't let a teardown flush wipe a real project.
   if (snapIsEmpty(snap) && prevHadObjects()) return
