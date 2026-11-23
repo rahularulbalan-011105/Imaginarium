@@ -131,7 +131,13 @@ export default function Header() {
   // ── load a project on demand (used by the guided debug mission) ───────────
   // Someone dispatches constructa:load-project with the parsed project as detail.
   useEffect(() => {
-    const onLoad = (e) => { if (e.detail) applyProjectData(e.detail) }
+    // `constructa:project-applied` tells listeners (cloud sync) the stores now hold
+    // the loaded project — applyProjectData is async (it waits for GLBs first).
+    const onLoad = async (e) => {
+      if (!e.detail) return
+      try { await applyProjectData(e.detail) }
+      finally { window.dispatchEvent(new CustomEvent('constructa:project-applied')) }
+    }
     window.addEventListener('constructa:load-project', onLoad)
     return () => window.removeEventListener('constructa:load-project', onLoad)
   }, [applyProjectData])
