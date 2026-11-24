@@ -7,8 +7,13 @@ import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
 import { enterSimForCode } from '../managers/simForCode.js'
 import CompilerOutput from './CompilerOutput.jsx'
 import { LEGGED_TEMPLATES } from '../utils/leggedTemplates.js'
+import { L298N_EXAMPLE_SKETCH } from '../utils/l298n.js'
 
 const TEMPLATES = [
+  {
+    label: 'L298N: 2 motors',
+    code: L298N_EXAMPLE_SKETCH,
+  },
   {
     label: 'Motor ramp',
     code: `// Motor TERM_A → Pin ~3, TERM_B → GND
@@ -234,7 +239,7 @@ export default function CodeEditor({ full = false }) {
   // Components a sketch can drive OR read — motors/LED/servo/buzzer/OLED plus
   // every sensor (so sensor-only sketches like an LDR/DHT11/ColorSensor reader
   // are runnable, not just actuator sketches).
-  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'l298n', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
   const hasConnections  = Object.keys(connections).length > 0
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo' || o.type === 'esp32')
   // Count ANY controllable component (sensors/buzzer/OLED included), not just

@@ -68,6 +68,10 @@ registerComponent({ type: 'dc_motor', category: 'actuator', label: 'DC Motor', i
 // Actuators — servo (articulated)
 registerComponent({ type: 'servo', category: 'actuator', label: 'Servo', icon: '🔩', role: 'servo', physicsModules: ['ServoPhysics', 'JointConstraints'], capabilities: { actuator: 'rotational' } })
 
+// Motor drivers — sit between the controller and the drive motors; no physics of
+// their own (the motors they feed carry the drive modules). Logic: utils/l298n.js.
+registerComponent({ type: 'l298n', category: 'driver', label: 'L298N Driver', icon: '🎛', role: 'driver', capabilities: { driver: 'dual-h-bridge' }, electrical: { voltage: 12 } })
+
 // Outputs
 registerComponent({ type: 'led',    category: 'output', label: 'LED',    icon: '💡', role: 'output', capabilities: { output: 'light' } })
 registerComponent({ type: 'buzzer', category: 'output', label: 'Buzzer', icon: '🔊', role: 'output', capabilities: { output: 'audio' } })
@@ -88,6 +92,7 @@ const DRAW_mA = {
   arduino: 50, subo: 80,
   motor: 250, motor_bo: 250, motor_dc: 250, dc_motor: 250,
   servo: 150,
+  l298n: 36,   // logic quiescent current (datasheet); the motors' draw is counted on the motors
   led: 20, buzzer: 30, oled: 20,
   ultrasonic: 15, ir_sensor: 25, ir: 25, gas_sensor: 150, gas: 150, imu: 10,
 }

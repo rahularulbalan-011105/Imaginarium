@@ -13,6 +13,7 @@ const ELEC_MASS = {
   servo: 0.021, led: 0.003,
   ultrasonic: 0.0085, ir_sensor: 0.003, gas_sensor: 0.010, color_sensor: 0.005,
   ldr_sensor: 0.003, dht11: 0.004, oled: 0.006, buzzer: 0.003,
+  l298n: 0.030,   // L298N module incl. heatsink
 }
 
 // Returns geometry volume in m³, using scene-unit scale (scale.x etc. = dimensionless

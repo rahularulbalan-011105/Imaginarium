@@ -53,6 +53,12 @@ const CATEGORIES = [
     ],
   },
   {
+    key: 'drivers', label: 'Motor Drivers', color: '#f59e0b', icon: '🎛', blurb: 'Sit between the board and the motors.',
+    items: [
+      { type: 'l298n', label: 'L298N Driver', icon: '🎛', desc: 'Dual H-bridge · 2 motors', purpose: 'Lets the board drive two DC motors forwards and backwards with speed control. IN1/IN2 set motor A’s direction, ENA its speed (IN3/IN4 + ENB for motor B). Its GND must connect to the board’s GND. Motor power on 12V is assumed — battery parts are coming soon. Loses ≈2 V, so motors run ≈73 % as fast as wired straight to the battery.', usage: 'wheeled robots · reversing motors · speed control' },
+    ],
+  },
+  {
     key: 'weapons', label: 'Weapons', color: '#ef4444', icon: '⚔', blurb: 'Attach to a robot, then fight in the Physics Arena.',
     items: [
       { type: 'weapon_autocannon', label: 'Auto Cannon',  icon: '🔫', desc: 'Sustained DPS',  purpose: 'Continuous fire, armor break, crit on exposed core.', usage: 'main gun · sustained damage' },
@@ -71,7 +77,7 @@ const SOON = [
 export default function ElectronicsLibrary() {
   const addObject = useSceneStore((s) => s.addObject)
   const { snapshot } = useHistory()
-  const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true, weapons: true })
+  const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true, drivers: true, weapons: true })
   const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
   // Models load on demand: fetch this part's GLB (usually already prefetched on
   // hover/idle) before creating it, so its pins anchor to the real board.
