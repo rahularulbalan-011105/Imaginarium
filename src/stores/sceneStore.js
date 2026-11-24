@@ -27,7 +27,7 @@ export const useSceneStore = create((set, get) => ({
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
     const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
-    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', ...SENSOR_TYPES].includes(type)
+    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'l298n', ...SENSOR_TYPES].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw', 'wheel', 'caster']
     const isMech = mechTypes.includes(type)
     const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
@@ -41,6 +41,8 @@ export const useSceneStore = create((set, get) => ({
       : type === 'motor'                  ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'led'                    ? { x: count * 3 - 3, y: 0.15, z: 0  }
       : type === 'servo'                  ? { x: count * 5 - 4, y: 0.15, z: 3  }
+      // Motor driver: beside the board (boards spawn at z −5 from x −4).
+      : type === 'l298n'                  ? { x: count * 6 + 4, y: 0.1,  z: -5 }
       : SENSOR_TYPES.includes(type)       ? { x: count * 4 - 6, y: 1.2,  z: -9 }
       // Wheel / caster: resting ON the grid (y = half their height), side by side.
       : type === 'wheel'                  ? { x: count * 2 + 6, y: WHEEL_DEFAULTS.wheelDiameter / 2, z: 4 }

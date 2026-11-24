@@ -49,6 +49,9 @@ export const MODEL_SCALE_TARGET = {
   // authored to its correct final size in Blender (a real 6.45 × 6.8 PCB, longest side
   // 6.8 = Arduino Uno), so the loader renders it at native GLB size with no rescale /
   // normalisation / compensation. Do not add a subo scale target.
+  // NOTE: 'l298n' has NO entry either — l298n.glb is generated from
+  // tools/models/l298n.model.js in scene units (4.3 cm board, same frame as
+  // L298N_PINS), so it is used as authored and the pins line up exactly.
   motor_bo: 5.0,
   motor_dc: 5.0,
   led:      1.2,
@@ -83,6 +86,7 @@ const MODEL_PATHS = {
   // color_sensor: no GLB exists — it always used the procedural model (was a 404 at boot)
   ldr_sensor:   `${BASE}models/ldr.glb`,
   dht11:        `${BASE}models/dht11.glb`,
+  l298n:        `${BASE}models/l298n.glb`,   // generated: tools/models/l298n.model.js
 }
 
 // module-level cache: name → THREE.Group (scaled & centered) | null (not found)

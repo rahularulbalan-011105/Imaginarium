@@ -149,7 +149,29 @@ export const SUBO_PINS = (() => {
   return pins
 })()
 
+// L298N dual motor driver (~4.3 units square like the real 43 mm module).
+// Positions match the GLB (tools/models/l298n.model.js, L298N_LAYOUT): motor
+// outputs at the wire entries of the side screw terminals (5 mm pitch), power
+// at the front terminal, the 6 logic inputs on the 2.54 mm header tips (small
+// spheres, labels staggered over two rows so they don't overlap).
+const L298N_HDR = ['ENA', 'IN1', 'IN2', 'IN3', 'IN4', 'ENB']
+export const L298N_PINS = {
+  OUT1:  { x: -2.3, y: 0.38, z: -0.25, color: 0xffcc00, type: 'power', label: 'OUT1' },
+  OUT2:  { x: -2.3, y: 0.38, z:  0.25, color: 0xffcc00, type: 'power', label: 'OUT2' },
+  OUT3:  { x:  2.3, y: 0.38, z:  0.25, color: 0xffcc00, type: 'power', label: 'OUT3' },
+  OUT4:  { x:  2.3, y: 0.38, z: -0.25, color: 0xffcc00, type: 'power', label: 'OUT4' },
+  '12V': { x: -1.55, y: 0.38, z: 2.3, color: 0xff2222, type: 'power', label: '12V' },
+  GND:   { x: -1.05, y: 0.38, z: 2.3, color: 0x333333, type: 'gnd',   label: 'GND' },
+  '5V':  { x: -0.55, y: 0.38, z: 2.3, color: 0xff6666, type: 'power', label: '5V'  },
+  ...Object.fromEntries(L298N_HDR.map((name, i) => [name, {
+    x: 0.35 + i * 0.254, y: 1.0, z: 1.85, r: 0.1,
+    color: name.startsWith('EN') ? 0x22cc88 : 0xff8800, type: name.startsWith('EN') ? 'pwm' : 'digital',
+    label: name, ldy: i % 2 ? 0.32 : 0,
+  }])),
+}
+
 export const PIN_DEFS = {
+  l298n:    L298N_PINS,
   arduino:  ARDUINO_PINS,
   subo:     SUBO_PINS,
   motor:    MOTOR_PINS,
@@ -242,7 +264,9 @@ export function addPinSpheresToGroup(group, componentId, type) {
     // Optional per-component label shrink (dense boards like SUBO) so labels never overlap.
     const ls = group.userData.labelScale
     if (ls) { label.scale.x *= ls; label.scale.y *= ls }
-    label.position.set(def.x + offset.dx, def.y + offset.dy, def.z + offset.dz)
+    // def.ldy: per-pin extra label lift — lets a dense header stagger its labels
+    // over two rows instead of overlapping (L298N control header).
+    label.position.set(def.x + offset.dx, def.y + offset.dy + (def.ldy ?? 0), def.z + offset.dz)
     label.userData.isPinLabel = true
     label.userData.pinId      = `${componentId}:${pinName}`
     label.userData.rootId     = componentId
@@ -1229,6 +1253,106 @@ export function createLDRGroup() {
     pot.position.set(0.6, 0.22, 0.4)
     root.add(pot)
   }
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
+}
+
+// ─── L298N dual H-bridge motor driver ────────────────────────────────────────
+// GLB first: public/models/l298n.glb, generated from tools/models/l298n.model.js
+// in the same frame as L298N_PINS (no rescale). If it can't load, a simple
+// procedural board stands in: red PCB, finned heatsink, blue screw terminals
+// (OUT1/2 left, OUT3/4 right, 12V·GND·5V front), the logic header with ENA/ENB
+// jumper caps, a regulator and two capacitors. Logic lives in utils/l298n.js.
+export function createL298NGroup() {
+  const root = new THREE.Group()
+  root.userData.labelScale = 0.5                 // dense header → smaller pin labels
+  const glb = cloneModel('l298n')
+  if (glb) {
+    root.add(glb)
+    // Selection outline: the board's edge only. Its ~120 parts (heatsink fins,
+    // terminals, legs, SMDs…) would bury it in cyan edges; selection already
+    // tints the whole model. Node name 'pcb' comes from l298n.model.js.
+    root.traverse(c => {
+      if (!c.isMesh) return
+      c.castShadow = true; c.receiveShadow = true
+      if (c.name !== 'pcb') c.userData.noOutline = true
+      // The silkscreen is a separate sheet 0.002 above the board — far thinner
+      // than a shadow-map texel (~0.06). If the board/sheet CAST shadows they
+      // shadow each other in blotches ("shadow acne"). They still RECEIVE the
+      // real shadows of the heatsink, terminals and capacitors.
+      if (c.name === 'pcb' || c.name === 'pcb_silkscreen') c.castShadow = false
+    })
+    return root
+  }
+  const S = 4.3, top = 0.08
+  const pcb = new THREE.Mesh(new THREE.BoxGeometry(S, 0.16, S), mat(0xc81e1e, { roughness: 0.7 }))
+  root.add(pcb)
+
+  // Heatsink: base + vertical fins, at the back of the board.
+  const sink = mat(0x18181b, { roughness: 0.45, metalness: 0.35 })
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2.5, 0.3, 1.3), sink)
+  base.position.set(0, top + 0.15, -1.15)
+  root.add(base)
+  for (let i = 0; i < 9; i++) {
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.1, 1.3), sink)
+    fin.position.set(-1.2 + i * 0.3, top + 0.3 + 1.05, -1.15)
+    root.add(fin)
+  }
+
+  // Blue screw terminals with silver screw heads.
+  const blue = mat(0x1d4ed8, { roughness: 0.5 })
+  const screw = mat(0xc0c4ca, { roughness: 0.3, metalness: 0.6 })
+  const terminal = (nx, nz, along, x, z) => {
+    const w = along === 'x' ? nx * 0.55 : 0.75, d = along === 'z' ? nz * 0.55 : 0.75
+    const body = new THREE.Mesh(new THREE.BoxGeometry(w, 0.7, d), blue)
+    body.position.set(x, top + 0.35, z)
+    root.add(body)
+    const n = along === 'x' ? nx : nz
+    for (let i = 0; i < n; i++) {
+      const off = (i - (n - 1) / 2) * 0.55
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.06, 16), screw)
+      head.position.set(x + (along === 'x' ? off : 0), top + 0.73, z + (along === 'z' ? off : 0))
+      root.add(head)
+    }
+  }
+  terminal(1, 2, 'z', -1.75, 0)        // OUT1 · OUT2
+  terminal(1, 2, 'z',  1.75, 0)        // OUT3 · OUT4
+  terminal(3, 1, 'x', -1.0, 1.75)      // 12V · GND · 5V
+
+  // Logic header: black strip, gold pins, black jumper caps on ENA / ENB.
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.22, 0.28), mat(0x111111))
+  strip.position.set(1.0, top + 0.11, 1.85)
+  root.add(strip)
+  const gold = mat(0xd4a017, { roughness: 0.3, metalness: 0.7 })
+  for (let i = 0; i < 6; i++) {
+    const p = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.5, 0.07), gold)
+    p.position.set(0.35 + i * 0.254, top + 0.36, 1.85)
+    root.add(p)
+  }
+  for (const i of [0, 5]) {
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.32, 0.5), mat(0x0a0a0a))
+    cap.position.set(0.35 + i * 0.254, top + 0.5, 1.72)
+    root.add(cap)
+  }
+
+  // 5 V regulator (black body + metal tab) and two electrolytic capacitors.
+  const reg = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.25, 0.45), mat(0x111111))
+  reg.position.set(-0.3, top + 0.13, 0.75)
+  root.add(reg)
+  const tab = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.05, 0.3), screw)
+  tab.position.set(-0.3, top + 0.03, 0.4)
+  root.add(tab)
+  for (const [x, z] of [[0.75, 0.6], [1.45, 0.6]]) {
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.75, 20), mat(0x1f2937, { roughness: 0.4 }))
+    cap.position.set(x, top + 0.38, z)
+    root.add(cap)
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(0.285, 0.285, 0.06, 20), screw)
+    ring.position.set(x, top + 0.76, z)
+    root.add(ring)
+  }
+
+  // Dense header → smaller pin labels for this board.
+  root.userData.labelScale = 0.5
   root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
   return root
 }

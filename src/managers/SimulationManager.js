@@ -1,4 +1,5 @@
-import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, SENSOR_TYPES, useElectronicsStore } from '../stores/electronicsStore.js'
+import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, isDriverGrounded, SENSOR_TYPES, useElectronicsStore } from '../stores/electronicsStore.js'
+import { buildDriverOutputMap, l298nOutputs } from '../utils/l298n.js'
 import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
@@ -6,7 +7,7 @@ import { createSensorLibraries } from '../arduino/sensorLibs.js'
 import { runSketchSandboxed } from './sketchSandbox.js'
 import { ESP32_PINS } from '../utils/esp32Board.js'
 import { parseControlAnnotations, controlDefaults } from '../utils/esp32Controls.js'
-import { servoWiring, attachIssue } from './physics/robotics/diagnosis.js'
+import { servoWiring, attachIssue, makeIssue } from './physics/robotics/diagnosis.js'
 import { reportIssue, clearIssues, setSerialSink } from './simIssues.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
@@ -173,6 +174,43 @@ class SimulationManager {
     // `dispatch` table at the end of start(), and reads values back through the
     // per-frame snapshot built by _buildInput().
 
+    // One motor terminal changed (from a direct wire OR an L298N output).
+    // Net speed = TERM_A_value − TERM_B_value  (range −255 … +255), so swapping
+    // the two connections reverses direction.
+    const setMotorTerminal = (motorId, terminal, value, from) => {
+      if (!self._motorTerminals[motorId]) self._motorTerminals[motorId] = { A: 0, B: 0 }
+      self._motorTerminals[motorId][terminal || 'A'] = value
+      const { A, B } = self._motorTerminals[motorId]
+      const net = A - B
+      if (!self._dbgWrites) self._dbgWrites = 0
+      if (++self._dbgWrites <= 20)
+        console.log(`[Sim] ${from} → motor T${terminal}: A=${+A.toFixed(1)} B=${+B.toFixed(1)} net=${+net.toFixed(1)}`)
+      self.motorSpeeds[motorId] = net
+      if (self._onMotorSpeed) self._onMotorSpeed(motorId, net)
+      return { A, B, net }
+    }
+
+    // ── L298N motor drivers (utils/l298n.js) ──────────────────────────────────
+    // A board pin writes a driver INPUT; the driver's OUTPUTS then set the
+    // terminals of the motors wired to them.
+    const driverOut = buildDriverOutputMap(this._connections, this._objects)
+    const drivers = {}   // id → { levels: {IN1…ENB}, enWired: {ENA?,ENB?}, grounded }
+    for (const o of this._objects) {
+      if (o.type !== 'l298n') continue
+      drivers[o.id] = { levels: {}, enWired: {}, grounded: isDriverGrounded(this._connections, o.id) }
+    }
+    for (const comps of Object.values(pinMap))
+      for (const c of comps) if (c.type === 'l298n' && (c.terminal === 'ENA' || c.terminal === 'ENB')) drivers[c.id].enWired[c.terminal] = true
+    const writeDriver = (driverId, input, value, pin) => {
+      const d = drivers[driverId]
+      if (!d) return
+      d.levels[input] = value
+      const outs = l298nOutputs(d.levels, d.enWired, d.grounded)
+      for (const [outPin, targets] of Object.entries(driverOut[driverId] ?? {}))
+        for (const t of targets) setMotorTerminal(t.id, t.terminal, outs[outPin], `pin${pin}→${input}→${outPin}`)
+    }
+    this._reportDriverIssues(drivers, driverOut, pinMap)
+
     const _write = (pin, val, isDigital) => {
       if (!self._running) return
       const comps = pinMap[pin]
@@ -184,19 +222,13 @@ class SimulationManager {
       const value = isDigital ? (val ? 255 : 0) : Math.max(0, Math.min(255, Number(val) || 0))
       for (const comp of comps) {
         if (MOTOR_TYPES.has(comp.type)) {
-          // Track each terminal separately so swapping connections reverses direction.
-          // Net speed = TERM_A_value − TERM_B_value  (range −255 … +255)
-          if (!self._motorTerminals[comp.id]) self._motorTerminals[comp.id] = { A: 0, B: 0 }
-          self._motorTerminals[comp.id][comp.terminal || 'A'] = value
-          const { A, B } = self._motorTerminals[comp.id]
-          const net = A - B
-          if (!self._dbgWrites) self._dbgWrites = 0
-          if (++self._dbgWrites <= 20)
-            console.log(`[Sim] pin${pin}=${value} → motor T${comp.terminal}: A=${A} B=${B} net=${net}`)
+          const { A, B, net } = setMotorTerminal(comp.id, comp.terminal, value, `pin${pin}=${value}`)
+          // Direct wiring only: both terminals on one pin can never turn the motor.
+          // (Through a driver, both outputs HIGH is a deliberate brake.)
           if (A !== 0 && B !== 0 && net === 0)
             console.warn('[Sim] Motor speed is 0 because TERM_A and TERM_B are BOTH wired to the same pin. Wire TERM_B to GND instead of D' + pin + '.')
-          self.motorSpeeds[comp.id] = net
-          if (self._onMotorSpeed) self._onMotorSpeed(comp.id, net)
+        } else if (comp.type === 'l298n') {
+          writeDriver(comp.id, comp.terminal, value, pin)
         } else if (comp.type === 'led') {
           self.ledBrightness[comp.id] = value
           if (self._onLedBrightness) self._onLedBrightness(comp.id, value)
@@ -658,10 +690,39 @@ class SimulationManager {
     }
   }
 
+  /**
+   * "Why don't my motors move?" for each L298N — the two wiring mistakes that
+   * leave a driver dead: no shared ground, or no control wires from the board.
+   * Shown in the sim HUD and echoed to the Serial monitor (simIssues.js).
+   */
+  _reportDriverIssues(drivers, driverOut, pinMap) {
+    clearIssues('elec:l298n')
+    const controlled = new Set()
+    for (const comps of Object.values(pinMap))
+      for (const c of comps) if (c.type === 'l298n' && /^IN\d$/.test(c.terminal)) controlled.add(c.id)
+    for (const o of this._objects) {
+      if (o.type !== 'l298n') continue
+      const name = o.name || 'L298N'
+      const drivesMotors = Object.keys(driverOut[o.id] ?? {}).length > 0
+      if (!drivers[o.id].grounded && (drivesMotors || controlled.has(o.id))) {
+        reportIssue(makeIssue('electronics', `elec:l298n-gnd:${o.id}`,
+          `${name}: GND is not connected to the board`,
+          'The driver and the board must share a ground. Without it the IN/EN signals have no reference, so the motors will not move.',
+          `ELEC → Wiring: connect ${name} GND → the board's GND.`))
+      }
+      if (drivesMotors && !controlled.has(o.id)) {
+        reportIssue(makeIssue('electronics', `elec:l298n-in:${o.id}`,
+          `${name}: no control wires from the board`,
+          'Motors are wired to its OUT pins, but none of IN1–IN4 is connected to a board pin, so nothing tells it which way to turn them.',
+          `ELEC → Wiring: connect ${name} IN1/IN2 (motor A) and IN3/IN4 (motor B) to board pins, e.g. D7/D8 and D9/D10.`))
+      }
+    }
+  }
+
   stop() {
     this._running = false
     setSerialSink(null)
-    clearIssues('elec:attach'); clearIssues('code:attach')
+    clearIssues('elec:attach'); clearIssues('code:attach'); clearIssues('elec:l298n')
     if (this._stopOsc) this._stopOsc()        // silence the buzzer
     for (const o of this._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, '')   // blank OLED screens
     for (const o of this._objects) if (o.type === 'subo') objectManager.setSuboMatrix(o.id, 'clear')  // blank SUBO matrix

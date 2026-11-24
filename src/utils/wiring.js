@@ -5,10 +5,13 @@
 // Every view reads and writes that list; nothing keeps its own copy. `color` is
 // optional — without it a wire is coloured by its electrical role.
 import { ESP32_PIN_NAMES } from './esp32Board.js'
+import { L298N_PIN_ORDER } from './l298n.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
+export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n'])
 
 export const PIN_DEFS = {
+  // L298N motor driver: motor outputs, power terminal, logic header (utils/l298n.js).
+  l298n:    L298N_PIN_ORDER,
   // ESP32 pin names are derived from the board table (utils/esp32Board.js) so the
   // wiring UI and the 3D board can never drift apart.
   esp32:    ESP32_PIN_NAMES,
@@ -33,7 +36,7 @@ export const PIN_DEFS = {
 
 /** 'power' | 'gnd' | 'signal' for a pin name. */
 export function pinRole(pin) {
-  if (/^(5V|3V3|VCC|VIN|ANODE)$/i.test(pin)) return 'power'
+  if (/^(5V|3V3|12V|VCC|VIN|ANODE)$/i.test(pin)) return 'power'
   if (/^(GND\d*|CATHODE)$/i.test(pin)) return 'gnd'
   return 'signal'
 }

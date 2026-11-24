@@ -103,6 +103,34 @@ function Esp32Art({ w, h }) {
 }
 
 const SHAPES = {
+  // L298N: laid out like the real module — heatsink at the top, motor A screw
+  // terminal on the left (OUT1/OUT2), motor B on the right (OUT3/OUT4), power
+  // terminal bottom-left (12V GND 5V), logic header bottom-right (ENA…ENB).
+  l298n: () => {
+    const w = 210, h = 150
+    const [o1, o2, o3, o4, v12, gnd, v5, ...hdr] = PIN_DEFS.l298n
+    const term = (x, y, tw, th) => <rect x={x} y={y} width={tw} height={th} rx="3" fill="#1d4ed8" stroke="#1e3a8a" />
+    return { w, h, title: 'L298N', pins: [
+      ...edge([o1, o2], 'left', w, h, 0.42, 0.62),
+      ...edge([o3, o4], 'right', w, h, 0.42, 0.62),
+      ...edge([v12, gnd, v5], 'bottom', w, h, 0.08, 0.34),
+      ...edge(hdr, 'bottom', w, h, 0.5, 0.94),
+    ], art: (
+      <>
+        <rect x="1" y="1" width={w - 2} height={h - 2} rx="8" fill="#c81e1e" stroke="rgb(0 0 0 / 0.25)" strokeWidth="1.5" />
+        <rect x={w * 0.28} y="8" width={w * 0.44} height="44" rx="3" fill="#18181b" />
+        {Array.from({ length: 9 }, (_, i) => <line key={i} x1={w * 0.3 + i * (w * 0.4 / 8)} y1="10" x2={w * 0.3 + i * (w * 0.4 / 8)} y2="50" stroke="#3f3f46" strokeWidth="2" />)}
+        {term(4, h * 0.36, 22, h * 0.32)}{term(w - 26, h * 0.36, 22, h * 0.32)}
+        {term(w * 0.04, h - 26, w * 0.34, 20)}
+        <rect x={w * 0.48} y={h - 20} width={w * 0.48} height="12" rx="2" fill="#111827" />
+        <rect x={w * 0.48} y={h - 24} width="12" height="18" rx="2" fill="#0a0a0a" /><rect x={w * 0.96 - 12} y={h - 24} width="12" height="18" rx="2" fill="#0a0a0a" />
+        <text x={w / 2} y={h * 0.52} textAnchor="middle" fontSize="15" fontWeight="800" fill="#fff" letterSpacing="2">L298N</text>
+        <text x={w / 2} y={h * 0.52 + 14} textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#fecaca">DUAL H-BRIDGE</text>
+        <text x="32" y={h * 0.36 - 4} fontSize="8" fontWeight="700" fill="#fee2e2">MOTOR A</text>
+        <text x={w - 32} y={h * 0.36 - 4} textAnchor="end" fontSize="8" fontWeight="700" fill="#fee2e2">MOTOR B</text>
+      </>
+    ) }
+  },
   esp32: () => {
     const left = ESP32_PINS.filter(p => p.side === 'left').map(p => p.name)
     const right = ESP32_PINS.filter(p => p.side === 'right').map(p => p.name)
@@ -191,6 +219,7 @@ export function shapeOf(type) {
   if (type === 'arduino') return SHAPES.arduino()
   if (type === 'subo') return SHAPES.subo()
   if (type === 'esp32') return SHAPES.esp32()
+  if (type === 'l298n') return SHAPES.l298n()
   if (type === 'servo') return SHAPES.servo()
   if (type === 'motor' || type === 'motor_bo' || type === 'motor_dc') return SHAPES.motor(type)
   if (type === 'led') return SHAPES.led()

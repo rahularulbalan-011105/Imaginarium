@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import { esp32GpioFromName } from '../utils/esp32Board.js'
+import { L298N_INPUTS } from '../utils/l298n.js'
 
 const DEFAULT_CODE = `// Arduino Code
 // Motor TERM_A connected to Pin ~3 (PWM)
@@ -229,12 +230,21 @@ export function buildPinToComponentMap(connections, objects) {
       const [bComp, bPin] = b.split(':')
       const pinNum = pinNameToNumber(aPin)
       if (pinNum === null) continue
-      if (!SIGNAL_TERMINALS.some(t => bPin?.startsWith(t))) continue
       const bObj = byId[bComp]
       if (!bObj) continue
-      // For motors, track which terminal so direction is determined by polarity.
-      // TERM_A → positive contribution; TERM_B → negative contribution.
-      const terminal = bPin === 'TERM_B' ? 'B' : 'A'
+      let terminal
+      if (bObj.type === 'l298n') {
+        // Motor driver: a board pin feeds one of its control inputs. `terminal`
+        // names the input (IN1…IN4 / ENA / ENB); SimulationManager turns those
+        // into OUT levels and on into the motors wired to them (utils/l298n.js).
+        if (!L298N_INPUTS.includes(bPin)) continue
+        terminal = bPin
+      } else {
+        if (!SIGNAL_TERMINALS.some(t => bPin?.startsWith(t))) continue
+        // For motors, track which terminal so direction is determined by polarity.
+        // TERM_A → positive contribution; TERM_B → negative contribution.
+        terminal = bPin === 'TERM_B' ? 'B' : 'A'
+      }
       if (!map[pinNum]) map[pinNum] = []
       if (!map[pinNum].some(c => c.id === bComp && c.terminal === terminal))
         map[pinNum].push({ id: bComp, type: bObj.type, terminal })
@@ -276,6 +286,20 @@ export function isSensorPowered(connections, objects, sensorId) {
     }
   }
   return powered && grounded
+}
+
+// A motor driver only works when it shares a ground with the board driving it:
+// its GND pin must reach a ground pin on another part. (Without that the board's
+// HIGH/LOW has no reference — the classic "motors don't move" wiring mistake.)
+export function isDriverGrounded(connections, driverId) {
+  for (const { fromPinId, toPinId } of Object.values(connections)) {
+    for (const [a, b] of [[fromPinId, toPinId], [toPinId, fromPinId]]) {
+      const [aComp, aPin] = a.split(':')
+      const [bComp, bPin] = b.split(':')
+      if (aComp === driverId && aPin === 'GND' && bComp !== driverId && isGroundPinName(bPin)) return true
+    }
+  }
+  return false
 }
 
 // pinNum → { id, type, pin } for any MCU pin wired to a SENSOR's output pin, so

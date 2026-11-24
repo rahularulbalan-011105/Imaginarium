@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group } from '../utils/electronicsFactory.js'
+import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -110,7 +110,7 @@ function buildRoundGroup(obj) {
   return g
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
+const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo'])
@@ -192,6 +192,8 @@ class ObjectManager {
       object3d = createLDRGroup()
     } else if (obj.type === 'dht11') {
       object3d = createDHT11Group()
+    } else if (obj.type === 'l298n') {
+      object3d = createL298NGroup()   // motor driver (utils/l298n.js has the logic)
     } else if (obj.type === 'gear') {
       const geo = createSpurGearGeometry({
         teeth: obj.teeth ?? 12, module: obj.module ?? 0.25, faceWidth: obj.faceWidth ?? 0.5,
@@ -1138,7 +1140,8 @@ class ObjectManager {
       // selecting the motor outlines the motor, not everything mounted on it.
       if (node !== obj && node.userData.id && this.objects.get(node.userData.id) === node) return
       if (node.isMesh && node.geometry?.isBufferGeometry &&
-          !node.userData.isPin && !node.userData.isPinLabel && !node.userData.isSelectionOutline) {
+          !node.userData.isPin && !node.userData.isPinLabel && !node.userData.isSelectionOutline &&
+          !node.userData.noOutline) {   // small detail parts of a dense model (L298N SMDs, legs…)
         meshes.push(node)
       }
       for (const c of node.children) walk(c)
