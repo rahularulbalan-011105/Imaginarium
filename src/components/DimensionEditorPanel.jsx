@@ -41,7 +41,9 @@ export default function DimensionEditorPanel({ obj }) {
     if (d) setDims(d)
   }, [obj.id])
 
-  useEffect(() => { refresh() }, [obj.id, obj.scale, refresh])
+  // `obj` (not just obj.scale): a parametric part (gear teeth, wheel diameter,
+  // text…) changes its geometry without touching scale — re-measure on any edit.
+  useEffect(() => { refresh() }, [obj, refresh])
 
   if (!dims) return null
 

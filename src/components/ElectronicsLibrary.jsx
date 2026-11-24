@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ensureModels, isModelLoaded, hasModel, loadModel } from '../utils/modelLoader.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useHistory } from '../hooks/useHistory.js'
+import { variantOverrides } from '../utils/componentVariants.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ElectronicsLibrary — the dedicated "Electronics" section of the right
@@ -41,6 +42,10 @@ const CATEGORIES = [
     key: 'actuators', label: 'Actuators', color: '#22c55e', icon: '⚙', blurb: 'Create movement, light or sound.',
     items: [
       { type: 'servo',    label: 'Servo Motor', icon: '🔩', desc: 'Angle control actuator', purpose: 'Rotates to a specified angle (0–180°).', usage: 'robot arms · steering · camera gimbals' },
+      // Variant: a `servo` with the SG90's size, mass and torque (utils/componentVariants.js).
+      { type: 'servo', variant: 'sg90', label: 'SG90 Micro Servo', icon: '🔩', desc: 'Small · 9 g · 1.8 kg·cm', purpose: 'The classic blue micro servo. Light and cheap but weak — fine for small arms and grippers, too weak for walking-robot legs.', usage: 'pan/tilt · small grippers · flaps' },
+      { type: 'servo', variant: 'mg996r', label: 'MG996R Servo', icon: '🔩', desc: 'Metal gear · 55 g · 11 kg·cm', purpose: 'A standard-size metal-gear servo, about 6× stronger than an SG90. The usual choice for robot-arm joints and small walking-robot legs.', usage: 'robot arms · quadruped legs · steering' },
+      { type: 'servo', variant: 'ds3218', label: 'DS3218 Servo', icon: '🔩', desc: 'High torque · 60 g · 21 kg·cm', purpose: 'A high-torque digital servo, about twice as strong as an MG996R. For heavy legs and arm shoulders that carry the most load.', usage: 'heavy legs · arm shoulders · lifting' },
       { type: 'motor_dc', label: 'DC Motor',    icon: '🔧', desc: 'Continuous rotation',     purpose: 'Spins continuously at a set speed.', usage: 'wheels · fans · propellers' },
       { type: 'motor_bo', label: 'BO Motor',    icon: '⚙',  desc: 'Geared drive motor',      purpose: 'A geared DC motor — high torque at low speed.', usage: 'driving robot wheels' },
       { type: 'led',      label: 'LED',         icon: '💡', desc: 'Light output',            purpose: 'A light you can switch on/off or dim from code.', usage: 'status indicators · signals' },
@@ -71,13 +76,15 @@ export default function ElectronicsLibrary() {
   // Models load on demand: fetch this part's GLB (usually already prefetched on
   // hover/idle) before creating it, so its pins anchor to the real board.
   const [loadingType, setLoadingType] = useState(null)
-  const addPart = async (type) => {
+  const addPart = async (type, variant) => {
+    const key = variant ?? type
     if (!isModelLoaded(type) && hasModel(type)) {
-      setLoadingType(type)
+      setLoadingType(key)
       await ensureModels([type])
       setLoadingType(null)
     }
-    addObject(type); snapshot()
+    const overrides = variant ? variantOverrides(variant, useSceneStore.getState().objects) : undefined
+    addObject(type, undefined, overrides); snapshot()
   }
 
   return (
@@ -104,13 +111,15 @@ export default function ElectronicsLibrary() {
                 <div className="px-1.5 pb-1.5">
                   {cat.blurb && <div className="text-[9px] mb-1 px-1" style={{ color: 'rgb(var(--g-500))' }}>{cat.blurb}</div>}
                   <div className="flex flex-col gap-1">
-                    {cat.items.map(({ type, label, desc, purpose, usage }) => (
+                    {cat.items.map(({ type, variant, label, desc, purpose, usage }) => {
+                      const key = variant ?? type
+                      return (
                       <button
-                        key={type}
-                        data-tour={`elec-${type}`}
-                        onClick={() => addPart(type)}
+                        key={key}
+                        data-tour={`elec-${key}`}
+                        onClick={() => addPart(type, variant)}
                         onPointerEnter={() => { if (hasModel(type)) loadModel(type) }}
-                        disabled={loadingType === type}
+                        disabled={loadingType === key}
                         title={`${label}\n${purpose}\nCommonly used for: ${usage}`}
                         className="elec-item group flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg bg-gray-800/70 border border-transparent transition-all duration-150 text-left"
                       >
@@ -118,9 +127,10 @@ export default function ElectronicsLibrary() {
                           <span className="block text-[12px] font-medium leading-tight truncate" style={{ color: 'rgb(var(--g-200))' }}>{label}</span>
                           <span className="block text-[10px] leading-tight truncate" style={{ color: 'rgb(var(--g-400))' }}>{desc}</span>
                         </span>
-                        <span className={`text-[14px] ${loadingType === type ? 'opacity-100 animate-pulse' : 'opacity-0 group-hover:opacity-100'} transition-opacity shrink-0`} style={{ color: cat.color }}>{loadingType === type ? '…' : '＋'}</span>
+                        <span className={`text-[14px] ${loadingType === key ? 'opacity-100 animate-pulse' : 'opacity-0 group-hover:opacity-100'} transition-opacity shrink-0`} style={{ color: cat.color }}>{loadingType === key ? '…' : '＋'}</span>
                       </button>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}

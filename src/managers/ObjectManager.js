@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
-import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
+import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
+import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
 import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
@@ -57,6 +58,56 @@ function applyHoleStyle(object3d, obj) {
     m.opacity     = wantHole ? 0.28 : (wantTransp ? 0.45 : 1)
     m.depthWrite  = !wantHole
   })
+}
+
+// Wheel / caster geometry from the object's size fields, stamped with a key so
+// updateMesh rebuilds only when a size actually changes.
+const roundPartKey = (obj) => obj.type === 'wheel'
+  ? `w:${obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter}:${obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth}`
+  : `c:${obj.casterHeight ?? CASTER_DEFAULTS.casterHeight}:${obj.casterBall ?? CASTER_DEFAULTS.casterBall}`
+// mesh → simpler geometry to draw its selection outline from (wheel tyre: the
+// smooth ring, not every tread-block edge). A WeakMap, not userData: three.js
+// JSON-copies userData on clone(), which would serialise the whole geometry.
+const _outlineGeo = new WeakMap()
+
+// Wheel and caster are each a Group of two meshes, so their parts can differ in
+// colour/material. `roundParts` gives the geometries keyed by part name; each
+// mesh carries `userData.roundPart` so a resize swaps in the matching geometry.
+//   wheel : rim  → obj.color / obj.material (the normal pickers)
+//           tyre → obj.tyreColor, always matte rubber
+//   caster: body → obj.color / obj.material
+//           ball → always polished steel
+// userData.colorKey / defaultColor / fixedMaterial tell updateMesh's colour pass
+// to treat a part differently from obj.color / obj.material.
+const roundParts = (obj) => obj.type === 'wheel'
+  ? createWheelParts({ diameter: obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter, width: obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth })
+  : createCasterParts({ height: obj.casterHeight ?? CASTER_DEFAULTS.casterHeight, ball: obj.casterBall ?? CASTER_DEFAULTS.casterBall })
+const ROUND_PART_SPECS = {
+  wheel: [
+    { part: 'tyre', colorKey: 'tyreColor', defaultColor: WHEEL_TYRE_COLOR, fixedMaterial: 'standard', outline: 'tyreOutline' },
+    { part: 'rim' },
+  ],
+  caster: [
+    { part: 'body' },
+    { part: 'ball', colorKey: 'ballColor', defaultColor: CASTER_BALL_COLOR, fixedMaterial: 'steel' },
+  ],
+}
+function buildRoundGroup(obj) {
+  const geos = roundParts(obj)
+  const g = new THREE.Group()
+  for (const spec of ROUND_PART_SPECS[obj.type]) {
+    const color = spec.colorKey ? (obj[spec.colorKey] ?? spec.defaultColor) : obj.color
+    const m = new THREE.Mesh(geos[spec.part], createMaterial(color, spec.fixedMaterial ?? obj.material))
+    m.userData.roundPart = spec.part
+    if (spec.colorKey) Object.assign(m.userData, { colorKey: spec.colorKey, defaultColor: spec.defaultColor })
+    if (spec.fixedMaterial) m.userData.fixedMaterial = spec.fixedMaterial
+    if (spec.outline) _outlineGeo.set(m, geos[spec.outline])
+    m.castShadow = true; m.receiveShadow = true
+    g.add(m)
+  }
+  g.userData._roundKey = roundPartKey(obj)
+  g.userData.shapeVersion = 0
+  return g
 }
 
 const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
@@ -147,6 +198,12 @@ class ObjectManager {
       })
       const mat = createMaterial(obj.color, obj.material)
       object3d = new THREE.Mesh(geo, mat)
+    } else if (obj.type === 'wheel') {
+      // Tyre + rim group (utils/wheels.js has the defaults + drive rule).
+      object3d = buildRoundGroup(obj)
+    } else if (obj.type === 'caster') {
+      // Housing + steel ball group.
+      object3d = buildRoundGroup(obj)
     } else if (obj.type && obj.type.startsWith('weapon_')) {
       object3d = this._makeWeaponMesh(obj)
     } else if (obj.type === 'bolt') {
@@ -208,7 +265,7 @@ class ObjectManager {
     // Stamp the material type so updateMesh only rebuilds the material when the
     // type actually changes (not on every colour tweak).
     if (!ELECTRONICS.has(obj.type) && obj.material) {
-      object3d.traverse(c => { if (c.isMesh && c.material) c.material.userData.matType = obj.material })
+      object3d.traverse(c => { if (c.isMesh && c.material) c.material.userData.matType = c.userData.fixedMaterial ?? obj.material })
     }
 
     if (!ELECTRONICS.has(obj.type)) applyHoleStyle(object3d, obj)
@@ -291,10 +348,15 @@ class ObjectManager {
     if (!ELECTRONICS.has(obj.type)) {
       o.traverse(child => {
         if (!child.isMesh || !child.material?.color) return
-        child.material.color.set(obj.color)
-        if (obj.material && child.material.userData.matType !== obj.material) {
-          const newMat = createMaterial(obj.color, obj.material)
-          newMat.userData.matType = obj.material
+        // A sub-part may take its colour from another field (wheel tyre →
+        // obj.tyreColor) and keep a fixed material (rubber stays matte).
+        const ud = child.userData
+        const color = ud.colorKey ? (obj[ud.colorKey] ?? ud.defaultColor) : obj.color
+        const matType = ud.fixedMaterial ?? obj.material
+        child.material.color.set(color)
+        if (matType && child.material.userData.matType !== matType) {
+          const newMat = createMaterial(color, matType)
+          newMat.userData.matType = matType
           child.material.dispose()
           child.material = newMat
         }
@@ -314,6 +376,22 @@ class ObjectManager {
           o.geometry = createSpurGearGeometry({ teeth: t, module: m, faceWidth: fw, bore: b })
           Object.assign(o.geometry.userData, { _gt: t, _gm: m, _gfw: fw, _gb: b })
         }
+      }
+      // Wheel / caster: rebuild when a size parameter changes (not on recolour).
+      if ((obj.type === 'wheel' || obj.type === 'caster') && o.isGroup && o.userData._roundKey !== roundPartKey(obj)) {
+        const parts = roundParts(obj)
+        const specs = ROUND_PART_SPECS[obj.type]
+        for (const c of o.children) {
+          const g = parts[c.userData.roundPart]
+          if (!g) continue
+          c.geometry.dispose()
+          c.geometry = g
+          const outlineKey = specs.find((s) => s.part === c.userData.roundPart)?.outline
+          if (outlineKey) { _outlineGeo.get(c)?.dispose(); _outlineGeo.set(c, parts[outlineKey]) }
+        }
+        o.userData._roundKey = roundPartKey(obj)
+        o.userData.shapeVersion = (o.userData.shapeVersion ?? 0) + 1   // DimensionOverlay watches this
+        this.refreshOutline(id)   // a Group has no single .geometry for the check below
       }
       // Box/rectprism: rebuild geometry when fillet radius / type / edge selection changes
       if ((obj.type === 'box' || obj.type === 'rectprism') && o.geometry) {
@@ -1068,7 +1146,9 @@ class ObjectManager {
     walk(obj)
     const outlines = []
     for (const m of meshes) {
-      const ls = createOutline(m.geometry, color, 20)   // 20° crease threshold, 3 px wide
+      // A mesh may offer a simpler outline shape (wheel tyre: the smooth ring,
+      // without hundreds of tread-block edges that would turn into a wireframe).
+      const ls = createOutline(_outlineGeo.get(m) ?? m.geometry, color, 20)   // 20° crease threshold, 3 px wide
       if (!ls) continue             // too dense to outline legibly
       ls.userData.isSelectionOutline = true
       ls.renderOrder = 999          // draw over the surface

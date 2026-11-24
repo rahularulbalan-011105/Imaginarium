@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { simulationManager } from './SimulationManager.js'
 import { physicsManager } from './physics/PhysicsManager.js'
 import { DifferentialDrive } from './robot/DifferentialDrive.js'
+import { sideDriveRadius, wheelWorldRadius } from '../utils/wheels.js'
 import { LeggedSystem } from './robot/LeggedSystem.js'
 import { stepTraction } from './robot/legTraction.js'
 import { useSceneStore } from '../stores/sceneStore.js'
@@ -428,6 +429,12 @@ class DriveManager {
         }
       }
     }
+
+    // ── Step 1a: wheel size → drive speed ────────────────────────────────────
+    // Each side's speed uses the real size of the Wheel parts on its motors
+    // (utils/wheels.js); motors without a Wheel part keep the old default radius.
+    // Measured from the mesh's WORLD scale so a resized motor's wheel counts too.
+    this._setWheelRadii(objects)
 
     // ── Step 1b: detect legged robot ─────────────────────────────────────────
     // If there are no drive motors but servos have attached arm objects → legged robot
@@ -1042,6 +1049,21 @@ class DriveManager {
   // the same motors the wheeled path reads.
   getDriveGroups() { return { leftIds: this._leftIds, rightIds: this._rightIds } }
 
+  /** Per-side drive radius from the Wheel parts on each side's motors (see utils/wheels.js). */
+  _setWheelRadii(objects) {
+    const byId = new Map(objects.map(o => [o.id, o]))
+    const attachments = useElectronicsStore.getState().attachments
+    const ws = new THREE.Vector3()
+    const radiusOf = (wheel) => {
+      const mesh = this.objectMgr.getMesh(wheel.id)
+      if (!mesh) return wheelWorldRadius(wheel)
+      mesh.updateWorldMatrix(true, false)
+      return wheelWorldRadius(wheel, mesh.getWorldScale(ws))
+    }
+    this._drive.radiusLeft  = sideDriveRadius(this._leftIds,  attachments, byId, radiusOf)
+    this._drive.radiusRight = sideDriveRadius(this._rightIds, attachments, byId, radiusOf)
+  }
+
   // Called every animation frame.
   // Real-time honesty: per ~1 s window, simulated seconds ÷ wall seconds. Below 1
   // the simulation is running in slow motion because this computer can't keep up
@@ -1331,7 +1353,7 @@ class DriveManager {
     if (!this._moduleHost && !this._hostTried && this._blueprint && this._forcedPath === 'wheeled') {
       this._hostTried = true
       const host = new ModuleHost()
-      host.enter(this._blueprint, { wheelbase: this.wheelbase })
+      host.enter(this._blueprint, { wheelbase: this.wheelbase, radiusLeft: this._drive.radiusLeft, radiusRight: this._drive.radiusRight })
       // Use the host for drive if ANY of its modules produce a drive velocity
       // (wheels → DifferentialDrivePhysics, tracks → TrackPhysics, …). Probe with
       // zero input so a sensor-only blueprint cleanly falls back to the legacy model.

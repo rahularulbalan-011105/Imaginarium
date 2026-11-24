@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { RoundedBoxGeometry } from 'three-stdlib'
 import { FontLoader } from 'three/addons/loaders/FontLoader.js'
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import helvetiker from 'three/examples/fonts/helvetiker_regular.typeface.json'
 
 // Lazily parse the bundled font once — TextGeometry needs a parsed Font instance.
@@ -130,8 +131,200 @@ export function createGeometry(type) {
     case 'hexagon':      return new THREE.CylinderGeometry(1, 1, 2, 6)
     case 'star':         return new THREE.TorusKnotGeometry(0.7, 0.25, 64, 8, 2, 3)
     case 'gear':         return createSpurGearGeometry()
+    case 'wheel':        return createWheelGeometry()
+    case 'caster':       return createCasterGeometry()
     default:             return new THREE.BoxGeometry(2, 2, 2)
   }
+}
+
+// ── Lathe helpers (wheel / caster) ──────────────────────────────────────────
+// Both parts are a closed 2-D profile (x = radius, y = height) spun around the
+// axis, so the mesh is watertight (correct volume → mass, valid for Booleans).
+// The profile runs from the axis at the bottom, out, up and back to the axis at
+// the top — that direction makes LatheGeometry's normals point outward.
+//
+// LatheGeometry smooths the normal at every profile point, which smears a sharp
+// edge. A corner is therefore emitted twice, a hair apart: each copy takes its
+// normal from its own side, so the edge renders crisp.
+const CREASE = 1e-4
+function creased(points, cornerIdx) {
+  const out = []
+  points.forEach((p, i) => {
+    if (!cornerIdx.has(i) || i === 0 || i === points.length - 1) { out.push(p); return }
+    const prev = points[i - 1], next = points[i + 1]
+    const toward = (q) => { const d = new THREE.Vector2().subVectors(q, p); const l = d.length(); return l > 0 ? d.multiplyScalar(Math.min(CREASE, l * 0.25) / l) : d }
+    out.push(p.clone().add(toward(prev)), p.clone().add(toward(next)))
+  })
+  return out
+}
+const arc = (cx, cy, r, a0, a1, n) =>
+  Array.from({ length: n + 1 }, (_, i) => { const a = a0 + (a1 - a0) * (i / n); return new THREE.Vector2(cx + r * Math.cos(a), cy + r * Math.sin(a)) })
+
+// A closed ring profile (not touching the axis) from inner radius a to outer b,
+// axial span y0..y1, as a lathe loop. The loop starts/ends mid-way down the
+// inner wall so its seam lies on a flat face (no smeared corner there).
+function ringLathe(a, b, y0, y1, segments) {
+  const V = (x, y) => new THREE.Vector2(x, y), ym = (y0 + y1) / 2
+  const pts = [V(a, ym), V(a, y0), V(b, y0), V(b, y1), V(a, y1), V(a, ym)]
+  return new THREE.LatheGeometry(creased(pts, new Set([1, 2, 3, 4])), segments)
+}
+
+/**
+ * Robot wheel in the style of the common yellow 5-spoke BO-motor wheel:
+ *   tyre — rubber ring with rounded shoulders + two staggered rows of tread blocks
+ *   rim  — outer rim ring, hub with an axle bore, five spokes set toward the
+ *          outer face (the "dished" look)
+ * Returned as two geometries so the tyre and rim can have different colours.
+ * The AXLE is local X, so a new wheel stands upright and rolls along Z with
+ * rotation 0. Outer diameter (incl. tread) and width are exactly as requested.
+ * All parts are non-indexed so they can be merged (see createWheelGeometry).
+ */
+export function createWheelParts({ diameter = 3.4, width = 1.3, segments = 64 } = {}) {
+  const R  = Math.max(0.3, diameter / 2)
+  const h  = Math.max(0.15, width) / 2
+  const Rr = R * 0.72                          // tyre inner radius = rim outer radius
+  const dt = Math.min(R * 0.06, h * 0.25)      // tread block height
+  const R0 = R - dt * 0.7                      // tyre carcass radius (blocks sit on it)
+  const f  = Math.min(h * 0.45, (R0 - Rr) * 0.6) // shoulder rounding
+
+  // ── tyre carcass: closed loop, rounded outer shoulders ─────────────────────
+  const V = (x, y) => new THREE.Vector2(x, y)
+  const ym = 0
+  const tp = [], tc = new Set()
+  const add = (p, corner = false) => { if (corner) tc.add(tp.length); tp.push(p) }
+  add(V(Rr, ym))
+  add(V(Rr, -h), true)
+  add(V(R0 - f, -h))
+  arc(R0 - f, -h + f, f, -Math.PI / 2, 0, 5).slice(1).forEach((p) => add(p))
+  arc(R0 - f,  h - f, f, 0, Math.PI / 2, 5).forEach((p) => add(p))
+  add(V(Rr, h), true)
+  add(V(Rr, ym))
+  const tyreParts = [new THREE.LatheGeometry(creased(tp, tc), segments)]
+  // Clean selection-outline shape: the smooth carcass alone (no tread blocks).
+  const tyreOutline = new THREE.LatheGeometry(creased(tp, tc), segments).rotateZ(Math.PI / 2)
+
+  // ── tread: two staggered rows of flat blocks on the tread band ─────────────
+  const groove = h * 0.12                       // centre groove between the rows
+  const band   = h - f * 0.4                    // usable half-width of the tread
+  const a      = Math.max(0.05, band - groove / 2)  // axial length of one block
+  const n      = Math.max(14, Math.min(64, Math.round((2 * Math.PI * R) / (R * 0.28 + 0.15))))
+  const pitch  = (2 * Math.PI) / n
+  const L      = 2 * R0 * Math.sin(pitch / 2) * 0.62   // tangential block length
+  // Outer face placed so the block CORNERS land exactly on radius R.
+  const rOut   = Math.sqrt(R * R - (L / 2) ** 2)
+  const depth  = rOut - (R0 - dt * 0.3)          // reaches slightly into the carcass
+  for (let row = 0; row < 2; row++) {
+    const yc = (row === 0 ? -1 : 1) * (groove / 2 + a / 2)
+    for (let i = 0; i < n; i++) {
+      const phi = (i + (row ? 0.5 : 0)) * pitch
+      const box = new THREE.BoxGeometry(L, a, depth)
+      box.rotateY(phi)
+      const rc = rOut - depth / 2
+      box.translate(rc * Math.sin(phi), yc, rc * Math.cos(phi))
+      tyreParts.push(box)
+    }
+  }
+
+  // ── rim: outer ring + hub with bore + five spokes ──────────────────────────
+  const rimT = R * 0.07
+  const RrIn = Rr - rimT
+  const hr   = h * 0.96
+  const Rh   = R * 0.17
+  const bore = R * 0.06
+  const rimParts = [
+    ringLathe(RrIn, Rr, -hr, hr, segments),
+    ringLathe(bore, Rh, -hr, h, Math.max(24, segments / 2)),
+  ]
+  const ts = h * 0.5                            // spoke thickness (axial)
+  const yS = h - ts / 2 - h * 0.12              // spokes sit toward the outer (+) face
+  const shape = new THREE.Shape()
+  const u0 = Rh * 0.7, u1 = RrIn + rimT * 0.4   // overlap hub and rim
+  const w0 = R * 0.07, w1 = R * 0.13            // spokes widen toward the rim
+  shape.moveTo(u0, -w0); shape.lineTo(u1, -w1); shape.lineTo(u1, w1); shape.lineTo(u0, w0); shape.closePath()
+  for (let k = 0; k < 5; k++) {
+    const sp = new THREE.ExtrudeGeometry(shape, { depth: ts, bevelEnabled: false })
+    sp.translate(0, 0, -ts / 2)
+    sp.rotateX(-Math.PI / 2)                    // extrude axis Z → wheel axis Y
+    sp.rotateY((k / 5) * Math.PI * 2)
+    sp.translate(0, yS, 0)
+    rimParts.push(sp)
+  }
+
+  // Lathe/box are indexed, extrude is not — mergeGeometries needs them all alike.
+  const finish = (parts) => {
+    const flat = parts.map((p) => (p.index ? p.toNonIndexed() : p))
+    const g = mergeGeometries(flat, false)
+    new Set([...parts, ...flat]).forEach((p) => p.dispose())
+    g.rotateZ(Math.PI / 2)                      // wheel axis Y → axle along X
+    g.computeBoundingBox()
+    return g
+  }
+  return { tyre: finish(tyreParts), rim: finish(rimParts), tyreOutline }
+}
+
+/** The whole wheel as ONE geometry (mass estimate, export, tests). */
+export function createWheelGeometry(opts) {
+  const { tyre, rim, tyreOutline } = createWheelParts(opts)
+  const g = mergeGeometries([tyre, rim], false)
+  tyre.dispose(); rim.dispose(); tyreOutline.dispose()
+  return g
+}
+
+/**
+ * Ball-transfer caster (the stamped zinc kind): a round flat flange with three
+ * screw holes on top, a deep cylindrical housing whose rounded bottom shoulder
+ * curls in to a lip that grips the ball, and a steel ball poking out underneath.
+ * Returned as two geometries (body, ball) so the ball can stay polished steel
+ * whatever colour the body is. Height = flange top → ball bottom (what sets the
+ * chassis level). Axis is local Y. The ball shrinks to fit the height.
+ */
+export function createCasterParts({ height = 1.6, ball = 1.0, segments = 48 } = {}) {
+  const H  = Math.max(0.3, height)
+  const fT = Math.min(H * 0.08, 0.15)          // flange thickness (stamped sheet)
+  // The whole ball must fit under the flange (2·rb ≤ H − fT), which also keeps
+  // the housing a positive height.
+  const rb = Math.max(0.05, Math.min(ball / 2, ((H - fT) / 2) * 0.95))
+  const yb   = -H / 2 + rb                     // ball centre (ball bottom = −H/2)
+  const yLip = yb - 0.1 * rb                   // lip just below the ball's equator (~45 % shows)
+  const yTab = H / 2 - fT                      // underside of the flange
+  const Rh   = rb * 1.22                       // housing radius
+  const xLip = rb * 1.0                        // lip hugs the ball
+  const rs   = Math.min(Rh - xLip, (yTab - yLip) * 0.45)   // rounded bottom shoulder
+  const V = (x, y) => new THREE.Vector2(x, y)
+
+  // housing: flat lip ring → rounded shoulder → straight wall; top hides in the flange
+  const pts = [V(0, yLip), V(Rh - rs, yLip)]
+  arc(Rh - rs, yLip + rs, rs, -Math.PI / 2, 0, 8).slice(1).forEach((p) => pts.push(p))
+  pts.push(V(Rh, yTab + fT * 0.5), V(0, yTab + fT * 0.5))
+  const housing = new THREE.LatheGeometry(creased(pts, new Set([pts.length - 2])), segments)
+
+  // flange: round plate, three screw holes 120° apart
+  const Rf = Rh * 1.95, rHoleAt = Rh * 1.5, rHole = Rh * 0.24
+  const shape = new THREE.Shape()
+  shape.absarc(0, 0, Rf, 0, Math.PI * 2, false)
+  for (let k = 0; k < 3; k++) {
+    const a = Math.PI / 2 + (k * 2 * Math.PI) / 3
+    const hole = new THREE.Path()
+    hole.absarc(rHoleAt * Math.cos(a), rHoleAt * Math.sin(a), rHole, 0, Math.PI * 2, true)
+    shape.holes.push(hole)
+  }
+  const tab = new THREE.ExtrudeGeometry(shape, { depth: fT, bevelEnabled: false, curveSegments: 24 })
+  tab.rotateX(-Math.PI / 2)                    // extrude axis Z → up (Y)
+  tab.translate(0, yTab, 0)
+
+  const flat = [housing.toNonIndexed(), tab]
+  const body = mergeGeometries(flat, false)
+  housing.dispose(); flat.forEach((g) => g.dispose())
+  const ballGeo = new THREE.SphereGeometry(rb, 32, 20).translate(0, yb, 0)
+  return { body, ball: ballGeo }
+}
+
+/** The whole caster as ONE geometry (mass estimate, tests). */
+export function createCasterGeometry(opts) {
+  const { body, ball } = createCasterParts(opts)
+  const g = mergeGeometries([body, ball.toNonIndexed()], false)
+  body.dispose(); ball.dispose()
+  return g
 }
 
 /**
@@ -290,6 +483,11 @@ export function createMaterial(color = '#3b82f6', materialType = 'standard') {
       return new THREE.MeshStandardMaterial({ color, metalness: 0.8, roughness: 0.2 })
     case 'transparent':
       return new THREE.MeshStandardMaterial({ color, transparent: true, opacity: 0.45, roughness: 0.3 })
+    // Polished steel for small parts (caster ball). Deliberately NOT fully
+    // metallic: the scene has no environment map, and a metalness≈1 surface
+    // with nothing to reflect renders almost black.
+    case 'steel':
+      return new THREE.MeshStandardMaterial({ color, metalness: 0.45, roughness: 0.18 })
     default:
       return new THREE.MeshStandardMaterial({ color, metalness: 0.05, roughness: 0.65 })
   }

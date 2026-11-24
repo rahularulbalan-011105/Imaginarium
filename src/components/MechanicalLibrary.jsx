@@ -9,6 +9,8 @@ import { useHistory } from '../hooks/useHistory.js'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PARTS = [
+  { type: 'wheel',  label: 'Robot Wheel', icon: '🛞', desc: 'Attach to a motor · size sets speed' },
+  { type: 'caster', label: 'Ball Caster', icon: '⚪', desc: 'Free-rolling support wheel' },
   { type: 'gear',  label: 'Spur Gear', icon: '⚙',  desc: 'Mesh two to transfer motion' },
   { type: 'bolt',  label: 'Bolt',      icon: '🔩', desc: 'Fastener part' },
   { type: 'screw', label: 'Screw',     icon: '🪛', desc: 'Fastener part' },
