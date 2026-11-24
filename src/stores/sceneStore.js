@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import { runBoolean, buildUnionMembers, unionWorldGeoJSONs } from '../utils/csg.js'
 import { trackEvent } from '../utils/utmTracking.js'
+import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_RIM_COLOR, WHEEL_TYRE_COLOR, CASTER_BODY_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
 let paletteIdx = 0
@@ -18,13 +19,16 @@ export const useSceneStore = create((set, get) => ({
   markStandalone:   (id) => set(s => ({ standaloneIds: [...s.standaloneIds.filter(i => i !== id), id] })),
   unmarkStandalone: (id) => set(s => ({ standaloneIds: s.standaloneIds.filter(i => i !== id) })),
 
-  addObject: (type, position) => {
+  // `overrides` (optional): extra fields merged into the new object — used by
+  // component variants (utils/componentVariants.js) to stamp an SG90's name,
+  // size and physics onto a plain `servo`. id/type are never overridden.
+  addObject: (type, position, overrides) => {
     // Sensors/peripherals are electronics too — they must be on this list so they
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
     const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
     const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', ...SENSOR_TYPES].includes(type)
-    const mechTypes = ['gear', 'bolt', 'screw']
+    const mechTypes = ['gear', 'bolt', 'screw', 'wheel', 'caster']
     const isMech = mechTypes.includes(type)
     const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
     const count = get().objects.filter(o => o.type === type).length
@@ -38,6 +42,9 @@ export const useSceneStore = create((set, get) => ({
       : type === 'led'                    ? { x: count * 3 - 3, y: 0.15, z: 0  }
       : type === 'servo'                  ? { x: count * 5 - 4, y: 0.15, z: 3  }
       : SENSOR_TYPES.includes(type)       ? { x: count * 4 - 6, y: 1.2,  z: -9 }
+      // Wheel / caster: resting ON the grid (y = half their height), side by side.
+      : type === 'wheel'                  ? { x: count * 2 + 6, y: WHEEL_DEFAULTS.wheelDiameter / 2, z: 4 }
+      : type === 'caster'                 ? { x: count * 3 + 6, y: CASTER_DEFAULTS.casterHeight / 2, z: 8 }
       // Primitives: step each new same-type shape along X so two of a kind (e.g.
       // the tutorial's two wheels) don't spawn stacked on the exact same spot
       // (which buried them inside the chassis at the origin).
@@ -45,28 +52,35 @@ export const useSceneStore = create((set, get) => ({
     const pos = position ?? defaultPos
     const color = isElectronics ? '#556677'
       : isWeapon                ? '#8a94a3'
+      : type === 'wheel'        ? WHEEL_RIM_COLOR   // yellow rim; the tyre has its own tyreColor
+      : type === 'caster'       ? CASTER_BODY_COLOR // silver body; the ball stays steel
       : isMech                  ? '#9ca3af'
       : PALETTE[paletteIdx++ % PALETTE.length]
     const displayCount = count + 1
     const gearDefaults = type === 'gear' ? { teeth: 12, module: 0.25, faceWidth: 0.5, bore: 0 } : {}
     const textDefaults = type === 'text' ? { textContent: 'Text', textSize: 1, textHeight: 0.4 } : {}
+    const roundDefaults = type === 'wheel' ? { ...WHEEL_DEFAULTS, tyreColor: WHEEL_TYRE_COLOR } : type === 'caster' ? { ...CASTER_DEFAULTS, ballColor: CASTER_BALL_COLOR } : {}
     const obj = {
       id: uuidv4(),
       name: `${type.charAt(0).toUpperCase() + type.slice(1)}_${displayCount}`,
       type,
       ...gearDefaults,
       ...textDefaults,
+      ...roundDefaults,
       position: { ...pos },
       rotation: { x: 0, y: 0, z: 0 },
       scale: { x: 1, y: 1, z: 1 },
       color,
-      material: (isMech || isWeapon) ? 'metallic' : 'standard',
+      // Wheel rim/tyre and caster body use 'standard': fully metallic parts
+      // render near-black here (no environment map to reflect).
+      material: ((isMech && type !== 'wheel' && type !== 'caster') || isWeapon) ? 'metallic' : 'standard',
       visible: true,
       metadata: {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       },
     }
+    if (overrides) Object.assign(obj, overrides, { id: obj.id, type })
     set((state) => ({ objects: [...state.objects, obj] }))
     // Analytics: user added a shape/part — carry the running scene count so the
     // dashboard can show "shapes in the pane" (peak per user).

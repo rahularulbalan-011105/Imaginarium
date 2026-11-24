@@ -50,7 +50,7 @@ const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 
 const GEOMETRY_TYPES = new Set(['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane',
   'tetrahedron', 'pyramid', 'pentpyramid', 'octahedron', 'dodecahedron', 'rectprism',
   'capsule', 'prism', 'diamond', 'hexagon', 'star', 'text',
-  'csg', 'model', 'gear', 'bolt', 'screw'])
+  'csg', 'model', 'gear', 'bolt', 'screw', 'wheel', 'caster'])
 
 export function isBooleanCandidate(obj) {
   if (!obj) return false

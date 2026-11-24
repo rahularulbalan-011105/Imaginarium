@@ -17,6 +17,7 @@ import { loadCSG } from '../utils/csgLib.js'
 import { useUiStore } from '../stores/uiStore.js'
 import Icon from './ui/Icon.jsx'
 import Placeholder from './ui/Placeholder.jsx'
+import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, wheelWorldRadius, wheelSpeedFactor } from '../utils/wheels.js'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
   const handleChange = (axis) => (e) => {
@@ -181,6 +182,89 @@ function RelationCard({ kind, parent, child, self }) {
       {box('parent', parent)}
       <div className="flex justify-center py-0.5 text-sm leading-none" style={{ color: 'rgb(var(--a-600))' }} aria-hidden="true">↓</div>
       {box('child', child)}
+    </div>
+  )
+}
+
+// ── Wheel / caster size controls ─────────────────────────────────────────────
+function SizeRow({ label, value, min, max, step, onChange, onCommit, suffix }) {
+  return (
+    <div className="flex items-center gap-2 mb-1.5">
+      <span className="text-[9px] text-gray-400 w-14 shrink-0">{label}</span>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={(e) => onChange(+e.target.value)} onPointerUp={onCommit}
+        className="flex-1 accent-orange-500" />
+      <span className="text-[10px] text-gray-100 w-10 text-right">{value.toFixed(1)}{suffix}</span>
+    </div>
+  )
+}
+
+function RoundPartControls({ obj, objects, attachedTo, update, snapshot }) {
+  if (obj.type === 'wheel') {
+    const d = obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter
+    const w = obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth
+    const factor = wheelSpeedFactor(wheelWorldRadius(obj))
+    return (
+      <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
+        <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Wheel</div>
+        <SizeRow label="Diameter" value={d} min={1} max={10} step={0.1} onChange={(v) => update({ wheelDiameter: v })} onCommit={snapshot} />
+        <SizeRow label="Width"    value={w} min={0.3} max={4} step={0.1} onChange={(v) => update({ wheelWidth: v })} onCommit={snapshot} />
+        {/* The rim uses the normal Colour picker; the tyre has its own. */}
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="text-[9px] text-gray-400 w-14 shrink-0">Tyre</span>
+          <input type="color" value={obj.tyreColor ?? WHEEL_TYRE_COLOR}
+            onChange={(e) => update({ tyreColor: e.target.value })} onBlur={snapshot}
+            className="w-8 h-5 rounded border border-gray-700 bg-transparent cursor-pointer" title="Tyre colour (the rim uses the main Colour)" />
+          <span className="text-[9px] text-gray-500">rim = main Colour</span>
+        </div>
+        <div className="text-[9px] text-gray-400 mt-1">
+          Drive speed <span className="text-gray-100 font-semibold">×{factor.toFixed(2)}</span> vs the default wheel — a bigger wheel covers more ground per turn.
+        </div>
+        <div className={`text-[9px] mt-1 ${attachedTo ? 'text-green-500' : 'text-yellow-500/80'}`}>
+          {attachedTo ? `✓ On ${attachedTo.name} — it sets that side's speed.` : '⚠ Not on a motor yet — use “Attach to …” below so it drives the robot.'}
+        </div>
+      </div>
+    )
+  }
+  // Caster
+  const H = obj.casterHeight ?? CASTER_DEFAULTS.casterHeight
+  const B = obj.casterBall ?? CASTER_DEFAULTS.casterBall
+  const wheels = objects.filter((o) => o.type === 'wheel' || o.modelKey === 'free_wheels')
+  // Make the caster's bottom meet the lowest wheel's bottom, keeping its top
+  // (where it meets the chassis) in place — so the chassis sits level.
+  const levelWithWheels = () => {
+    const me = objectManager.getMesh(obj.id)
+    if (!me) return
+    let bottom = Infinity
+    for (const w of wheels) {
+      const m = objectManager.getMesh(w.id)
+      if (!m) continue
+      m.updateMatrixWorld(true)
+      const b = new THREE.Box3().setFromObject(m)
+      if (!b.isEmpty()) bottom = Math.min(bottom, b.min.y)
+    }
+    me.updateMatrixWorld(true)
+    const top = new THREE.Box3().setFromObject(me).max.y
+    const worldH = top - bottom
+    if (!isFinite(worldH) || worldH < 0.3) return
+    const sy = Math.abs(obj.scale?.y ?? 1) || 1
+    update({ casterHeight: +(worldH / sy).toFixed(3), position: { ...obj.position, y: obj.position.y + (top + bottom) / 2 - me.getWorldPosition(new THREE.Vector3()).y } })
+    snapshot()
+  }
+  return (
+    <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
+      <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Ball Caster</div>
+      <SizeRow label="Height" value={H} min={0.4} max={6} step={0.1} onChange={(v) => update({ casterHeight: v })} onCommit={snapshot} />
+      <SizeRow label="Ball ⌀"  value={B} min={0.2} max={3} step={0.1} onChange={(v) => update({ casterBall: v })} onCommit={snapshot} />
+      <button
+        onClick={levelWithWheels}
+        disabled={wheels.length === 0}
+        title={wheels.length ? 'Set the height so the ball touches the ground at the same level as the wheels (its top stays where it is)' : 'Add a wheel first'}
+        className="w-full mt-1 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:hover:bg-indigo-600 text-white transition-colors"
+      >
+        Level with wheels
+      </button>
+      <div className="text-[9px] text-gray-500 mt-1">Mount it under the chassis, opposite the wheels. The ball shrinks automatically if it can't fit the height.</div>
     </div>
   )
 }
@@ -986,6 +1070,11 @@ export default function PropertiesPanel() {
           ))}
         </div>
       </div>
+
+      {/* Wheel / caster parameters (sizes live on the object; utils/wheels.js) */}
+      {(obj.type === 'wheel' || obj.type === 'caster') && (
+        <RoundPartControls obj={obj} objects={objects} attachedTo={objects.find(o => o.id === attachments[obj.id])} update={update} snapshot={snapshot} />
+      )}
 
       {/* Gear parameters — only for gear objects */}
       {obj.type === 'gear' && (() => {
