@@ -131,7 +131,7 @@ export default function DimensionOverlay() {
     // camera or the canvas size changed. Previously it re-measured and called
     // setD() with a fresh object every frame (a 60 fps React re-render).
     const lastKey = new Float64Array(16 + 16 + 16 + 2)
-    let hasKey = false, lastD = null
+    let hasKey = false, lastD = null, lastGeo = null
     setD(null)   // drop the previous selection's box — the new tick only sets on change
     const setIfChanged = (next) => {
       const same = next === lastD || (next && lastD &&
@@ -149,6 +149,11 @@ export default function DimensionOverlay() {
         if (lastKey[32 + i] !== c[i]) { same = false; lastKey[32 + i] = c[i] }
       }
       if (lastKey[48] !== W || lastKey[49] !== H) { same = false; lastKey[48] = W; lastKey[49] = H }
+      // A parametric rebuild (wheel diameter, gear teeth…) swaps the geometry
+      // without moving the mesh — treat that as a change too.
+      // (A Group, e.g. the wheel, has no .geometry — it bumps userData.shapeVersion.)
+      const geoKey = mesh.geometry ?? mesh.userData.shapeVersion
+      if (geoKey !== lastGeo) { same = false; lastGeo = geoKey }
       hasKey = true
       return same
     }

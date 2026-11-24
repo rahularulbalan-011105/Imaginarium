@@ -5,7 +5,7 @@ import { objectManager } from '../managers/ObjectManager.js'
 import { applyFillet } from '../managers/FilletTool.js'
 import { useHistory } from '../hooks/useHistory.js'
 
-const UNSUPPORTED = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'gear', 'bolt', 'screw']
+const UNSUPPORTED = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'gear', 'bolt', 'screw', 'wheel', 'caster']
 
 export default function FilletPanel({ obj }) {
   const addCSGObject = useSceneStore(s => s.addCSGObject)
