@@ -28,7 +28,7 @@ import { getMassForObject } from '../managers/physics/MassCalculator.js'
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEG = 180 / Math.PI
-const ELECTRONICS = new Set(['arduino', 'subo', 'servo', 'motor', 'motor_dc', 'motor_bo', 'led', 'ultrasonic', 'ir_sensor', 'gas_sensor', 'oled', 'buzzer', 'ldr_sensor', 'dht11', 'color_sensor'])
+const ELECTRONICS = new Set(['arduino', 'subo', 'servo', 'motor', 'motor_dc', 'motor_bo', 'led', 'ultrasonic', 'ir_sensor', 'gas_sensor', 'oled', 'buzzer', 'ldr_sensor', 'dht11', 'color_sensor', 'l298n'])
 
 const S = {
   card:  { background: 'rgb(var(--g-800) / 0.5)', color: 'rgb(var(--g-200))' },
