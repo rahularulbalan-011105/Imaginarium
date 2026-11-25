@@ -27,7 +27,7 @@
 // Calls the frame may forward. Anything not in this list is ignored by the parent.
 export const OUT_CALLS = new Set([
   'analogWrite', 'digitalWrite', 'tone', 'noTone',
-  'serial', 'oled', 'servoAttach', 'servoWrite', 'pinsWrite',
+  'serial', 'oled', 'servoAttach', 'servoWrite', 'pinsWrite', 'irqAttach',
   'matrix', 'playTone', 'stopBuzzer', 'playBuzSeq', 'driveMotors',
   'walk', 'turn', 'stopWalking',
   // ESP32
@@ -59,7 +59,7 @@ var send = function (f, a) { try { parent.postMessage({ t:'out', f:f, a:a }, '*'
 addEventListener('message', function (e) {
   var d = e.data;
   if (!d) return;
-  if (d.t === 'in') IN = d.s;
+  if (d.t === 'in') { IN = d.s; __encStep(); }
   else if (d.t === 'stop') { RUNNING = false; }
 });
 
@@ -80,9 +80,68 @@ var pinMode = function () {};
 var analogWrite  = function (p, v) { send('analogWrite',  [Number(p), Number(v)]) };
 var digitalWrite = function (p, v) { send('digitalWrite', [Number(p), v]) };
 var analogRead = function (p) { var v = IN.aread[Number(p)]; return v == null ? 0 : v };
-var digitalRead = function (p) { var v = IN.dread[Number(p)]; return v == null ? 0 : v };
+var digitalRead = function (p) {
+  var e = ENC_LEVEL[Number(p)]; if (e != null) return e;      // encoder A/B outputs (see below)
+  var v = IN.dread[Number(p)]; return v == null ? 0 : v;
+};
 var pulseIn = function (p) { var v = IN.pulse[Number(p)]; return v == null ? 0 : v };
 var HIGH = 1, LOW = 0, OUTPUT = 1, INPUT = 0;
+
+// ── interrupts + quadrature encoders ──────────────────────────────────────
+// The parent sends each encoder's exact signed quadrature count (IN.quad). Every
+// change is replayed here edge by edge: the A/B levels step through
+// 00 → 10 → 11 → 01 (forward) and each edge fires the attachInterrupt()
+// handler on that pin, with the other channel already at its true level — so
+// "if (digitalRead(B) == LOW) ticks++" counts direction exactly as on hardware.
+// Handlers run between the sketch's awaits (e.g. during delay()), never in the
+// middle of its synchronous code, so noInterrupts() sections are safe.
+var CHANGE = 1, FALLING = 2, RISING = 3;
+var ENC_LEVEL = {}, QPREV = {}, IRQ = {}, IRQ_ON = true;
+var digitalPinToInterrupt = function (p) { return Number(p) };
+// attachInterrupt(0 / 1, …) is the old Uno style for pins 2 / 3.
+var __irqPin = function (n) { n = Number(n); return (IN.uno && (n === 0 || n === 1)) ? n + 2 : n };
+var attachInterrupt = function (n, fn, mode) { IRQ[Number(n)] = { fn: fn, mode: Number(mode) }; send('irqAttach', [Number(n), Number(mode)]) };
+var detachInterrupt = function (n) { delete IRQ[Number(n)] };
+var interrupts = function () { IRQ_ON = true };
+var noInterrupts = function () { IRQ_ON = false };
+var __fire = function (pin, rising) {
+  if (!IRQ_ON || !RUNNING) return;
+  for (var k in IRQ) {
+    var ip = __irqPin(k);
+    if (ip !== pin) continue;
+    if (IN.uno && ip !== 2 && ip !== 3) continue;          // an Uno has interrupts on 2 and 3 only
+    var h = IRQ[k], m = h.mode;
+    if (m === CHANGE || (m === RISING && rising) || (m === FALLING && !rising)) {
+      try {
+        var r = typeof h.fn === 'function' ? h.fn() : null;
+        if (r && r.catch) r.catch(function (e) { onRuntimeError(e && e.message ? e.message : String(e)) });
+      } catch (e) { onRuntimeError(e && e.message ? e.message : String(e)) }
+    }
+  }
+};
+var __lv = function (c) { var s = ((c % 4) + 4) % 4; return [(s === 1 || s === 2) ? 1 : 0, (s === 2 || s === 3) ? 1 : 0] };
+var __encStep = function () {
+  var q = IN.quad || {};
+  for (var key in q) {
+    var e = q[key], c = Math.trunc(Number(e.count) || 0);
+    if (QPREV[key] === undefined) {
+      var l0 = __lv(c); QPREV[key] = c;
+      if (e.a >= 0) ENC_LEVEL[e.a] = l0[0];
+      if (e.b >= 0) ENC_LEVEL[e.b] = l0[1];
+      continue;
+    }
+    var p = QPREV[key];
+    if (Math.abs(c - p) > 20000) p = c - (c > p ? 20000 : -20000);   // never stall the frame
+    while (p !== c) {
+      var from = __lv(p); p += c > p ? 1 : -1; var to = __lv(p);
+      if (e.a >= 0) ENC_LEVEL[e.a] = to[0];
+      if (e.b >= 0) ENC_LEVEL[e.b] = to[1];
+      if (e.a >= 0 && to[0] !== from[0]) __fire(e.a, to[0] === 1);
+      if (e.b >= 0 && to[1] !== from[1]) __fire(e.b, to[1] === 1);
+    }
+    QPREV[key] = c;
+  }
+};
 
 // ── maths (pure, identical to the Arduino core) ───────────────────────────
 var map = function (x, a, b, c, d) { return ((x - a) * (d - c)) / (b - a) + c };
@@ -254,10 +313,27 @@ IMU.prototype = {
   getGyroY:  function () { var r = this._get(); return r ? r.gyro.y : 0 },
   getGyroZ:  function () { var r = this._get(); return r ? r.gyro.z : 0 },
 };
-function Encoder(p) { this._pin = p == null ? -1 : Number(p) }
+// Encoder enc(pin)       → a servo's joint encoder (degrees, physics robots)
+// Encoder enc(pinA, pinB) → a quadrature encoder, like the PJRC Encoder library:
+//                           read() = 4× count, write(n), readAndReset()
+function Encoder(p, b) { this._pin = p == null ? -1 : Number(p); this._b = b == null ? null : Number(b); this._off = 0 }
 Encoder.prototype = {
   attach: function (p) { this._pin = Number(p) },
-  read: function () { var e = IN.enc[this._pin]; return e ? e.deg : 90 },
+  _q: function () {
+    var q = IN.quad || {};
+    for (var k in q) {
+      var e = q[k];
+      if (e.a === this._pin && e.b === this._b) return Math.trunc(e.count);
+      if (e.a === this._b && e.b === this._pin) return -Math.trunc(e.count);   // A/B swapped → reversed
+    }
+    return 0;
+  },
+  read: function () {
+    if (this._b != null) return this._q() - this._off;
+    var e = IN.enc[this._pin]; return e ? e.deg : 90;
+  },
+  write: function (v) { if (this._b != null) this._off = this._q() - (Number(v) || 0) },
+  readAndReset: function () { var v = this.read(); this.write(0); return v },
   readVelocity: function () { var e = IN.enc[this._pin]; return e ? e.degPerSec : 0 },
 };
 function Battery() {}

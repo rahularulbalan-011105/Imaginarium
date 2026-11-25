@@ -7,8 +7,9 @@
 import { ESP32_PIN_NAMES } from './esp32Board.js'
 import { L298N_PIN_ORDER } from './l298n.js'
 import { ULN2003_PIN_ORDER, STEPPER_WIRES } from './stepper.js'
+import { ENC_MOTOR_PIN_ORDER } from './encoderMotor.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr'])
+export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc'])
 
 export const PIN_DEFS = {
   // L298N motor driver: motor outputs, power terminal, logic header (utils/l298n.js).
@@ -26,6 +27,7 @@ export const PIN_DEFS = {
   motor:    ['TERM_A','TERM_B'],
   motor_bo: ['TERM_A','TERM_B'],
   motor_dc: ['TERM_A','TERM_B'],
+  motor_enc: ENC_MOTOR_PIN_ORDER,     // TT motor + Hall encoder (utils/encoderMotor.js)
   led:      ['ANODE','CATHODE'],
   servo:    ['SIGNAL','VCC','GND'],
   servo_cr: ['SIGNAL','VCC','GND'],   // continuous servo: same lead

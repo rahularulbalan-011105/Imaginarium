@@ -32,6 +32,7 @@ const CORE_FUNCS = {
   floor: 1, ceil: 1, round: 1, log: 1, exp: 1, sin: 1, cos: 1, tan: 1,
   random: null, randomSeed: 1, tone: null, noTone: 1, pulseIn: null,
   bitRead: 2, bitWrite: 3, bitSet: 2, bitClear: 2, lowByte: 1, highByte: 1,
+  attachInterrupt: 3, detachInterrupt: 1, digitalPinToInterrupt: 1, interrupts: 0, noInterrupts: 0,
   // Simulator legged-locomotion API (SimulationManager): walk(speed%) / turn(rate%).
   walk: 1, turn: 1, stopWalking: 0,
 }
@@ -75,6 +76,7 @@ const CORE_CONSTS = new Set([
   'WHITE', 'BLACK', 'SSD1306_WHITE', 'SSD1306_BLACK', 'SSD1306_INVERSE',
   'SSD1306_SWITCHCAPVCC', 'SSD1306_EXTERNALVCC', 'SCREEN_WIDTH', 'SCREEN_HEIGHT',
   'S0', 'S1', 'S2', 'S3', 'OUT',
+  'RISING', 'FALLING', 'CHANGE', 'IRAM_ATTR',
 ])
 const SUBO_CONSTS = new Set([
   ...Array.from({ length: 21 }, (_, i) => `IO${i + 1}`),

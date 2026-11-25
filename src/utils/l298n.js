@@ -58,7 +58,7 @@ export function l298nOutputs(levels = {}, enWired = {}, grounded = true) {
   return out
 }
 
-const MOTORS = new Set(['motor', 'motor_bo', 'motor_dc'])
+const MOTORS = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 
 /**
  * driverId → { OUT1: [{ id, terminal }], … } — the motor terminals wired to

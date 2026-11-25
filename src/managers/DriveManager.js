@@ -20,7 +20,7 @@ import { autoBlueprintForObjects } from '../robot/autoBlueprint.js'
 import { resolveRobotConfig } from './physics/robotics/config.js'
 import { frontFromView, inferForward } from './physics/robotics/forwardAxis.js'
 import { servoWiring, servoWiringIssues, engineIssue, makeIssue } from './physics/robotics/diagnosis.js'
-import { sideSpeedScale, rollingLoadNm, DEFAULT_WHEEL_RADIUS_M } from '../utils/gearMotor.js'
+import { sideSpeedScale, rollingLoadNm, loadFactor, gearSpecs, ratioOf, hasGearbox, DEFAULT_WHEEL_RADIUS_M } from '../utils/gearMotor.js'
 import { reportIssue, clearIssues } from './simIssues.js'
 import { sceneManager } from './SceneManager.js'
 import { getCurrentQuality } from '../utils/devicePerformance.js'
@@ -44,7 +44,7 @@ export function loadRobotics() {
 export function preparePhysics() { return Promise.all([physicsManager.init(), loadRobotics()]) }
 
 // servo_cr = continuous-rotation servo: a drive motor that speaks Servo.write (utils/continuousServo.js)
-const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc', 'servo_cr'])
+const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo_cr'])
 const DRIVE_BODY_ID  = 'robot_drive'
 const MAX_V          = 200  // max vertical fall speed (scene units/s) — clamps gravity accumulation
 
@@ -1038,6 +1038,7 @@ class DriveManager {
     this._roll      = 0
     this._rollVel   = 0
     if (this._integrator) { this._integrator.reset(); this._integrator = null }
+    simulationManager.motorLoad = {}            // encoders: no robot load once out of the simulator
     if (this._leggedSystem) { this._leggedSystem.reset(); this._leggedSystem = null }
     this._isLegged = false
     this._turnWarned = null
@@ -1091,6 +1092,12 @@ class DriveManager {
     const loadOf = (motor) => rollingLoadNm({ massKg, gravity, rollingFriction, wheelRadiusM: wheelRadiusM(motor), driveMotors })
     const L = sideSpeedScale(this._leftIds, byId, loadOf)
     const R = sideSpeedScale(this._rightIds, byId, loadOf)
+    // Each motor's own load factor, for encoders: they count the REAL (loaded) speed.
+    simulationManager.motorLoad = {}
+    for (const id of new Set([...this._leftIds, ...this._rightIds])) {
+      const m = byId.get(id)
+      if (hasGearbox(m)) simulationManager.motorLoad[id] = loadFactor(gearSpecs(ratioOf(m)).stallNm, loadOf(m))
+    }
     this._drive.speedScaleLeft  = L.scale
     this._drive.speedScaleRight = R.scale
     const worst = Math.min(L.worst, R.worst)
