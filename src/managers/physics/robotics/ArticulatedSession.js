@@ -132,6 +132,7 @@ export class ArticulatedSession {
 
     // Standalone objects are fixed obstacles with their own material.
     for (const o of standalone) {
+      if (o.loose) continue                         // a loose part is a gripper target, not an obstacle
       const m = this.objectMgr.getMesh(o.id)
       if (!m) continue
       const box = new THREE.Box3().setFromObject(m)

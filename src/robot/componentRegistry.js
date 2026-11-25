@@ -82,6 +82,7 @@ registerComponent({ type: 'uln2003', category: 'driver', label: 'ULN2003 Driver'
 registerComponent({ type: 'stepper', category: 'actuator', label: 'Stepper 28BYJ-48', icon: '🌀', role: 'stepper', capabilities: { actuator: 'rotational' }, electrical: { voltage: 5 } })
 
 // Outputs
+registerComponent({ type: 'gripper', category: 'output', label: 'Servo Gripper', icon: '🦾', role: 'gripper', capabilities: { output: 'grasp', actuator: 'servo' } })
 registerComponent({ type: 'led',    category: 'output', label: 'LED',    icon: '💡', role: 'output', capabilities: { output: 'light' } })
 registerComponent({ type: 'buzzer', category: 'output', label: 'Buzzer', icon: '🔊', role: 'output', capabilities: { output: 'audio' } })
 registerComponent({ type: 'oled',   category: 'output', label: 'OLED',   icon: '🖵', role: 'output', capabilities: { output: 'display' } })
@@ -101,6 +102,7 @@ const DRAW_mA = {
   arduino: 50, subo: 80,
   motor: 250, motor_bo: 250, motor_enc: 260, motor_dc: 250, dc_motor: 250,
   servo: 150,
+  gripper: 150, // its servo; ~650 mA while squeezing at stall (SG90)
   servo_cr: 150, // FS90R running, no load ~100–150 mA
   l298n: 36,   // logic quiescent current (datasheet); the motors' draw is counted on the motors
   stepper: 240, // 28BYJ-48 5 V: ~120 mA per coil, two coils on in full step

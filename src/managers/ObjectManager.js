@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group } from '../utils/electronicsFactory.js'
+import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -110,7 +110,7 @@ function buildRoundGroup(obj) {
   return g
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685'])
+const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos + steppers)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper'])
@@ -200,6 +200,8 @@ class ObjectManager {
       object3d = createContinuousServoGroup()  // servo body, spins like a motor (utils/continuousServo.js)
     } else if (obj.type === 'stepper') {
       object3d = createStepperGroup()  // 28BYJ-48 (utils/stepper.js has the logic)
+    } else if (obj.type === 'gripper') {
+      object3d = createGripperGroup()  // servo claw (utils/gripper.js, managers/GripperSystem.js)
     } else if (obj.type === 'pca9685') {
       object3d = createPca9685Group()  // 16-channel servo driver (utils/pca9685.js)
     } else if (obj.type === 'uln2003') {

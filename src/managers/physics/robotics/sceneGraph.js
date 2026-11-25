@@ -43,7 +43,7 @@ const NON_PHYSICAL_FLAGS = [
   'isSelectionOutline', 'isPatchMesh', 'isJointHelper', 'isHandle', 'isGuide',
   'isAttachMarker', 'isHelper', 'isPrintBed', 'isBattleProxy',
 ]
-const isNonPhysical = (n) => { const u = n.userData; return !!u && (u.pinId != null || NON_PHYSICAL_FLAGS.some(f => u[f])) }
+export const isNonPhysical = (n) => { const u = n.userData; return !!u && (u.pinId != null || NON_PHYSICAL_FLAGS.some(f => u[f])) }
 
 function forOwnMeshes(root, fn) {
   const id = root.userData?.id

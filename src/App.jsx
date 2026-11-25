@@ -37,6 +37,7 @@ import { objectManager } from './managers/ObjectManager.js'
 import { storageManager } from './managers/StorageManager.js'
 import { simulationManager } from './managers/SimulationManager.js'
 import { driveManager } from './managers/DriveManager.js'
+import { gripperSystem } from './managers/GripperSystem.js'
 import { wireManager } from './managers/WireManager.js'
 import { buildProjectSnapshot, snapRotationToAxes } from './utils/helpers.js'
 import { prefetchModels } from './utils/modelLoader.js'
@@ -47,7 +48,7 @@ import { loadCSG } from './utils/csgLib.js'
 import { hasGearbox, gearSpeedFactor, ratioOf } from './utils/gearMotor.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
-const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'motor_enc']
+const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'motor_enc', 'gripper']
 
 // Startup overlay. It does NOT gate the editor: the editor mounts underneath at
 // once and this fades out as soon as the viewport has drawn its first frame.
@@ -165,6 +166,7 @@ function AppEditor() {
 
   // ── Motor + LED animation, and differential drive physics ────────────────
   const simActiveRef = useRef(false)
+  const gripOnRef = useRef(false)          // gripper system ran last frame (reset it once everything stops)
   simActiveRef.current = simActive
 
   // Initialize JointManager once scene + objectManager are ready
@@ -199,6 +201,10 @@ function AppEditor() {
       }
       // Drive physics runs every frame when simulation mode is active
       if (simActiveRef.current) driveManager.step()
+      // Grippers (after the drive, so a held part follows the robot's final pose
+      // this frame). Back to the design pose once code and simulation have stopped.
+      if (simulationManager.isRunning() || simActiveRef.current) { gripperSystem.step(); gripOnRef.current = true }
+      else if (gripOnRef.current) { gripperSystem.reset(); gripOnRef.current = false }
       // Propagate rigid bonds every frame — bonds are live constraints. Skipped
       // while the articulated physics engine owns the robot (bonded parts are one
       // rigid body there, posed by physics — the kinematic pass would fight it).

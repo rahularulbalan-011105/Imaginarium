@@ -4,6 +4,9 @@ import { crMotorSpeed } from '../utils/continuousServo.js'
 import { encoderWiring, outputRpm, stepRpm, quadCount, UNO_INTERRUPT_PINS } from '../utils/encoderMotor.js'
 import { ratioOf } from '../utils/gearMotor.js'
 import { pcaWiring, pulseToAngle, hex, SERVO_MAX_HZ } from '../utils/pca9685.js'
+
+// Parts that take a servo signal: servos, continuous servos, and the gripper's servo.
+const SERVO_LIKE = new Set(['servo', 'servo_cr', 'gripper'])
 import { buildStepperWiring, isUln2003Powered, uln2003Outputs, createRotor, driveRotor, shaftAngle, ULN2003_INPUTS, MAX_RPM } from '../utils/stepper.js'
 import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
@@ -454,11 +457,11 @@ class SimulationManager {
     // fix it: Electronics (a servo isn't wired) or Code (wrong pin number).
     // Continuous-rotation servos (servo_cr) use the same Servo class and wiring
     // rules, but write() sets their SPEED (utils/continuousServo.js).
-    const sceneServos = self._objects.filter(o => o.type === 'servo' || o.type === 'servo_cr').map(o => ({ id: o.id, name: o.name }))
+    const sceneServos = self._objects.filter(o => SERVO_LIKE.has(o.type)).map(o => ({ id: o.id, name: o.name }))
     const servoWire = servoWiring(sceneServos, self._connections)
     const _servoAttach = (pin) => {
       const p = Number(pin)
-      if ((pinMap[p] || []).some(c => c.type === 'servo' || c.type === 'servo_cr')) return
+      if ((pinMap[p] || []).some(c => SERVO_LIKE.has(c.type))) return
       if (sceneServos.length) reportIssue(attachIssue(p, sceneServos, servoWire))
     }
     const _driveServo = (comp, a) => {
@@ -476,7 +479,7 @@ class SimulationManager {
       self.actuatorCalls++
       const a = Math.max(0, Math.min(180, Number(angle) || 0))
       for (const comp of (pinMap[Number(pin)] || []))
-        if (comp.type === 'servo' || comp.type === 'servo_cr') _driveServo(comp, a)
+        if (SERVO_LIKE.has(comp.type)) _driveServo(comp, a)
     }
 
     // PCA9685: the sketch's I2C command reaches every board at that address that

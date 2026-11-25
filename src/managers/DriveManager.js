@@ -238,7 +238,8 @@ class DriveManager {
       if (obj.type === 'plane') continue
       const mesh = this.objectMgr.getMesh(obj.id)
       if (!mesh || mesh.parent !== this.scene) continue
-      if (standaloneSet.has(obj.id)) standaloneObjects.push(obj)
+      // obj.loose = a pick-up part (gripper target): not part of the robot either
+      if (standaloneSet.has(obj.id) || obj.loose) standaloneObjects.push(obj)
       else                            topLevel.push(obj)
     }
     if (topLevel.length === 0) return
@@ -250,7 +251,7 @@ class DriveManager {
     this._buried = []
     for (const obj of objects) {
       const m = this.objectMgr.getMesh(obj.id)
-      if (!m || standaloneSet.has(obj.id)) continue
+      if (!m || standaloneSet.has(obj.id) || obj.loose) continue
       m.updateMatrixWorld(true)
       const bb = new THREE.Box3().setFromObject(m)
       if (!bb.isEmpty() && bb.max.y < BURIED_Y) {
@@ -552,7 +553,7 @@ class DriveManager {
       // Static colliders for standalone obstacles
       for (const obj of standaloneObjects) {
         const mesh = this.objectMgr.getMesh(obj.id)
-        if (!mesh) continue
+        if (!mesh || obj.loose) continue        // loose parts are gripper targets, not walls
         mesh.updateMatrixWorld(true)
         const box  = new THREE.Box3().setFromObject(mesh)
         const ctr2 = new THREE.Vector3(); box.getCenter(ctr2)
@@ -775,7 +776,7 @@ class DriveManager {
     physicsManager.init().then(() => {
       for (const obj of standaloneObjects) {
         const mesh = this.objectMgr.getMesh(obj.id)
-        if (!mesh) continue
+        if (!mesh || obj.loose) continue        // loose parts are gripper targets, not walls
         mesh.updateMatrixWorld(true)
         const box    = new THREE.Box3().setFromObject(mesh)
         const center = new THREE.Vector3(); box.getCenter(center)

@@ -22,6 +22,8 @@ import Placeholder from './ui/Placeholder.jsx'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, wheelWorldRadius, wheelSpeedFactor } from '../utils/wheels.js'
 import { STEPPER_WIRES, STEPPER_PLUG, MAX_RPM, buildStepperWiring } from '../utils/stepper.js'
 import { ENC_PPR, pulsesPerWheelTurn } from '../utils/encoderMotor.js'
+import { GRIP, GRIPPER_SERVOS, servoOf, padForceN, holdCapacityN, maxPayloadKg, angleForGap, FULL_SQUEEZE_CM } from '../utils/gripper.js'
+import { SERVO_PRESETS } from '../managers/physics/robotics/ServoActuator.js'
 import { PCA_ADDRESSES, PCA_CHANNELS, hex, addrOf, plugWires, boardWires, pcaWiring } from '../utils/pca9685.js'
 import { isSupplyPinName, isGroundPinName } from '../stores/electronicsStore.js'
 import { v4 as uuidv4 } from 'uuid'
@@ -319,6 +321,76 @@ function StepperControls({ obj, objects, snapshot }) {
   )
 }
 
+// Servo gripper: which servo drives it (grip strength + speed), and what it can
+// hold — every LOOSE part in the scene, judged at that part's width.
+function GripperControls({ obj, objects, update, snapshot }) {
+  const gravity = Math.abs(usePhysicsStore((s) => s.gravity) ?? 9.81)
+  const servo = servoOf(obj)
+  const loose = objects.filter((o) => o.loose)
+  // a part's narrowest horizontal size (cm) is how wide the jaws must close on it
+  const widthOf = (o) => {
+    const m = objectManager.getMesh(o.id)
+    if (!m) return null
+    const b = new THREE.Box3().setFromObject(m)
+    return b.isEmpty() ? null : Math.min(b.max.x - b.min.x, b.max.z - b.min.z)
+  }
+  const pick = (v) => { if (v !== servo) { update({ gripServo: v }); snapshot() } }
+  const padN = padForceN(servo, GRIP.maxGap / 2)
+  return (
+    <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
+      <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Gripper</div>
+      <div className="grid grid-cols-3 gap-1 mb-2">
+        {GRIPPER_SERVOS.map((v) => (
+          <button key={v} onClick={() => pick(v)}
+            className={`py-1 rounded text-[11px] font-semibold transition-colors ${v === servo ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+            {v.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-x-2 text-[10px] mb-1.5">
+        <span className="text-gray-400">Servo</span><span className="text-gray-100 font-semibold text-right">{SERVO_PRESETS[servo].label.split('(')[1]?.replace(')', '')}</span>
+        <span className="text-gray-400">Opening</span><span className="text-gray-100 font-semibold text-right">0 – {GRIP.maxGap.toFixed(1)} cm</span>
+        <span className="text-gray-400">Squeeze (each pad)</span><span className="text-gray-100 font-semibold text-right">{padN.toFixed(1)} N</span>
+        <span className="text-gray-400">Holds up to</span><span className="text-gray-100 font-semibold text-right">{(holdCapacityN(padN) / gravity).toFixed(2)} kg</span>
+      </div>
+      <div className="text-[9px] text-gray-400 border-t border-gray-700/60 pt-1.5">
+        {loose.length === 0
+          ? <span className="text-yellow-500/80">⚠ No loose parts. Select the part to pick up and tick “Loose object”.</span>
+          : loose.map((o) => {
+              const w = widthOf(o), kg = effectiveMass(o)
+              const fits = w != null && w <= GRIP.maxGap
+              const ok = fits && maxPayloadKg(servo, w, gravity) >= kg
+              return (
+                <div key={o.id} className="flex justify-between gap-2">
+                  <span className="truncate text-gray-300">{o.name} · {kg < 1 ? `${Math.round(kg * 1000)} g` : `${kg.toFixed(2)} kg`}{w != null ? ` · ${w.toFixed(1)} cm` : ''}</span>
+                  <span className={ok ? 'text-green-500' : 'text-red-400'}>
+                    {!fits ? 'too wide' : ok ? `✓ close to ≥ ${Math.min(180, angleForGap(w) + Math.round(FULL_SQUEEZE_CM * 180 / GRIP.maxGap))}°` : '✕ too heavy'}
+                  </span>
+                </div>
+              )
+            })}
+      </div>
+      <div className="text-[9px] text-gray-500 mt-1.5">
+        In code it is a servo: <span className="font-mono text-gray-300">claw.write(0)</span> opens fully, <span className="font-mono text-gray-300">claw.write(180)</span> closes. Close a little past the part so the servo squeezes. Mount it on an arm servo's horn to lift what it holds.
+      </div>
+    </div>
+  )
+}
+
+// A part a gripper can pick up: not part of the robot (it doesn't ride along or
+// count toward the robot's weight) and not a wall — a loose thing on the table.
+function LooseToggle({ obj, update, snapshot }) {
+  return (
+    <label className="mb-3 flex items-start gap-2 p-2 bg-gray-800/40 rounded border border-gray-700/50 cursor-pointer">
+      <input type="checkbox" className="mt-0.5" checked={!!obj.loose}
+        onChange={(e) => { update({ loose: e.target.checked || undefined }); snapshot() }} />
+      <span className="text-[10px] text-gray-300">
+        <span className="font-semibold text-gray-100">Loose object</span> — not part of the robot. A gripper can pick it up; the robot doesn't collide with it.
+      </span>
+    </label>
+  )
+}
+
 // PCA9685: address jumpers, one-click header wiring to the board, and servo
 // leads plugged onto channels (three wires each, like the real 3-pin header).
 // The bus/power checks are the simulator's own (utils/pca9685.js).
@@ -329,7 +401,7 @@ function PcaControls({ obj, objects, update, snapshot }) {
   const removeWire  = useElectronicsStore((s) => s.removeWireConnection)
   const w = pcaWiring(connections, objects, { isSupply: isSupplyPinName, isGround: isGroundPinName })[obj.id]
   const boards = objects.filter((o) => PCA_BOARDS.has(o.type))
-  const servos = objects.filter((o) => o.type === 'servo' || o.type === 'servo_cr')
+  const servos = objects.filter((o) => o.type === 'servo' || o.type === 'servo_cr' || o.type === 'gripper')
   const onCh = new Map()                                  // servoId → channel on THIS board
   for (const [ch, ids] of Object.entries(w?.channels ?? {})) for (const id of ids) onCh.set(id, Number(ch))
   const used = new Set(onCh.values())
@@ -421,7 +493,7 @@ function GearboxControls({ obj, objects, update, snapshot }) {
   const ratio = ratioOf(obj)
   const spec = gearSpecs(ratio)
   // This robot: everything not detached as an obstacle (as the simulator does).
-  const robot = objects.filter((o) => !standalone.includes(o.id))
+  const robot = objects.filter((o) => !standalone.includes(o.id) && !o.loose)
   const massKg = Math.max(0.1, totalMass(robot))
   const driveMotors = Math.max(1, robot.filter((o) => DRIVE_TYPES.has(o.type)).length)
   const wheel = objects.find((o) => o.type === 'wheel' && attachments[o.id] === obj.id)
@@ -553,14 +625,14 @@ export default function PropertiesPanel() {
   const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'motor_enc']
   const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper']
   const isMotor      = obj && MOTOR_TYPES.includes(obj.type)
-  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led' || obj.type === 'uln2003' || obj.type === 'pca9685')
+  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led' || obj.type === 'uln2003' || obj.type === 'pca9685' || obj.type === 'gripper')
 
   // Secondary selection: shift-click on a motor or servo → direct Attach button
   const secondaryObj    = objects.find(o => o.id === secondaryId) ?? null
   const secondaryShaft  = secondaryObj && SHAFT_TYPES.includes(secondaryObj.type) ? secondaryObj : null
 
   // Whether this object can be attached to a motor/servo shaft
-  const isAttachable = obj && !attachedMotor && !isElectronics
+  const isAttachable = obj && !attachedMotor && (!isElectronics || obj.type === 'gripper')   // a claw mounts on an arm servo's horn
 
   // Scene-wide shaft targets (motors + servos that have a valid rotorGroup)
   const shaftTargets = objects.filter(o =>
@@ -1275,6 +1347,8 @@ export default function PropertiesPanel() {
       )}
       {obj.type === 'stepper' && <StepperControls obj={obj} objects={objects} snapshot={snapshot} />}
       {obj.type === 'pca9685' && <PcaControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
+      {obj.type === 'gripper' && <GripperControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
+      {!isElectronics && !attachedMotor && <LooseToggle obj={obj} update={update} snapshot={snapshot} />}
       {(obj.type === 'motor_bo' || obj.type === 'motor_enc') && <GearboxControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
 
       {/* Gear parameters — only for gear objects */}

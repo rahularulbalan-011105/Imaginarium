@@ -115,7 +115,7 @@ export function pcaWiring(connections, objects, { isSupply, isGround }) {
     const touches = (pin, test) => pinsOn(`${id}:${pin}`).some((p) => BOARDS.has(p.type) && test(p.pin))
     const channels = {}
     for (let ch = 0; ch < PCA_CHANNELS; ch++) {
-      const servos = pinsOn(`${id}:PWM${ch}`).filter((p) => (p.type === 'servo' || p.type === 'servo_cr') && p.pin === 'SIGNAL').map((p) => p.id)
+      const servos = pinsOn(`${id}:PWM${ch}`).filter((p) => (p.type === 'servo' || p.type === 'servo_cr' || p.type === 'gripper') && p.pin === 'SIGNAL').map((p) => p.id)
       if (servos.length) channels[ch] = servos
     }
     out[id] = {

@@ -19,6 +19,7 @@ const ELEC_MASS = {
   stepper: 0.037, // 28BYJ-48 incl. gearbox + cable
   uln2003: 0.008, // ULN2003 driver board
   pca9685: 0.009, // PCA9685 16-channel servo driver
+  gripper: 0.045, // acrylic parallel claw incl. its SG90-class servo
 }
 
 // Returns geometry volume in m³, using scene-unit scale (scale.x etc. = dimensionless
