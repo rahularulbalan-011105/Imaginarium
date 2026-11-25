@@ -47,7 +47,7 @@ import { loadCSG } from './utils/csgLib.js'
 import { hasGearbox, gearSpeedFactor, ratioOf } from './utils/gearMotor.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
-const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr']
+const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'motor_enc']
 
 // Startup overlay. It does NOT gate the editor: the editor mounts underneath at
 // once and this fades out as soon as the viewport has drawn its first frame.

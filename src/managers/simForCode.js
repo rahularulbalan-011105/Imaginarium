@@ -9,7 +9,7 @@ import { trackEvent } from '../utils/utmTracking.js'
 
 // Parts that make a robot move. A sketch with none of these (LED blink, sensor
 // readout…) runs without entering simulation, exactly as before.
-const ACTUATORS = new Set(['servo', 'servo_cr', 'motor', 'motor_bo', 'motor_dc'])
+const ACTUATORS = new Set(['servo', 'servo_cr', 'motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 
 const entered = () => !!(driveManager.rootGroup || driveManager._useRapierFreefall || driveManager._articulated)
 const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()))

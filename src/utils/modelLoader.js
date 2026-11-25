@@ -132,7 +132,7 @@ function _prepare(key, root) {
 export function isModelLoaded(key) { return key in _cache }
 
 // Part types that are drawn with another part's GLB (no file of their own).
-const MODEL_ALIAS = { servo_cr: 'servo' }
+const MODEL_ALIAS = { servo_cr: 'servo', motor_enc: 'motor_bo' }
 /** The GLB key a part type is drawn with (its own type unless aliased). */
 export function modelKeyOf(type) { return MODEL_ALIAS[type] ?? type }
 

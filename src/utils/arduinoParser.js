@@ -7,7 +7,7 @@ const TT = { NUM:'NUM', STR:'STR', CHAR:'CHAR', IDENT:'IDENT', KW:'KW', OP:'OP',
 
 const KEYWORDS = new Set([
   'void','int','float','double','bool','boolean','char','byte',
-  'long','short','unsigned','signed','const','static','String','auto',
+  'long','short','unsigned','signed','const','static','volatile','String','auto',
   'if','else','while','for','do','return','break','continue',
   'switch','case','default','true','false','null','NULL',
   'struct','typedef','sizeof','new','delete',
@@ -148,7 +148,7 @@ class TS {
 
 function isTypeTok(ts, n = 0) {
   const tk = ts.peek(n)
-  if (tk.t === TT.KW) return C_TYPES.has(tk.v) || tk.v === 'const' || tk.v === 'static' || tk.v === 'unsigned' || tk.v === 'signed'
+  if (tk.t === TT.KW) return C_TYPES.has(tk.v) || tk.v === 'const' || tk.v === 'static' || tk.v === 'volatile' || tk.v === 'unsigned' || tk.v === 'signed'
   return false
 }
 
@@ -164,8 +164,11 @@ function isTypeStart(ts) {
 
 function parseTypeSpec(ts) {
   const parts = []
-  ts.matchKw('static')
+  // Storage/qualifier words that change nothing in the simulator, in any order:
+  // `static`, and `volatile` (every interrupt sketch: volatile long ticks = 0;).
+  while (ts.isKw('static') || ts.isKw('volatile')) ts.next()
   if (ts.isKw('const')) { parts.push('const'); ts.next() }
+  while (ts.isKw('static') || ts.isKw('volatile')) ts.next()
   while (ts.isKw('unsigned') || ts.isKw('signed')) parts.push(ts.next().v)
   const bt = ts.peek()
   if ((bt.t === TT.KW && (C_TYPES.has(bt.v) || bt.v === 'void')) || bt.t === TT.IDENT)

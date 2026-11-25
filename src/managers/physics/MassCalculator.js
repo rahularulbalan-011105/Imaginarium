@@ -14,6 +14,7 @@ const ELEC_MASS = {
   ultrasonic: 0.0085, ir_sensor: 0.003, gas_sensor: 0.010, color_sensor: 0.005,
   ldr_sensor: 0.003, dht11: 0.004, oled: 0.006, buzzer: 0.003,
   l298n: 0.030,   // L298N module incl. heatsink
+  motor_enc: 0.032, // TT motor + encoder board
   servo_cr: 0.011, // FS90R continuous servo
   stepper: 0.037, // 28BYJ-48 incl. gearbox + cable
   uln2003: 0.008, // ULN2003 driver board

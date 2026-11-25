@@ -193,8 +193,18 @@ export const ULN2003_PINS = {
   }])),
 }
 
+// TT motor + Hall encoder: one 6-pin header on the encoder board at the back of
+// the motor (createEncoderMotorGroup), in the real order M1 GND C1 C2 VCC M2.
+// Motor power moves to M1/M2 on this header (it is routed through the board).
+const ENC_HDR = [['TERM_A', 'M1', 0xff2222, 'power'], ['GND', 'GND', 0x333333, 'gnd'], ['ENC_A', 'A', 0x22c55e, 'digital'],
+  ['ENC_B', 'B', 0x3b82f6, 'digital'], ['VCC', 'VCC', 0xff6666, 'power'], ['TERM_B', 'M2', 0x111111, 'gnd']]
+export const ENC_MOTOR_PINS = Object.fromEntries(ENC_HDR.map(([name, label, color, type], i) => [name, {
+  x: -2.62, y: 1.02, z: -0.635 + i * 0.254, r: 0.09, color, type, label, ldy: i % 2 ? 0.3 : 0,
+}]))
+
 export const PIN_DEFS = {
   l298n:    L298N_PINS,
+  motor_enc: ENC_MOTOR_PINS,
   stepper:  STEPPER_PINS,
   uln2003:  ULN2003_PINS,
   arduino:  ARDUINO_PINS,
@@ -222,6 +232,7 @@ const LABEL_OFFSET = {
   arduino:  { dx: 0, dy: 0.55, dz: 0 },
   motor:    { dx: -0.85, dy: 0, dz: 0 },
   motor_bo: { dx: -0.85, dy: 0, dz: 0 },
+  motor_enc: { dx: 0, dy: 0.42, dz: 0 },
   motor_dc: { dx: -0.85, dy: 0, dz: 0 },
   led:      { dx: -0.6,  dy: 0, dz: 0 },
   servo:    { dx: -0.85, dy: 0, dz: 0 },
@@ -1281,6 +1292,37 @@ export function createLDRGroup() {
     root.add(pot)
   }
   root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
+}
+
+// ─── TT motor with a Hall encoder ────────────────────────────────────────────
+// The BO motor (motor_bo.glb, its can along −x) plus the encoder parts on its
+// rear shaft: a ring magnet, the encoder board with its two Hall sensors, and
+// the 6-pin header (ENC_MOTOR_PINS). Logic: utils/encoderMotor.js.
+export function createEncoderMotorGroup() {
+  const root = createMotorBOGroup()
+  root.userData.labelScale = 0.55
+  root.updateMatrixWorld(true)
+  const x0 = new THREE.Box3().setFromObject(root).min.x        // rear end of the motor
+  const enc = new THREE.Group(); enc.name = 'encoder'
+  const magnet = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.1, 28), mat(0x1c1c20, { roughness: 0.5, metalness: 0.2 }))
+  magnet.rotation.z = Math.PI / 2; magnet.position.set(x0 + 0.02, 0, 0)
+  const pcb = new THREE.Mesh(new THREE.BoxGeometry(0.07, 1.2, 1.75), mat(0x2357b8, { roughness: 0.6 }))
+  pcb.position.set(x0 - 0.1, 0.03, 0)
+  enc.add(magnet, pcb)
+  for (const z of [-0.18, 0.18]) {                               // the two Hall sensors (A, B)
+    const hall = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 0.12), mat(0x111111))
+    hall.position.set(x0 - 0.04, 0.38, z); enc.add(hall)
+  }
+  const strip = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 6 * 0.254), mat(0x111111))
+  strip.position.set(x0 - 0.12, 0.76, 0); enc.add(strip)
+  for (let i = 0; i < 6; i++) {
+    const pin = new THREE.Mesh(new THREE.BoxGeometry(0.064, 0.55, 0.064), mat(0xd4a017, { roughness: 0.3, metalness: 0.7 }))
+    pin.position.set(x0 - 0.12, 0.92, -0.635 + i * 0.254); enc.add(pin)
+  }
+  enc.traverse((c) => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true; c.userData.noOutline = true } })
+  root.add(enc)
+  root.userData.hasEncoder = true
   return root
 }
 

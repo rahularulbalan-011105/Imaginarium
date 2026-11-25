@@ -65,6 +65,7 @@ registerComponent({ type: 'motor_bo', category: 'actuator', label: 'BO Motor', i
 registerComponent({ type: 'motor_dc', category: 'actuator', label: 'DC Motor', icon: '🔧', role: 'drive', physicsModules: DRIVE, capabilities: { actuator: 'rotational', mobility: 'rolling' } })
 // Continuous-rotation servo: a drive motor driven by Servo.write (utils/continuousServo.js).
 registerComponent({ type: 'servo_cr', category: 'actuator', label: 'Continuous Servo', icon: '🔄', role: 'drive', physicsModules: DRIVE, capabilities: { actuator: 'rotational', mobility: 'rolling' }, electrical: { voltage: 5 } })
+registerComponent({ type: 'motor_enc', category: 'actuator', label: 'Encoder Motor', icon: '🎯', role: 'drive', physicsModules: DRIVE, capabilities: { actuator: 'rotational', mobility: 'rolling', sensor: 'encoder' } })
 registerComponent({ type: 'dc_motor', category: 'actuator', label: 'DC Motor', icon: '🔧', role: 'drive', physicsModules: DRIVE, capabilities: { actuator: 'rotational', mobility: 'rolling' } }) // alias key
 
 // Actuators — servo (articulated)
@@ -97,7 +98,7 @@ registerComponent({ type: 'imu',        category: 'sensor', label: 'IMU',       
 // Rough running figures — refine per real component later.
 const DRAW_mA = {
   arduino: 50, subo: 80,
-  motor: 250, motor_bo: 250, motor_dc: 250, dc_motor: 250,
+  motor: 250, motor_bo: 250, motor_enc: 260, motor_dc: 250, dc_motor: 250,
   servo: 150,
   servo_cr: 150, // FS90R running, no load ~100–150 mA
   l298n: 36,   // logic quiescent current (datasheet); the motors' draw is counted on the motors
