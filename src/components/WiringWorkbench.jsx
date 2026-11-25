@@ -131,6 +131,48 @@ const SHAPES = {
       </>
     ) }
   },
+  // ULN2003: green board — IN1–IN4 on the left, − + power bottom-left, the
+  // motor socket (OUT1–OUT4 + COM) along the top, LEDs A–D down the right.
+  uln2003: () => {
+    const w = 170, h = 130
+    const [i1, i2, i3, i4, gnd, vcc, ...sock] = PIN_DEFS.uln2003
+    return { w, h, title: 'ULN2003', pins: [
+      ...edge([i1, i2, i3, i4], 'left', w, h, 0.3, 0.84),
+      ...edge([gnd, vcc], 'bottom', w, h, 0.32, 0.5),
+      ...edge(sock, 'top', w, h, 0.18, 0.62),
+    ], art: (
+      <>
+        <rect x="1" y="1" width={w - 2} height={h - 2} rx="8" fill="#1f8a45" stroke="rgb(0 0 0 / 0.25)" strokeWidth="1.5" />
+        <rect x={w * 0.14} y="6" width={w * 0.52} height="20" rx="3" fill="#f2f0e8" stroke="#a8a49a" />
+        <rect x={w * 0.3} y="40" width="26" height="66" rx="2" fill="#18181a" />
+        <text x={w * 0.3 + 13} y="73" textAnchor="middle" fontSize="7" fontWeight="700" fill="#c9ccd2" transform={`rotate(90 ${w * 0.3 + 13} 73)`}>ULN2003</text>
+        {['A', 'B', 'C', 'D'].map((n, i) => (
+          <g key={n}><circle cx={w - 28} cy={38 + i * 18} r="5.5" fill="#dc2626" stroke="#7f1d1d" />
+            <text x={w - 14} y={41 + i * 18} textAnchor="middle" fontSize="8" fontWeight="800" fill="#fff">{n}</text></g>
+        ))}
+        <text x={w * 0.62} y={h - 12} textAnchor="middle" fontSize="8" fontWeight="700" fill="#dcfce7">5–12V</text>
+      </>
+    ) }
+  },
+  // 28BYJ-48: round can with the shaft, wire box, and the five-wire cable whose
+  // plug pins (in wire-colour order) sit on the bottom edge.
+  stepper: () => {
+    const w = 140, h = 118, cx = 70, cy = 50
+    const WIRE = { BLUE: '#2563eb', PINK: '#ec4899', YELLOW: '#eab308', ORANGE: '#f97316', RED: '#dc2626' }
+    const pins = edge(PIN_DEFS.stepper, 'bottom', w, h, 0.28, 0.72)
+    return { w, h, title: 'STEPPER', pins, art: (
+      <>
+        {pins.map(p => <line key={p.pin} x1={cx + (p.x - cx) * 0.4} y1={cy + 34} x2={p.x} y2={h - 6} stroke={WIRE[p.pin]} strokeWidth="3" />)}
+        <rect x={cx - 26} y={cy - 12} width="52" height="50" rx="5" fill="#2c66d1" />
+        <rect x="8" y={cy - 7} width={w - 16} height="14" rx="7" fill="#b3b9c1" stroke="#8a929d" />
+        <circle cx={cx} cy={cy} r="38" fill="#c2c7ce" stroke="#8a929d" strokeWidth="1.5" />
+        <circle cx={cx} cy={cy - 16} r="9" fill="#b3b9c1" stroke="#8a929d" />
+        <circle cx={cx} cy={cy - 16} r="4.5" fill="#d2a64a" />
+        <text x={cx} y={cy + 14} textAnchor="middle" fontSize="10" fontWeight="800" fill="#1f2937">28BYJ-48</text>
+        <rect x={cx - 22} y={h - 14} width="44" height="10" rx="2" fill="#f1efe6" stroke="#a8a49a" />
+      </>
+    ) }
+  },
   esp32: () => {
     const left = ESP32_PINS.filter(p => p.side === 'left').map(p => p.name)
     const right = ESP32_PINS.filter(p => p.side === 'right').map(p => p.name)
@@ -220,6 +262,8 @@ export function shapeOf(type) {
   if (type === 'subo') return SHAPES.subo()
   if (type === 'esp32') return SHAPES.esp32()
   if (type === 'l298n') return SHAPES.l298n()
+  if (type === 'uln2003') return SHAPES.uln2003()
+  if (type === 'stepper') return SHAPES.stepper()
   if (type === 'servo') return SHAPES.servo()
   if (type === 'motor' || type === 'motor_bo' || type === 'motor_dc') return SHAPES.motor(type)
   if (type === 'led') return SHAPES.led()

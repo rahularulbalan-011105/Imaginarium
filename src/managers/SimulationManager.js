@@ -1,5 +1,6 @@
 import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, isDriverGrounded, SENSOR_TYPES, useElectronicsStore } from '../stores/electronicsStore.js'
 import { buildDriverOutputMap, l298nOutputs } from '../utils/l298n.js'
+import { buildStepperWiring, isUln2003Powered, uln2003Outputs, createRotor, driveRotor, shaftAngle, ULN2003_INPUTS, MAX_RPM } from '../utils/stepper.js'
 import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
@@ -33,7 +34,7 @@ const BUILTIN_NAMES = new Set([
   'millis','micros','map','constrain',
   'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
   'sin','cos','tan','random','randomSeed','Serial','onRuntimeError',
-  'Servo',
+  'Servo','Stepper',
   // SUBO library API + constants
   'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
   'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
@@ -108,6 +109,7 @@ class SimulationManager {
     this._motorTerminals  = {}   // motorId → { A: 0, B: 0 }
     this.ledBrightness    = {}
     this.servoAngles      = {}   // servoId → angle 0–180°
+    this.stepperRotors    = {}   // stepperId → { pos (full steps), lastT, missed } (utils/stepper.js)
     // Legged locomotion drive intent set by the sketch via walk()/turn(). Units
     // match DrivePanel's drive controls (speed = scene units/s, turn = rad/s) so
     // DriveManager can use them interchangeably. _leggedCmd flips true the first
@@ -211,7 +213,56 @@ class SimulationManager {
     }
     this._reportDriverIssues(drivers, driverOut, pinMap)
 
-    const _write = (pin, val, isDigital) => {
+    // ── ULN2003 + 28BYJ-48 steppers (utils/stepper.js) ────────────────────────
+    // A board pin writes an IN level; the energised OUTs pull the stepper's rotor
+    // to the field of its coils. The shaft is set to the rotor's exact position.
+    const stepWire = buildStepperWiring(this._connections, this._objects)
+    const ulns = {}      // id → { levels: {IN1…IN4}, powered, grounded, leds }
+    for (const o of this._objects) {
+      if (o.type === 'uln2003') ulns[o.id] = { levels: {}, powered: isUln2003Powered(this._connections, o.id), grounded: isDriverGrounded(this._connections, o.id), leds: '' }
+      if (o.type === 'stepper') this.stepperRotors[o.id] = createRotor()
+    }
+    let warnedFast = false
+    const updateUln = (driverId, t) => {
+      const d = ulns[driverId]
+      if (!d) return
+      const outs = uln2003Outputs(d.levels, d.powered, d.grounded)
+      const leds = ULN2003_INPUTS.map((_, i) => (outs[`OUT${i + 1}`] ? 1 : 0)).join('')
+      if (leds !== d.leds) { d.leds = leds; objectManager.setUlnLeds?.(driverId, leds) }
+      // Coils per stepper on this driver (a coil needs its OUT on AND the red common wire).
+      const coils = {}
+      for (const [outPin, targets] of Object.entries(stepWire.outMap[driverId] ?? {}))
+        for (const { id, wire } of targets) (coils[id] ??= {})[wire] = outs[outPin] && stepWire.common.has(id)
+      for (const [id, on] of Object.entries(coils)) {
+        const rotor = self.stepperRotors[id]
+        if (!rotor) continue
+        const before = rotor.missed
+        if (driveRotor(rotor, on, t)) objectManager.setStepperAngle?.(id, shaftAngle(rotor))
+        if (rotor.missed > before && !warnedFast) {
+          warnedFast = true
+          const name = self._objects.find(o => o.id === id)?.name || 'Stepper'
+          reportIssue(makeIssue('code', `code:stepper-fast:${id}`,
+            `${name} is stepped too fast and is skipping steps`,
+            `A 28BYJ-48 can follow at most about ${MAX_RPM} RPM. Faster than that the rotor falls behind the coils, misses steps and only hums.`,
+            'Code: call stepper.setSpeed(10) (RPM, up to ~15) in setup() before stepper.step().', 'warning'))
+        }
+      }
+    }
+    // One atomic update of several pins (Stepper.step() sends one per step, stamped
+    // with the time it was due) → every touched driver re-evaluates once.
+    const _pinsWrite = (list, t) => {
+      const touched = new Set()
+      for (const [pin, v] of list) {
+        for (const comp of (pinMap[Number(pin)] || [])) {
+          if (comp.type === 'uln2003') { ulns[comp.id] && (ulns[comp.id].levels[comp.terminal] = v ? 255 : 0); touched.add(comp.id) }
+        }
+        if ((pinMap[Number(pin)] || []).some(c => c.type !== 'uln2003')) _write(Number(pin), v, true, true)
+      }
+      for (const id of touched) updateUln(id, Number.isFinite(t) ? t : null)
+    }
+    this._reportStepperIssues(ulns, stepWire, pinMap)
+
+    const _write = (pin, val, isDigital, skipUln = false) => {
       if (!self._running) return
       const comps = pinMap[pin]
       if (!comps || comps.length === 0) {
@@ -229,6 +280,10 @@ class SimulationManager {
             console.warn('[Sim] Motor speed is 0 because TERM_A and TERM_B are BOTH wired to the same pin. Wire TERM_B to GND instead of D' + pin + '.')
         } else if (comp.type === 'l298n') {
           writeDriver(comp.id, comp.terminal, value, pin)
+        } else if (comp.type === 'uln2003') {
+          // Raw digitalWrite coil sequences (no Stepper library) — no timestamp,
+          // so no speed check: the rotor just follows each pattern.
+          if (!skipUln && ulns[comp.id]) { ulns[comp.id].levels[comp.terminal] = value; updateUln(comp.id, null) }
         } else if (comp.type === 'led') {
           self.ledBrightness[comp.id] = value
           if (self._onLedBrightness) self._onLedBrightness(comp.id, value)
@@ -501,6 +556,7 @@ class SimulationManager {
         case 'oled':         _oledSet(a[0]); break
         case 'servoAttach':  _servoAttach(a[0]); break
         case 'servoWrite':   _servoWrite(a[0], a[1]); servoInstances.set(a[0], a[1]); break
+        case 'pinsWrite':    if (Array.isArray(a[0])) _pinsWrite(a[0].filter(Array.isArray), Number(a[1])); break
         case 'matrix':       _matrixSet(...a); break
         case 'playTone':     playTone(a[0], a[1]); break
         case 'stopBuzzer':   stopBuzzer(); break
@@ -719,10 +775,59 @@ class SimulationManager {
     }
   }
 
+  /**
+   * "Why doesn't my stepper turn?" — the wiring mistakes that leave a ULN2003 /
+   * 28BYJ-48 dead: no ground, no + supply, no IN wires, motor not plugged in, or
+   * the red common wire missing.
+   */
+  _reportStepperIssues(ulns, stepWire, pinMap) {
+    clearIssues('elec:uln2003'); clearIssues('elec:stepper'); clearIssues('code:stepper')
+    const controlled = new Set()
+    for (const comps of Object.values(pinMap)) for (const c of comps) if (c.type === 'uln2003') controlled.add(c.id)
+    for (const o of this._objects) {
+      if (o.type !== 'uln2003') continue
+      const name = o.name || 'ULN2003'
+      const used = controlled.has(o.id) || Object.keys(stepWire.outMap[o.id] ?? {}).length > 0
+      if (!used) continue
+      if (!ulns[o.id].grounded) reportIssue(makeIssue('electronics', `elec:uln2003-gnd:${o.id}`,
+        `${name}: GND (−) is not connected to the board`,
+        'The driver and the board must share a ground, or the IN signals have no reference and no coil switches on.',
+        `ELEC → Wiring: connect ${name} GND → the board's GND.`))
+      if (!ulns[o.id].powered) reportIssue(makeIssue('electronics', `elec:uln2003-vcc:${o.id}`,
+        `${name}: VCC (+) has no supply`,
+        'The motor coils are powered through the driver’s + pin. With nothing on it, no current flows.',
+        `ELEC → Wiring: connect ${name} VCC → the board's 5V.`))
+      if (!controlled.has(o.id)) reportIssue(makeIssue('electronics', `elec:uln2003-in:${o.id}`,
+        `${name}: no control wires from the board`,
+        'None of IN1–IN4 is connected to a board pin, so nothing switches the coils.',
+        `ELEC → Wiring: connect ${name} IN1–IN4 to board pins, e.g. D8, D9, D10, D11.`))
+    }
+    for (const o of this._objects) {
+      if (o.type !== 'stepper') continue
+      const name = o.name || 'Stepper'
+      const plugged = Object.values(stepWire.outMap).some(outs => Object.values(outs).some(l => l.some(t => t.id === o.id)))
+      if (!plugged) reportIssue(makeIssue('electronics', `elec:stepper-plug:${o.id}`,
+        `${name} is not connected to a ULN2003 driver`,
+        'A stepper’s coils need a driver — a board pin cannot supply the current.',
+        `Select ${name} → Properties → “Plug into ULN2003”, or wire its BLUE/PINK/YELLOW/ORANGE wires to OUT1–OUT4.`, 'warning'))
+      else if (!stepWire.common.has(o.id)) reportIssue(makeIssue('electronics', `elec:stepper-com:${o.id}`,
+        `${name}: the red common wire is not connected`,
+        'Every coil returns through the red wire. Without it no coil current flows, so the motor cannot move.',
+        `ELEC → Wiring: connect ${name} RED → the ULN2003's COM pin.`))
+    }
+  }
+
   stop() {
     this._running = false
     setSerialSink(null)
     clearIssues('elec:attach'); clearIssues('code:attach'); clearIssues('elec:l298n')
+    clearIssues('elec:uln2003'); clearIssues('elec:stepper'); clearIssues('code:stepper')
+    // Steppers back to where they were placed, driver LEDs off.
+    for (const o of this._objects) {
+      if (o.type === 'stepper') objectManager.setStepperAngle?.(o.id, 0)
+      if (o.type === 'uln2003') objectManager.setUlnLeds?.(o.id, '0000')
+    }
+    this.stepperRotors = {}
     if (this._stopOsc) this._stopOsc()        // silence the buzzer
     for (const o of this._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, '')   // blank OLED screens
     for (const o of this._objects) if (o.type === 'subo') objectManager.setSuboMatrix(o.id, 'clear')  // blank SUBO matrix

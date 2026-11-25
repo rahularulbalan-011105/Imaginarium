@@ -597,7 +597,8 @@ class Parser {
 
 // ── Code generator ────────────────────────────────────────────────────────────
 
-const ASYNC_BUILTINS = new Set(['delay','delayMicroseconds'])
+// `step` = Stepper.step(), which blocks until the move is done (sketchSandbox).
+const ASYNC_BUILTINS = new Set(['delay','delayMicroseconds','step'])
 
 const CASTS = {
   'int':'Math.trunc', 'long':'Math.trunc', 'short':'Math.trunc',

@@ -87,6 +87,9 @@ const MODEL_PATHS = {
   ldr_sensor:   `${BASE}models/ldr.glb`,
   dht11:        `${BASE}models/dht11.glb`,
   l298n:        `${BASE}models/l298n.glb`,   // generated: tools/models/l298n.model.js
+  // Generated in scene units like l298n — no MODEL_SCALE_TARGET entry on purpose.
+  stepper:      `${BASE}models/stepper.glb`, // tools/models/stepper.model.js (28BYJ-48)
+  uln2003:      `${BASE}models/uln2003.glb`, // tools/models/uln2003.model.js
 }
 
 // module-level cache: name → THREE.Group (scaled & centered) | null (not found)

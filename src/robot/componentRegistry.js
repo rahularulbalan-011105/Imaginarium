@@ -71,6 +71,11 @@ registerComponent({ type: 'servo', category: 'actuator', label: 'Servo', icon: '
 // Motor drivers — sit between the controller and the drive motors; no physics of
 // their own (the motors they feed carry the drive modules). Logic: utils/l298n.js.
 registerComponent({ type: 'l298n', category: 'driver', label: 'L298N Driver', icon: '🎛', role: 'driver', capabilities: { driver: 'dual-h-bridge' }, electrical: { voltage: 12 } })
+registerComponent({ type: 'uln2003', category: 'driver', label: 'ULN2003 Driver', icon: '🟩', role: 'driver', capabilities: { driver: 'darlington-array' }, electrical: { voltage: 5 } })
+
+// Stepper — positional rotation driven by coil steps (utils/stepper.js). No
+// physics modules: it turns its shaft (and what's attached) to an exact angle.
+registerComponent({ type: 'stepper', category: 'actuator', label: 'Stepper 28BYJ-48', icon: '🌀', role: 'stepper', capabilities: { actuator: 'rotational' }, electrical: { voltage: 5 } })
 
 // Outputs
 registerComponent({ type: 'led',    category: 'output', label: 'LED',    icon: '💡', role: 'output', capabilities: { output: 'light' } })
@@ -93,6 +98,8 @@ const DRAW_mA = {
   motor: 250, motor_bo: 250, motor_dc: 250, dc_motor: 250,
   servo: 150,
   l298n: 36,   // logic quiescent current (datasheet); the motors' draw is counted on the motors
+  stepper: 240, // 28BYJ-48 5 V: ~120 mA per coil, two coils on in full step
+  uln2003: 5,
   led: 20, buzzer: 30, oled: 20,
   ultrasonic: 15, ir_sensor: 25, ir: 25, gas_sensor: 150, gas: 150, imu: 10,
 }

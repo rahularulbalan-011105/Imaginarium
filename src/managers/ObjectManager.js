@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup } from '../utils/electronicsFactory.js'
+import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -110,10 +110,10 @@ function buildRoundGroup(obj) {
   return g
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n'])
+const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc'])
-// Types that expose a rotorGroup for prop attachment (motors + servos)
-const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo'])
+// Types that expose a rotorGroup for prop attachment (motors + servos + steppers)
+const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'servo', 'stepper'])
 
 class ObjectManager {
   constructor() {
@@ -194,6 +194,10 @@ class ObjectManager {
       object3d = createDHT11Group()
     } else if (obj.type === 'l298n') {
       object3d = createL298NGroup()   // motor driver (utils/l298n.js has the logic)
+    } else if (obj.type === 'stepper') {
+      object3d = createStepperGroup()  // 28BYJ-48 (utils/stepper.js has the logic)
+    } else if (obj.type === 'uln2003') {
+      object3d = createUln2003Group()  // its driver board
     } else if (obj.type === 'gear') {
       const geo = createSpurGearGeometry({
         teeth: obj.teeth ?? 12, module: obj.module ?? 0.25, faceWidth: obj.faceWidth ?? 0.5,
@@ -958,6 +962,25 @@ class ObjectManager {
     const axis = o.userData.rotorAxis ?? 'y'
     if (o.userData.rotorMesh)  o.userData.rotorMesh.rotation[axis]  = rad
     if (o.userData.rotorGroup) o.userData.rotorGroup.rotation[axis] = rad
+  }
+
+  // 28BYJ-48: put the output shaft at an absolute angle (rad, + = clockwise seen
+  // from the shaft end). Parts attached to it turn with it.
+  setStepperAngle(id, rad) {
+    const g = this.objects.get(id)?.userData.rotorGroup
+    if (g) g.rotation.y = -rad
+  }
+
+  // ULN2003 indicator LEDs A–D: bits '1010' = A and C lit.
+  setUlnLeds(id, bits) {
+    const leds = this.objects.get(id)?.userData.ulnLeds
+    if (!leds) return
+    leds.forEach((m, i) => {
+      if (!m?.material) return
+      const on = bits[i] === '1'
+      m.material.emissive.setHex(on ? 0xff2a1a : 0x000000)
+      m.material.emissiveIntensity = on ? 2.4 : 0
+    })
   }
 
   /** Route Servo.write() to a physics engine: fn(id, deg) → true if it took it. */

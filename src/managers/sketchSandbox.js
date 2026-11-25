@@ -27,7 +27,7 @@
 // Calls the frame may forward. Anything not in this list is ignored by the parent.
 export const OUT_CALLS = new Set([
   'analogWrite', 'digitalWrite', 'tone', 'noTone',
-  'serial', 'oled', 'servoAttach', 'servoWrite',
+  'serial', 'oled', 'servoAttach', 'servoWrite', 'pinsWrite',
   'matrix', 'playTone', 'stopBuzzer', 'playBuzSeq', 'driveMotors',
   'walk', 'turn', 'stopWalking',
   // ESP32
@@ -168,6 +168,44 @@ Servo.prototype = {
   read: function () { return this._angle },
   attached: function () { return this._pin >= 0 },
   detach: function () { this._pin = -1 },
+};
+
+// ── Stepper (Arduino Stepper.h, 4-wire) ───────────────────────────────────
+// Mirrors Stepper.cpp: the same 4-step coil sequence, step_number bookkeeping
+// and setSpeed() delay. step() blocks (awaited) until the move is done. Each
+// step goes out as ONE atomic pin update stamped with the time it was due, so
+// the parent sees the true step rate even when timers fire late and a few
+// steps arrive together (catch-up keeps the average speed exact).
+var _STEP_SEQ = [[1, 0, 1, 0], [0, 1, 1, 0], [0, 1, 0, 1], [1, 0, 0, 1]];
+function Stepper(n, p1, p2, p3, p4) {
+  this._n = Math.max(1, Math.round(Number(n) || 2048));
+  this._pins = [p1, p2, p3, p4].map(Number);
+  this._num = 0; this._dly = 0; this._t = -1e9;
+}
+Stepper.prototype = {
+  setSpeed: function (rpm) { rpm = Number(rpm) || 0; this._dly = rpm > 0 ? 60000 / this._n / rpm : 0 },
+  version: function () { return 5 },
+  _out: function (t) {
+    var s = _STEP_SEQ[this._num % 4], p = this._pins;
+    send('pinsWrite', [[[p[0], s[0]], [p[1], s[1]], [p[2], s[2]], [p[3], s[3]]], t]);
+  },
+  step: async function (k) {
+    k = Math.trunc(Number(k) || 0);
+    var left = Math.abs(k), dir = k > 0 ? 1 : -1;
+    var t = Math.max(this._t, performance.now() - this._dly);
+    while (left > 0) {
+      if (!RUNNING) throw new Error('stopped');
+      t += this._dly;
+      var wait = t - performance.now();
+      if (wait > 2) await delay(wait);
+      else if (left % 64 === 0) await __yield();
+      if (dir > 0) { this._num++; if (this._num === this._n) this._num = 0 }
+      else { if (this._num === 0) this._num = this._n; this._num-- }
+      this._out(t);
+      left--;
+    }
+    this._t = t;
+  },
 };
 
 // ── sensor libraries: read the snapshot by pin ────────────────────────────
