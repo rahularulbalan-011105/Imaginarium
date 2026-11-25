@@ -83,7 +83,13 @@ export class PhysicsIntegrator {
     }
 
     // ── 3. Rolling friction (constant deceleration when coasting) ─────────────
-    if (rollingFriction > 0 && g > 0 && Math.abs(v) > 0.0001) {
+    // ONLY while coasting (no drive command). While the motors drive, rolling
+    // resistance is a LOAD on them and is already in the drive speed (the gear
+    // motor load model, utils/gearMotor.js). Subtracting it here as well counted
+    // it twice — and a fixed loss per frame crushed slow drives (a 1:220 gearbox
+    // went ~3× slower than its ratio, low PWM barely moved).
+    const coasting = Math.abs(targetV) < 1e-3
+    if (coasting && rollingFriction > 0 && g > 0 && Math.abs(v) > 0.0001) {
       const rollAcc = rollingFriction * g / SCENE_TO_M               // scene u/s²
       const decel   = Math.sign(v) * rollAcc * dt
       const newAbs  = Math.abs(v) - Math.abs(decel)

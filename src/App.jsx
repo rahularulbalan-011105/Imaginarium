@@ -44,6 +44,7 @@ import { bootProgress } from './utils/bootProgress.js'
 import PerfOverlay from './components/PerfOverlay.jsx'
 import { trackEvent } from './utils/utmTracking.js'
 import { loadCSG } from './utils/csgLib.js'
+import { hasGearbox, gearSpeedFactor, ratioOf } from './utils/gearMotor.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
 const ELEC_TYPES = ['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr']
@@ -183,8 +184,11 @@ function AppEditor() {
           if (++sceneManager._simLogCount % 60 === 1)
             console.log('[Tick] motorSpeeds:', JSON.stringify(speeds))
         }
+        // A BO motor's shaft turns at its GEARBOX speed (1:220 visibly slower than 1:48).
+        const objs = useSceneStore.getState().objects
         for (const [id, speed] of Object.entries(speeds)) {
-          objectManager.animateMotor(id, speed)
+          const o = objs.find(x => x.id === id)
+          objectManager.animateMotor(id, hasGearbox(o) ? speed * gearSpeedFactor(ratioOf(o)) : speed)
         }
         for (const [id, brightness] of Object.entries(simulationManager.ledBrightness)) {
           objectManager.animateLed(id, brightness)

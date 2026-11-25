@@ -19,7 +19,8 @@ import { execPathFor } from '../robot/RobotBlueprint.js'
 import { autoBlueprintForObjects } from '../robot/autoBlueprint.js'
 import { resolveRobotConfig } from './physics/robotics/config.js'
 import { frontFromView, inferForward } from './physics/robotics/forwardAxis.js'
-import { servoWiring, servoWiringIssues, engineIssue } from './physics/robotics/diagnosis.js'
+import { servoWiring, servoWiringIssues, engineIssue, makeIssue } from './physics/robotics/diagnosis.js'
+import { sideSpeedScale, rollingLoadNm, DEFAULT_WHEEL_RADIUS_M } from '../utils/gearMotor.js'
 import { reportIssue, clearIssues } from './simIssues.js'
 import { sceneManager } from './SceneManager.js'
 import { getCurrentQuality } from '../utils/devicePerformance.js'
@@ -467,6 +468,8 @@ class DriveManager {
       momentOfInertia: robotI,
       frontalArea:     robotA,
     })
+    // Gearboxes + load (utils/gearMotor.js): needs the mass, so it runs here.
+    this._setGearScales(objects, robotMass)
     console.log(
       `[Physics] mass=${robotMass.toFixed(3)} kg  I=${robotI.toFixed(4)} kg·m²  A=${robotA.toFixed(4)} m²`
     )
@@ -1065,6 +1068,44 @@ class DriveManager {
     this._drive.radiusRight = sideDriveRadius(this._rightIds, attachments, byId, radiusOf)
   }
 
+  // Per-side speed scale from each BO motor's gearbox and its share of the robot's
+  // rolling load (utils/gearMotor.js). A motor whose load reaches its stall
+  // torque can't turn — reported so the user knows to pick a stronger gearbox.
+  _setGearScales(objects, massKg) {
+    const byId = new Map(objects.map(o => [o.id, o]))
+    const attachments = useElectronicsStore.getState().attachments
+    const { gravity, rollingFriction } = usePhysicsStore.getState()
+    const driveMotors = new Set([...this._leftIds, ...this._rightIds]).size || 1
+    const ws = new THREE.Vector3()
+    const wheelRadiusM = (motor) => {      // the motor's wheel (cm-scale scene units → m)
+      let r = null
+      for (const [partId, motorId] of Object.entries(attachments)) {
+        const part = motorId === motor.id ? byId.get(partId) : null
+        if (part?.type !== 'wheel') continue
+        const mesh = this.objectMgr.getMesh(part.id)
+        if (mesh) mesh.updateWorldMatrix(true, false)
+        r = Math.max(r ?? 0, wheelWorldRadius(part, mesh ? mesh.getWorldScale(ws) : part.scale) / 100)
+      }
+      return r ?? DEFAULT_WHEEL_RADIUS_M
+    }
+    const loadOf = (motor) => rollingLoadNm({ massKg, gravity, rollingFriction, wheelRadiusM: wheelRadiusM(motor), driveMotors })
+    const L = sideSpeedScale(this._leftIds, byId, loadOf)
+    const R = sideSpeedScale(this._rightIds, byId, loadOf)
+    this._drive.speedScaleLeft  = L.scale
+    this._drive.speedScaleRight = R.scale
+    const worst = Math.min(L.worst, R.worst)
+    clearIssues('cad:gear')
+    if (worst <= 0) {
+      reportIssue(makeIssue('cad', 'cad:gear-stall', 'The BO motors are too weak for this robot — they stall',
+        `The robot weighs ${massKg.toFixed(2)} kg. Its rolling load needs more torque than these gearboxes give, so the wheels can't turn.`,
+        'Select a BO motor → Properties → Gearbox: pick a stronger ratio (1:120 or 1:220), or make the robot lighter.'))
+    } else if (worst < 0.5) {
+      reportIssue(makeIssue('cad', 'cad:gear-slow', 'The BO motors are struggling with this robot’s weight',
+        `Under a ${massKg.toFixed(2)} kg robot they run at only ${Math.round(worst * 100)} % of their no-load speed.`,
+        'Select a BO motor → Properties → Gearbox: a higher ratio (1:120 / 1:220) trades speed for torque.', 'warning'))
+    }
+  }
+
   // Called every animation frame.
   // Real-time honesty: per ~1 s window, simulated seconds ÷ wall seconds. Below 1
   // the simulation is running in slow motion because this computer can't keep up
@@ -1354,7 +1395,7 @@ class DriveManager {
     if (!this._moduleHost && !this._hostTried && this._blueprint && this._forcedPath === 'wheeled') {
       this._hostTried = true
       const host = new ModuleHost()
-      host.enter(this._blueprint, { wheelbase: this.wheelbase, radiusLeft: this._drive.radiusLeft, radiusRight: this._drive.radiusRight })
+      host.enter(this._blueprint, { wheelbase: this.wheelbase, radiusLeft: this._drive.radiusLeft, radiusRight: this._drive.radiusRight, speedScaleLeft: this._drive.speedScaleLeft, speedScaleRight: this._drive.speedScaleRight })
       // Use the host for drive if ANY of its modules produce a drive velocity
       // (wheels → DifferentialDrivePhysics, tracks → TrackPhysics, …). Probe with
       // zero input so a sensor-only blueprint cleanly falls back to the legacy model.
