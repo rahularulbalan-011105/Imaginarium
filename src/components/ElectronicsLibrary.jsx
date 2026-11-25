@@ -48,6 +48,7 @@ const CATEGORIES = [
       { type: 'servo', variant: 'ds3218', label: 'DS3218 Servo', icon: '🔩', desc: 'High torque · 60 g · 21 kg·cm', purpose: 'A high-torque digital servo, about twice as strong as an MG996R. For heavy legs and arm shoulders that carry the most load.', usage: 'heavy legs · arm shoulders · lifting' },
       { type: 'motor_dc', label: 'DC Motor',    icon: '🔧', desc: 'Continuous rotation',     purpose: 'Spins continuously at a set speed.', usage: 'wheels · fans · propellers' },
       { type: 'motor_bo', label: 'BO Motor',    icon: '⚙',  desc: 'Geared drive motor',      purpose: 'A geared DC motor — high torque at low speed.', usage: 'driving robot wheels' },
+      { type: 'stepper',  label: 'Stepper 28BYJ-48', icon: '🌀', desc: 'Exact steps · 2048 / turn', purpose: 'A geared stepper motor: it turns in exact steps instead of spinning freely, so code can move it to a precise angle and back. Needs a ULN2003 driver (Motor Drivers). Slow — about 15 RPM at most — but strong and accurate.', usage: 'turntables · pointers · camera sliders · clocks' },
       { type: 'led',      label: 'LED',         icon: '💡', desc: 'Light output',            purpose: 'A light you can switch on/off or dim from code.', usage: 'status indicators · signals' },
       { type: 'buzzer',   label: 'Buzzer',      icon: '🔔', desc: 'Tone output',            purpose: 'Plays tones and beeps from code.', usage: 'alarms · feedback · melodies' },
     ],
@@ -56,6 +57,7 @@ const CATEGORIES = [
     key: 'drivers', label: 'Motor Drivers', color: '#f59e0b', icon: '🎛', blurb: 'Sit between the board and the motors.',
     items: [
       { type: 'l298n', label: 'L298N Driver', icon: '🎛', desc: 'Dual H-bridge · 2 motors', purpose: 'Lets the board drive two DC motors forwards and backwards with speed control. IN1/IN2 set motor A’s direction, ENA its speed (IN3/IN4 + ENB for motor B). Its GND must connect to the board’s GND. Motor power on 12V is assumed — battery parts are coming soon. Loses ≈2 V, so motors run ≈73 % as fast as wired straight to the battery.', usage: 'wheeled robots · reversing motors · speed control' },
+      { type: 'uln2003', label: 'ULN2003 Driver', icon: '🟩', desc: 'Stepper driver · 4 coils', purpose: 'Drives a 28BYJ-48 stepper: IN1–IN4 from the board switch the four coils, and the LEDs A–D show which coils are on. Plug the stepper into its socket, then wire VCC → 5V and GND → GND. Program it with the Stepper library.', usage: 'stepper motors · precise rotation' },
     ],
   },
   {

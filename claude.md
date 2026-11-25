@@ -89,6 +89,7 @@ toolsapp/
 │       ├── arduino_uno.glb · subo.glb · esp32.glb · servo.glb · motor_dc.glb · motor_bo.glb · led.glb · free_wheels.glb
 │       ├── ultrasonic.glb · ir_sensor.glb · gas_sensor.glb · oled.glb · buzzer.glb · ldr.glb · dht11.glb
 │       ├── l298n.glb               # generated from tools/models/l298n.model.js (scene units, no size target — pins in L298N_PINS line up)
+│       ├── stepper.glb · uln2003.glb # generated from tools/models/{stepper,uln2003}.model.js (28BYJ-48 + its driver; same rules as l298n)
 │       ├── weapon_autocannon.glb · weapon_shotgun.glb · weapon_rocket.glb · weapon_flame.glb   # combat weapons (lazy)
 │       └── subo_*.glb              # SUBO board backups/variants (see SUBO notes)
 │
@@ -270,6 +271,7 @@ toolsapp/
     │   ├── svgImport.js            # svgTextToGeometry — extrude SVG → solid
     │   ├── sliceTool.js            # Plane/polyline mesh slice
     │   ├── robotAssembly.js        # Union-find grouping of bonded/attached parts → robots (rootId, robotOptions)
+    │   ├── l298n.js · stepper.js   # motor drivers as pure logic: L298N H-bridge · ULN2003 + 28BYJ-48 coil-field stepper model (Stepper.h runs in the sandbox)
     │   ├── export.js               # JSON/STL/GLTF export + import
     │   ├── printExport.js          # STL export + printability analysis
     │   ├── share.js                # Share-link build/read (project packed into URL hash)

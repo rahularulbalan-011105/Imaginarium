@@ -83,11 +83,11 @@ const SUBO_CONSTS = new Set([
 // pitches.h note names (NOTE_C4 … + REST) — pattern-matched, plus a few explicit.
 const isNoteConst = (s) => /^NOTE_[A-G]S?[0-8]$/.test(s) || s === 'REST'
 // Library classes that can be constructed as objects.
-const LIB_CLASSES = new Set(['Servo', 'LDR', 'DHT11', 'ColorSensor', 'RGB', 'Adafruit_SSD1306', 'String', 'IMU', 'Encoder', 'Battery',
+const LIB_CLASSES = new Set(['Servo', 'Stepper', 'LDR', 'DHT11', 'ColorSensor', 'RGB', 'Adafruit_SSD1306', 'String', 'IMU', 'Encoder', 'Battery',
   // ESP32 radios (simulated in Constructa, real in the Arduino-ESP32 core).
   'WiFiClient', 'WiFiServer', 'BluetoothSerial', 'BLESerial'])
 // Known #include libraries (base name, without .h).
-const KNOWN_LIBS = new Set(['Subo', 'Servo', 'LDR', 'DHT11', 'ColorSensor', 'Wire', 'SPI', 'Adafruit_SSD1306', 'Adafruit_GFX', 'pitches', 'MotorExpansion', 'IMU', 'Encoder', 'Battery', 'math', 'stdint', 'Arduino', 'string', 'stdlib', 'EEPROM',
+const KNOWN_LIBS = new Set(['Subo', 'Servo', 'Stepper', 'LDR', 'DHT11', 'ColorSensor', 'Wire', 'SPI', 'Adafruit_SSD1306', 'Adafruit_GFX', 'pitches', 'MotorExpansion', 'IMU', 'Encoder', 'Battery', 'math', 'stdint', 'Arduino', 'string', 'stdlib', 'EEPROM',
   'WiFi', 'WiFiClient', 'BluetoothSerial', 'BLESerial', 'BLEDevice', 'ESP32Servo', 'driver/ledc', 'esp_wifi'])
 
 const C_TYPES = new Set(['void', 'int', 'float', 'double', 'bool', 'boolean', 'char', 'byte', 'long', 'short', 'unsigned', 'signed', 'String', 'auto', 'size_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int8_t', 'int16_t', 'int32_t', 'word'])

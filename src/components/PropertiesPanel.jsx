@@ -18,6 +18,8 @@ import { useUiStore } from '../stores/uiStore.js'
 import Icon from './ui/Icon.jsx'
 import Placeholder from './ui/Placeholder.jsx'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, wheelWorldRadius, wheelSpeedFactor } from '../utils/wheels.js'
+import { STEPPER_WIRES, STEPPER_PLUG, MAX_RPM, buildStepperWiring } from '../utils/stepper.js'
+import { v4 as uuidv4 } from 'uuid'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
   const handleChange = (axis) => (e) => {
@@ -269,6 +271,49 @@ function RoundPartControls({ obj, objects, attachedTo, update, snapshot }) {
   )
 }
 
+// 28BYJ-48: one click plugs its 5-wire cable into a ULN2003's socket (real wire
+// colours), the way the real plug only fits one way. utils/stepper.js has the logic.
+function StepperControls({ obj, objects, snapshot }) {
+  const connections = useElectronicsStore((s) => s.connections)
+  const addWire     = useElectronicsStore((s) => s.addWireConnection)
+  const removeWire  = useElectronicsStore((s) => s.removeWireConnection)
+  const drivers = objects.filter((o) => o.type === 'uln2003')
+  const mine = Object.entries(connections).filter(([, c]) =>
+    STEPPER_WIRES.some((w) => c.fromPinId === `${obj.id}:${w}` || c.toPinId === `${obj.id}:${w}`))
+  const plugged = buildStepperWiring(connections, objects)
+  const into = drivers.find((d) => Object.values(plugged.outMap[d.id] ?? {}).some((l) => l.some((t) => t.id === obj.id)))
+  const unplug = () => { for (const [id] of mine) removeWire(id) }
+  const plug = (driver) => {
+    unplug()
+    for (const [out, wire, color] of STEPPER_PLUG) addWire(`${driver.id}:${out}`, `${obj.id}:${wire}`, uuidv4(), { color })
+    snapshot()
+  }
+  return (
+    <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
+      <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Stepper · 28BYJ-48</div>
+      {into ? (
+        <div className="text-[9px] text-green-500 mb-1.5">✓ Plugged into {into.name}{plugged.common.has(obj.id) ? '' : ' — ⚠ red common wire missing'}</div>
+      ) : (
+        <div className="text-[9px] text-yellow-500/80 mb-1.5">⚠ Not connected — it needs a ULN2003 driver.</div>
+      )}
+      {drivers.length === 0 && <div className="text-[9px] text-gray-400 mb-1">Add a ULN2003 from Electronics → Motor Drivers.</div>}
+      {drivers.filter((d) => d !== into).map((d) => (
+        <button key={d.id} onClick={() => plug(d)}
+          className="w-full mb-1 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+          Plug into {d.name}
+        </button>
+      ))}
+      {mine.length > 0 && (
+        <button onClick={() => { unplug(); snapshot() }}
+          className="w-full mb-1 py-1 rounded text-[11px] bg-gray-700 hover:bg-gray-600 text-gray-200 transition-colors">Unplug</button>
+      )}
+      <div className="text-[9px] text-gray-500 mt-1">
+        2048 steps = one turn of the shaft, at most ~{MAX_RPM} RPM. Attach a part to the Stepper Shaft to turn it. In code: <span className="font-mono text-gray-300">Stepper s(2048, 8, 10, 9, 11);</span>
+      </div>
+    </div>
+  )
+}
+
 export default function PropertiesPanel() {
   const selectedId      = useSceneStore((s) => s.selectedId)
   const secondaryId     = useSceneStore((s) => s.secondaryId)
@@ -353,9 +398,9 @@ export default function PropertiesPanel() {
   const attachedMotor   = attachedMotorId ? objects.find(o => o.id === attachedMotorId) : null
 
   const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc']
-  const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'servo']
+  const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'servo', 'stepper']
   const isMotor      = obj && MOTOR_TYPES.includes(obj.type)
-  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led')
+  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led' || obj.type === 'uln2003')
 
   // Secondary selection: shift-click on a motor or servo → direct Attach button
   const secondaryObj    = objects.find(o => o.id === secondaryId) ?? null
@@ -371,7 +416,7 @@ export default function PropertiesPanel() {
   const canAttach = isAttachable && !secondaryShaft && shaftTargets.length > 0
 
   // Helper: human-readable label for a shaft target
-  const shaftLabel = (target) => target?.type === 'servo' ? 'Servo Horn' : 'Motor Shaft'
+  const shaftLabel = (target) => target?.type === 'servo' ? 'Servo Horn' : target?.type === 'stepper' ? 'Stepper Shaft' : 'Motor Shaft'
 
   // Rigid bonds involving the currently selected object
   const myBonds = obj
@@ -1075,6 +1120,7 @@ export default function PropertiesPanel() {
       {(obj.type === 'wheel' || obj.type === 'caster') && (
         <RoundPartControls obj={obj} objects={objects} attachedTo={objects.find(o => o.id === attachments[obj.id])} update={update} snapshot={snapshot} />
       )}
+      {obj.type === 'stepper' && <StepperControls obj={obj} objects={objects} snapshot={snapshot} />}
 
       {/* Gear parameters — only for gear objects */}
       {obj.type === 'gear' && (() => {

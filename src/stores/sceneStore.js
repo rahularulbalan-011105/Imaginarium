@@ -4,6 +4,9 @@ import { runBoolean, buildUnionMembers, unionWorldGeoJSONs } from '../utils/csg.
 import { trackEvent } from '../utils/utmTracking.js'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_RIM_COLOR, WHEEL_TYRE_COLOR, CASTER_BODY_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 
+// Default object names for parts whose type id isn't their real name.
+const PART_NAMES = { l298n: 'L298N', uln2003: 'ULN2003', esp32: 'ESP32' }
+
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
 let paletteIdx = 0
 
@@ -27,7 +30,7 @@ export const useSceneStore = create((set, get) => ({
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
     const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
-    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'l298n', ...SENSOR_TYPES].includes(type)
+    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'l298n', 'stepper', 'uln2003', ...SENSOR_TYPES].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw', 'wheel', 'caster']
     const isMech = mechTypes.includes(type)
     const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
@@ -43,6 +46,10 @@ export const useSceneStore = create((set, get) => ({
       : type === 'servo'                  ? { x: count * 5 - 4, y: 0.15, z: 3  }
       // Motor driver: beside the board (boards spawn at z −5 from x −4).
       : type === 'l298n'                  ? { x: count * 6 + 4, y: 0.1,  z: -5 }
+      // Stepper driver to the LEFT of the board (the L298N takes the right); the
+      // stepper in front of it, plug toward the driver (model stands on y = 0).
+      : type === 'uln2003'                ? { x: -12 - count * 5, y: 0.1, z: -10 }
+      : type === 'stepper'                ? { x: -12 - count * 5, y: 0,   z: -3 }
       : SENSOR_TYPES.includes(type)       ? { x: count * 4 - 6, y: 1.2,  z: -9 }
       // Wheel / caster: resting ON the grid (y = half their height), side by side.
       : type === 'wheel'                  ? { x: count * 2 + 6, y: WHEEL_DEFAULTS.wheelDiameter / 2, z: 4 }
@@ -64,7 +71,8 @@ export const useSceneStore = create((set, get) => ({
     const roundDefaults = type === 'wheel' ? { ...WHEEL_DEFAULTS, tyreColor: WHEEL_TYRE_COLOR } : type === 'caster' ? { ...CASTER_DEFAULTS, ballColor: CASTER_BALL_COLOR } : {}
     const obj = {
       id: uuidv4(),
-      name: `${type.charAt(0).toUpperCase() + type.slice(1)}_${displayCount}`,
+      // Part numbers keep their real spelling (L298N_1, not L298n_1).
+      name: `${PART_NAMES[type] ?? type.charAt(0).toUpperCase() + type.slice(1)}_${displayCount}`,
       type,
       ...gearDefaults,
       ...textDefaults,
