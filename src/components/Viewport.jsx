@@ -320,7 +320,7 @@ export default function Viewport() {
       if (!curr.has(id)) {
         if (id === selectedId) sceneManager.detachTransform()
         // When a motor is deleted, clean up all its rotor attachments in the store
-        if (prevObj.type === 'motor' || prevObj.type === 'motor_bo' || prevObj.type === 'motor_dc') {
+        if (['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo_cr', 'stepper'].includes(prevObj.type)) {
           const elStore = useElectronicsStore.getState()
           for (const [attachedId, motorId] of Object.entries(elStore.attachments)) {
             if (motorId === id) elStore.detachFromMotor(attachedId)

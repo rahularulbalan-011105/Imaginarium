@@ -5,7 +5,7 @@ import { trackEvent } from '../utils/utmTracking.js'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_RIM_COLOR, WHEEL_TYRE_COLOR, CASTER_BODY_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 
 // Default object names for parts whose type id isn't their real name.
-const PART_NAMES = { l298n: 'L298N', uln2003: 'ULN2003', esp32: 'ESP32', servo_cr: 'ContServo' }
+const PART_NAMES = { l298n: 'L298N', uln2003: 'ULN2003', esp32: 'ESP32', servo_cr: 'ContServo', motor_enc: 'EncMotor' }
 
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
 let paletteIdx = 0
@@ -30,7 +30,7 @@ export const useSceneStore = create((set, get) => ({
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
     const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
-    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'l298n', 'stepper', 'uln2003', ...SENSOR_TYPES].includes(type)
+    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'motor_enc', 'l298n', 'stepper', 'uln2003', ...SENSOR_TYPES].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw', 'wheel', 'caster']
     const isMech = mechTypes.includes(type)
     const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
@@ -42,6 +42,7 @@ export const useSceneStore = create((set, get) => ({
       : type === 'motor_bo'               ? { x: count * 8 - 4, y: 0.15, z: 5  }
       : type === 'motor_dc'               ? { x: count * 8 - 4, y: 0.15, z: 8  }
       : type === 'motor'                  ? { x: count * 8 - 4, y: 0.15, z: 5  }
+      : type === 'motor_enc'              ? { x: count * 8 - 4, y: 0.15, z: 11 }
       : type === 'led'                    ? { x: count * 3 - 3, y: 0.15, z: 0  }
       : type === 'servo'                  ? { x: count * 5 - 4, y: 0.15, z: 3  }
       : type === 'servo_cr'               ? { x: count * 4 - 4, y: 0.15, z: 7  }

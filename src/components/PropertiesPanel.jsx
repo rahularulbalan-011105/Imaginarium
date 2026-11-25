@@ -21,6 +21,7 @@ import Icon from './ui/Icon.jsx'
 import Placeholder from './ui/Placeholder.jsx'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, wheelWorldRadius, wheelSpeedFactor } from '../utils/wheels.js'
 import { STEPPER_WIRES, STEPPER_PLUG, MAX_RPM, buildStepperWiring } from '../utils/stepper.js'
+import { ENC_PPR, pulsesPerWheelTurn } from '../utils/encoderMotor.js'
 import { v4 as uuidv4 } from 'uuid'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
@@ -318,7 +319,7 @@ function StepperControls({ obj, objects, snapshot }) {
 
 // BO motor gearbox: the same motor behind 1:48 … 1:220 gears. Shows the
 // speed/torque trade-off and what it means for THIS robot (utils/gearMotor.js).
-const DRIVE_TYPES = new Set(['motor', 'motor_bo', 'motor_dc', 'servo_cr'])
+const DRIVE_TYPES = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo_cr'])
 function GearboxControls({ obj, objects, update, snapshot }) {
   const attachments = useElectronicsStore((s) => s.attachments)
   const gravity = usePhysicsStore((s) => s.gravity)
@@ -362,6 +363,12 @@ function GearboxControls({ obj, objects, update, snapshot }) {
             : `could climb a slope of about ${Math.round(slope)}° (motor torque is the limit)`}
         </div>
       </div>
+      {obj.type === 'motor_enc' && (
+        <div className="text-[9px] text-gray-400 border-t border-gray-700/60 pt-1.5 mt-1.5">
+          Encoder: {ENC_PPR} pulses per motor turn × 1:{ratio} = <span className="text-gray-100 font-semibold">{pulsesPerWheelTurn(ratio)}</span> per wheel turn
+          (A rising edges; {pulsesPerWheelTurn(ratio) * 4} with 4× counting / the Encoder library).
+        </div>
+      )}
       <div className="text-[9px] text-gray-500 mt-1">Higher ratio = slower but stronger. Typical TT-motor values; real ones vary ±20 %.</div>
     </div>
   )
@@ -450,8 +457,8 @@ export default function PropertiesPanel() {
   const attachedMotorId = obj ? (attachments[obj.id] ?? null) : null
   const attachedMotor   = attachedMotorId ? objects.find(o => o.id === attachedMotorId) : null
 
-  const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc']
-  const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'servo', 'servo_cr', 'stepper']
+  const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'motor_enc']
+  const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper']
   const isMotor      = obj && MOTOR_TYPES.includes(obj.type)
   const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led' || obj.type === 'uln2003')
 
@@ -1174,7 +1181,7 @@ export default function PropertiesPanel() {
         <RoundPartControls obj={obj} objects={objects} attachedTo={objects.find(o => o.id === attachments[obj.id])} update={update} snapshot={snapshot} />
       )}
       {obj.type === 'stepper' && <StepperControls obj={obj} objects={objects} snapshot={snapshot} />}
-      {obj.type === 'motor_bo' && <GearboxControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
+      {(obj.type === 'motor_bo' || obj.type === 'motor_enc') && <GearboxControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
 
       {/* Gear parameters — only for gear objects */}
       {obj.type === 'gear' && (() => {

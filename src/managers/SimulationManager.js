@@ -1,6 +1,8 @@
-import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, isDriverGrounded, SENSOR_TYPES, useElectronicsStore } from '../stores/electronicsStore.js'
+import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, isDriverGrounded, SENSOR_TYPES, useElectronicsStore, pinNameToNumber, isSupplyPinName, isGroundPinName } from '../stores/electronicsStore.js'
 import { buildDriverOutputMap, l298nOutputs } from '../utils/l298n.js'
 import { crMotorSpeed } from '../utils/continuousServo.js'
+import { encoderWiring, outputRpm, stepRpm, quadCount, UNO_INTERRUPT_PINS } from '../utils/encoderMotor.js'
+import { ratioOf } from '../utils/gearMotor.js'
 import { buildStepperWiring, isUln2003Powered, uln2003Outputs, createRotor, driveRotor, shaftAngle, ULN2003_INPUTS, MAX_RPM } from '../utils/stepper.js'
 import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
@@ -12,7 +14,7 @@ import { parseControlAnnotations, controlDefaults } from '../utils/esp32Controls
 import { servoWiring, attachIssue, makeIssue } from './physics/robotics/diagnosis.js'
 import { reportIssue, clearIssues, setSerialSink } from './simIssues.js'
 
-const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc'])
+const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 
 // NOTE_* frequency constants — mirrors src/arduino/libraries/Subo/pitches.h so
 // official SUBO melody sketches (playTone(NOTE_C5, …)) compile unchanged.
@@ -36,6 +38,8 @@ const BUILTIN_NAMES = new Set([
   'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
   'sin','cos','tan','random','randomSeed','Serial','onRuntimeError',
   'Servo','Stepper',
+  // Interrupts (encoder sketches)
+  'attachInterrupt','detachInterrupt','digitalPinToInterrupt','interrupts','noInterrupts','RISING','FALLING','CHANGE',
   // SUBO library API + constants
   'SuboMatrixInit','setAllLED','setSingleLED','playLEDSeq','stripclear',
   'playTone','stopBuzzer','playBuzSeq','start_motors','drive_motors','runMotor',
@@ -111,6 +115,8 @@ class SimulationManager {
     this.ledBrightness    = {}
     this.servoAngles      = {}   // servoId → angle 0–180°
     this.stepperRotors    = {}   // stepperId → { pos (full steps), lastT, missed } (utils/stepper.js)
+    this.encoders         = {}   // motor_enc id → { revs (motor shaft), rpm (output, actual) } (utils/encoderMotor.js)
+    this.motorLoad        = {}   // motorId → load factor 0…1, set by DriveManager while a robot drives
     // Legged locomotion drive intent set by the sketch via walk()/turn(). Units
     // match DrivePanel's drive controls (speed = scene units/s, turn = rad/s) so
     // DriveManager can use them interchangeably. _leggedCmd flips true the first
@@ -263,6 +269,13 @@ class SimulationManager {
       for (const id of touched) updateUln(id, Number.isFinite(t) ? t : null)
     }
     this._reportStepperIssues(ulns, stepWire, pinMap)
+
+    // ── Encoder motors (utils/encoderMotor.js) ────────────────────────────────
+    this._encWire = encoderWiring(this._connections, this._objects, { pinNum: pinNameToNumber, isSupply: isSupplyPinName, isGround: isGroundPinName })
+    this.encoders = {}
+    for (const id of Object.keys(this._encWire)) this.encoders[id] = { revs: 0, rpm: 0 }
+    this._encT = null
+    this._reportEncoderIssues(code)
 
     const _write = (pin, val, isDigital, skipUln = false) => {
       if (!self._running) return
@@ -546,7 +559,9 @@ class SimulationManager {
     if (/\b(IMU|Encoder|Battery)\b/.test(code) && !roboticsHardware.active && this._onSerialOut)
       this._onSerialOut('[sim] IMU/Encoder/Battery read physics sensors — start the Simulation to get live values\n')
 
-    const { code: jsCode, error: parseErr } = parseAndTranspile(code, BUILTIN_NAMES)
+    // ESP32 interrupt handlers are written `void IRAM_ATTR onA()`: the attribute
+    // only places code in fast RAM, so it is dropped before parsing.
+    const { code: jsCode, error: parseErr } = parseAndTranspile(code.replace(/IRAM_ATTR/g, ''), BUILTIN_NAMES)
     if (parseErr) {
       this._running = false
       return { error: 'Parse error: ' + parseErr }
@@ -569,6 +584,16 @@ class SimulationManager {
         case 'oled':         _oledSet(a[0]); break
         case 'servoAttach':  _servoAttach(a[0]); break
         case 'servoWrite':   _servoWrite(a[0], a[1]); servoInstances.set(a[0], a[1]); break
+        case 'irqAttach': {
+          // attachInterrupt(n, …): on an Uno only pins 2 and 3 can interrupt.
+          if (self._board !== 'arduino') break
+          const n = Number(a[0]), pin = (n === 0 || n === 1) ? n + 2 : n
+          if (!UNO_INTERRUPT_PINS.includes(pin)) reportIssue(makeIssue('code', `code:irq-pin:${pin}`,
+            `attachInterrupt on pin ${pin}: an Arduino Uno can only interrupt on pins 2 and 3`,
+            'The Uno has two external interrupts, INT0 on pin 2 and INT1 on pin 3. On any other pin the handler never runs, so the count stays at 0.',
+            'Wire the encoder A output to pin 2 (or 3) and use attachInterrupt(digitalPinToInterrupt(2), …).'))
+          break
+        }
         case 'pinsWrite':    if (Array.isArray(a[0])) _pinsWrite(a[0].filter(Array.isArray), Number(a[1])); break
         case 'matrix':       _matrixSet(...a); break
         case 'playTone':     playTone(a[0], a[1]); break
@@ -746,7 +771,24 @@ class SimulationManager {
     const st = useElectronicsStore.getState()
     const touch = {}
     for (const p of ESP32_PINS) if (p.touch != null) touch[p.gpio] = E.touch[p.gpio] ?? 80
+    // Encoder motors: advance each motor's real shaft position (PWM → gearbox →
+    // load → spin-up lag) and send the exact quadrature count; the sandbox
+    // replays it as A/B edges.
+    const now = performance.now()
+    const dt = this._encT == null ? 0 : Math.min(0.1, (now - this._encT) / 1000)
+    this._encT = now
+    const quad = {}
+    for (const [id, st] of Object.entries(this.encoders)) {
+      const o = this._objects.find(x => x.id === id)
+      const ratio = ratioOf(o)
+      st.rpm = stepRpm(st.rpm, outputRpm(this.motorSpeeds[id] ?? 0, ratio, this.motorLoad[id] ?? 1), dt)
+      st.revs += (st.rpm / 60) * dt * ratio                 // motor shaft turns
+      const w = this._encWire[id]
+      if (!w?.powered || (w.pinA == null && w.pinB == null)) continue   // unpowered encoder: no pulses
+      quad[id] = { a: w.pinA ?? -1, b: w.pinB ?? -1, count: quadCount(st.revs) }
+    }
     return {
+      quad, uno: this._board === 'arduino',
       aread, dread, pulse, lib, enc, touch,
       imu: roboticsHardware.imu() ?? null,
       battery: roboticsHardware.battery() ?? null,
@@ -830,8 +872,29 @@ class SimulationManager {
     }
   }
 
+  /** Encoder motors whose pulses can't reach the code: no power, or A/B not wired. */
+  _reportEncoderIssues(code) {
+    clearIssues('elec:enc')
+    const usesEncoder = /(attachInterrupt|Encoder)/.test(code)
+    for (const o of this._objects) {
+      if (o.type !== 'motor_enc') continue
+      const w = this._encWire[o.id], name = o.name || 'Encoder motor'
+      const wiredOut = w.pinA != null || w.pinB != null
+      if (wiredOut && !w.powered) reportIssue(makeIssue('electronics', `elec:enc-power:${o.id}`,
+        `${name}: the encoder has no power`,
+        'The Hall sensors need their own supply. Without VCC and GND the A/B outputs never change, so the count stays at 0 even while the motor turns.',
+        `ELEC → Wiring: connect ${name} VCC → 5V and GND → GND.`))
+      if (usesEncoder && !wiredOut) reportIssue(makeIssue('electronics', `elec:enc-pins:${o.id}`,
+        `${name}: encoder A/B are not wired to the board`,
+        'The sketch reads an encoder, but this motor’s ENC_A / ENC_B outputs go nowhere.',
+        `ELEC → Wiring: connect ${name} ENC_A → pin 2 and ENC_B → pin 4 (as in the template).`, 'warning'))
+    }
+  }
+
   stop() {
     this._running = false
+    clearIssues('elec:enc'); clearIssues('code:irq')
+    this.encoders = {}
     setSerialSink(null)
     clearIssues('elec:attach'); clearIssues('code:attach'); clearIssues('elec:l298n')
     clearIssues('elec:uln2003'); clearIssues('elec:stepper'); clearIssues('code:stepper')

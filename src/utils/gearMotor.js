@@ -51,8 +51,8 @@ export const DEFAULT_WHEEL_RADIUS_M = 0.0325
 const effOf = (ratio) => (GEAR_RATIOS.find((g) => g.ratio === ratio) ?? GEAR_RATIOS[0]).efficiency
 /** A motor object's ratio (missing / unknown → the standard 1:48). */
 export const ratioOf = (obj) => (GEAR_RATIOS.some((g) => g.ratio === obj?.gearRatio) ? obj.gearRatio : DEFAULT_GEAR_RATIO)
-/** Only BO motors have the selectable gearbox. */
-export const hasGearbox = (obj) => obj?.type === 'motor_bo'
+/** BO motors (and the BO motor with an encoder) have the selectable gearbox. */
+export const hasGearbox = (obj) => obj?.type === 'motor_bo' || obj?.type === 'motor_enc'
 
 /** Output-shaft specs for a gearbox ratio. */
 export function gearSpecs(ratio = DEFAULT_GEAR_RATIO) {

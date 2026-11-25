@@ -210,14 +210,21 @@ const SHAPES = {
       </>
     ) }
   },
+  // motor_enc: the BO art + the blue encoder board on the left, its motor
+  // pins (M1/M2) on the left edge and A · B · VCC · GND along the bottom.
   motor: (type) => {
-    const w = 150, h = 74, bo = type === 'motor_bo'
-    return { w, h, title: bo ? 'BO MOTOR' : 'DC MOTOR', pins: edge(PIN_DEFS[type], 'left', w, h, 0.3, 0.7), art: (
+    const enc = type === 'motor_enc'
+    const w = 150, h = enc ? 84 : 74, bo = type === 'motor_bo' || enc
+    const pins = enc
+      ? [...edge(['TERM_A', 'TERM_B'], 'left', w, h, 0.3, 0.6), ...edge(['ENC_A', 'ENC_B', 'VCC', 'GND'], 'bottom', w, h, 0.12, 0.62)]
+      : edge(PIN_DEFS[type], 'left', w, h, 0.3, 0.7)
+    return { w, h, title: enc ? 'ENCODER MOTOR' : bo ? 'BO MOTOR' : 'DC MOTOR', pins, art: (
       <>
+        {enc && <rect x="2" y="6" width="12" height={h - 12} rx="3" fill="#2357b8" stroke="#1e3a8a" />}
         <rect x="10" y="8" width={w * 0.62} height={h - 16} rx="10" fill={bo ? '#facc15' : '#cbd5e1'} stroke="rgb(0 0 0 / 0.25)" strokeWidth="1.5" />
         <rect x={w * 0.62 + 6} y="20" width={w * 0.2} height={h - 40} rx="5" fill={bo ? '#eab308' : '#94a3b8'} />
         <rect x={w * 0.82 + 4} y={h / 2 - 4} width={w * 0.14} height="8" rx="2" fill="#475569" />
-        <text x={w * 0.33 + 6} y={h / 2 + 4} textAnchor="middle" fontSize="10.5" fontWeight="800" fill="#1f2937">{bo ? 'BO MOTOR' : 'DC MOTOR'}</text>
+        <text x={w * 0.33 + 6} y={h / 2 + 4} textAnchor="middle" fontSize="10.5" fontWeight="800" fill="#1f2937">{enc ? 'ENC MOTOR' : bo ? 'BO MOTOR' : 'DC MOTOR'}</text>
       </>
     ) }
   },
@@ -269,7 +276,7 @@ export function shapeOf(type) {
   if (type === 'stepper') return SHAPES.stepper()
   if (type === 'servo') return SHAPES.servo()
   if (type === 'servo_cr') return SHAPES.servo(true)
-  if (type === 'motor' || type === 'motor_bo' || type === 'motor_dc') return SHAPES.motor(type)
+  if (type === 'motor' || type === 'motor_bo' || type === 'motor_dc' || type === 'motor_enc') return SHAPES.motor(type)
   if (type === 'led') return SHAPES.led()
   return SHAPES.module(type)
 }
