@@ -252,7 +252,7 @@ export class ArticulatedSession {
     this.onResolve?.('run:'); this.onResolve?.('code:idle'); this._idleSent = false; this._fallSent = false; this._downT = 0; this._collapseSent = false; this._sunkT = 0
     for (const id of this.robot.byComponent.keys()) {
       const w = this.wiring?.get(id)
-      this.robot.setServoPowered(id, !on || !w || (w.powered && w.signalPin != null))
+      this.robot.setServoPowered(id, !on || !w || (w.powered && (w.signalPin != null || w.pca != null)))
     }
     if (on) for (const i of this.wiringIssues ?? []) this.onIssue?.(i)
     else { this.onResolve?.('elec:servo-'); this.robot.directTargets.clear() }   // a stopped sketch no longer commands the servos

@@ -226,8 +226,9 @@ class Parser {
 
   parsePP() {
     const { v } = this.ts.next()
+    if (/^#\s*define\s+\w+\(/.test(v)) return null          // function-like macro: not supported
     const m = v.match(/^#\s*define\s+(\w+)(?:\s+(.+))?$/)
-    if (m && !m[1].includes('(')) return { type:'Define', name:m[1], value:(m[2]||'').trim() }
+    if (m) return { type:'Define', name:m[1], value:stripLineComment(m[2]||'').trim() }
     const ifdef = v.match(/^#\s*(ifdef|ifndef|if|else|elif|endif|pragma)\b/)
     if (ifdef) return { type:'PP', dir:ifdef[1], raw:v }
     return null
@@ -641,8 +642,16 @@ class Gen {
   gDefine(n) {
     if (this.skip.has(n.name)) return
     const v = n.value
-    if (!v || v.includes('(')) return
-    const jv = /^-?[0-9.]+$/.test(v) ? v : /^"/.test(v) ? v : JSON.stringify(v)
+    if (!v) return
+    let jv
+    if (/^-?[0-9.]+$/.test(v) || /^"/.test(v)) jv = v
+    // 0x41 · 0b101 · 100000UL · 1.5f · 2e3 → the plain JS number
+    else if (/^-?(0x[0-9a-f]+|0b[01]+|[0-9]*\.?[0-9]+(e-?[0-9]+)?)(u|l|ul|lu|ull|ll|f)?$/i.test(v))
+      jv = /^-?0x/i.test(v) ? v.replace(/(u|l)+$/i, '') : v.replace(/(u|l|ul|lu|ull|ll|f)$/i, '')
+    // an expression of names / numbers / operators: `#define PIN A0`, `#define MID (LO + HI) / 2`
+    else if (/^[\w\s+\-*/%().<>&|^~!]+$/.test(v) && /[\w)]$/.test(v) && !/\s\w+\s+\w/.test(` ${v} `.replace(/[^\w\s]/g, ' + ')))
+      jv = `(${v.replace(/\b(0x[0-9a-f]+|[0-9]+)(ul|lu|u|l)\b/gi, '$1')})`
+    else jv = JSON.stringify(v)
     this.w(`${this.I()}const ${n.name} = ${jv};\n`)
   }
 
@@ -789,6 +798,22 @@ class Gen {
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
+
+/** `#define X 5   // note` → `5`: drop a trailing // or block comment outside string literals. */
+function stripLineComment(v) {
+  let q = null
+  for (let i = 0; i < v.length; i++) {
+    const c = v[i]
+    if (q) { if (c === '\\') i++; else if (c === q) q = null; continue }
+    if (c === '"' || c === "'") { q = c; continue }
+    if (c === '/' && v[i + 1] === '/') return v.slice(0, i)
+    if (c === '/' && v[i + 1] === '*') {
+      const end = v.indexOf('*/', i + 2)
+      return v.slice(0, i) + (end < 0 ? '' : ' ' + stripLineComment(v.slice(end + 2)))
+    }
+  }
+  return v
+}
 
 export function parseAndTranspile(src, skipDefines) {
   try {

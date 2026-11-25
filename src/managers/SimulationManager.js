@@ -3,6 +3,7 @@ import { buildDriverOutputMap, l298nOutputs } from '../utils/l298n.js'
 import { crMotorSpeed } from '../utils/continuousServo.js'
 import { encoderWiring, outputRpm, stepRpm, quadCount, UNO_INTERRUPT_PINS } from '../utils/encoderMotor.js'
 import { ratioOf } from '../utils/gearMotor.js'
+import { pcaWiring, pulseToAngle, hex, SERVO_MAX_HZ } from '../utils/pca9685.js'
 import { buildStepperWiring, isUln2003Powered, uln2003Outputs, createRotor, driveRotor, shaftAngle, ULN2003_INPUTS, MAX_RPM } from '../utils/stepper.js'
 import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
@@ -37,7 +38,7 @@ const BUILTIN_NAMES = new Set([
   'millis','micros','map','constrain',
   'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
   'sin','cos','tan','random','randomSeed','Serial','onRuntimeError',
-  'Servo','Stepper',
+  'Servo','Stepper','Adafruit_PWMServoDriver',
   // Interrupts (encoder sketches)
   'attachInterrupt','detachInterrupt','digitalPinToInterrupt','interrupts','noInterrupts','RISING','FALLING','CHANGE',
   // SUBO library API + constants
@@ -277,6 +278,10 @@ class SimulationManager {
     this._encT = null
     this._reportEncoderIssues(code)
 
+    // ── PCA9685 servo drivers (utils/pca9685.js) ──────────────────────────────
+    this._pcaWire = pcaWiring(this._connections, this._objects, { isSupply: isSupplyPinName, isGround: isGroundPinName })
+    this._reportPcaIssues(code)
+
     const _write = (pin, val, isDigital, skipUln = false) => {
       if (!self._running) return
       const comps = pinMap[pin]
@@ -456,20 +461,54 @@ class SimulationManager {
       if ((pinMap[p] || []).some(c => c.type === 'servo' || c.type === 'servo_cr')) return
       if (sceneServos.length) reportIssue(attachIssue(p, sceneServos, servoWire))
     }
+    const _driveServo = (comp, a) => {
+      if (servoWire.get(comp.id)?.powered === false) return   // no VCC/GND → it can't move
+      if (comp.type === 'servo_cr') {
+        const speed = crMotorSpeed(a)
+        self.motorSpeeds[comp.id] = speed
+        if (self._onMotorSpeed) self._onMotorSpeed(comp.id, speed)
+      } else {
+        self.servoAngles[comp.id] = a
+        if (self._onServoAngle) self._onServoAngle(comp.id, a)
+      }
+    }
     const _servoWrite = (pin, angle) => {
       self.actuatorCalls++
       const a = Math.max(0, Math.min(180, Number(angle) || 0))
-      for (const comp of (pinMap[Number(pin)] || [])) {
-        if (comp.type !== 'servo' && comp.type !== 'servo_cr') continue
-        if (servoWire.get(comp.id)?.powered === false) continue   // no VCC/GND → it can't move
-        if (comp.type === 'servo_cr') {
-          const speed = crMotorSpeed(a)
-          self.motorSpeeds[comp.id] = speed
-          if (self._onMotorSpeed) self._onMotorSpeed(comp.id, speed)
-        } else {
-          self.servoAngles[comp.id] = a
-          if (self._onServoAngle) self._onServoAngle(comp.id, a)
-        }
+      for (const comp of (pinMap[Number(pin)] || []))
+        if (comp.type === 'servo' || comp.type === 'servo_cr') _driveServo(comp, a)
+    }
+
+    // PCA9685: the sketch's I2C command reaches every board at that address that
+    // is on the bus and powered; the pulse moves the servos on that channel.
+    const _typeOf = new Map(self._objects.map(o => [o.id, o.type]))
+    const _pcaSaid = new Set()                         // each problem once per run (setPWM is called a lot)
+    const _pcaOut = (addr, ch, us, hz) => {
+      self.actuatorCalls++
+      const at = Object.entries(self._pcaWire).filter(([, w]) => w.addr === Number(addr))
+      if (!at.length) {
+        if (_pcaSaid.has(addr)) return
+        _pcaSaid.add(addr)
+        const all = Object.values(self._pcaWire)
+        if (all.length) reportIssue(makeIssue('code', `code:pca-addr:${addr}`,
+          `No PCA9685 answers at address ${hex(addr)}`,
+          `The code talks to ${hex(addr)}, but your board${all.length > 1 ? 's are' : ' is'} set to ${[...new Set(all.map(w => hex(w.addr)))].join(', ')}. Nothing on the bus answers, so no servo moves.`,
+          `Use Adafruit_PWMServoDriver(${hex(all[0].addr)}) in the code, or change the board's address in Properties (A0–A2 jumpers).`))
+        else reportIssue(makeIssue('electronics', 'elec:pca-none',
+          'The code uses a PCA9685, but there is none in the scene',
+          'Adafruit_PWMServoDriver sends its commands over I2C to a PCA9685 board. Without one, nothing receives them.',
+          'Electronics → Motor Drivers → PCA9685 Servo Driver, then wire it and plug the servos into its channels.'))
+        return
+      }
+      if (hz > SERVO_MAX_HZ && us > 0 && !_pcaSaid.has('hz') && _pcaSaid.add('hz')) reportIssue(makeIssue('code', 'code:pca-freq',
+        `PCA9685 runs at ${Math.round(hz)} Hz: servos need about 50 Hz`,
+        'begin() starts the chip at 1000 Hz. A hobby servo expects one pulse every 20 ms (50 Hz); at a much higher rate it ignores the pulses (a real one jitters and heats up).',
+        'Call pwm.setPWMFreq(50); right after pwm.begin(); in setup().'))
+      const angle = pulseToAngle(us, hz)
+      if (angle == null) return
+      for (const [, w] of at) {
+        if (!(w.sda && w.scl && w.logic)) continue        // not on the bus / chip off (reported at start)
+        for (const id of (w.channels[Number(ch)] || [])) _driveServo({ id, type: _typeOf.get(id) }, angle)
       }
     }
 
@@ -584,6 +623,7 @@ class SimulationManager {
         case 'oled':         _oledSet(a[0]); break
         case 'servoAttach':  _servoAttach(a[0]); break
         case 'servoWrite':   _servoWrite(a[0], a[1]); servoInstances.set(a[0], a[1]); break
+        case 'pcaOut':       _pcaOut(Number(a[0]), Number(a[1]), Number(a[2]), Number(a[3])); break
         case 'irqAttach': {
           // attachInterrupt(n, …): on an Uno only pins 2 and 3 can interrupt.
           if (self._board !== 'arduino') break
@@ -872,6 +912,45 @@ class SimulationManager {
     }
   }
 
+  /** PCA9685 boards the sketch can't reach, or whose servos have no power. */
+  _reportPcaIssues(code) {
+    clearIssues('elec:pca'); clearIssues('code:pca')
+    if (!/PWMServoDriver/.test(code)) return
+    const BUS = { arduino: 'SDA → SDA (A4) and SCL → SCL (A5)', esp32: 'SDA → GPIO21 and SCL → GPIO22', subo: 'SDA and SCL → two IO pins (Wire.begin(sda, scl))' }
+    const bus = BUS[this._board] ?? BUS.arduino
+    const seen = new Map()
+    for (const o of this._objects) {
+      if (o.type !== 'pca9685') continue
+      const w = this._pcaWire[o.id], name = o.name || 'PCA9685'
+      if (seen.has(w.addr)) reportIssue(makeIssue('electronics', `elec:pca-dup:${o.id}`,
+        `${seen.get(w.addr)} and ${name} share address ${hex(w.addr)}`,
+        'Two boards at one address both answer every command, so they always do the same thing.',
+        `Select ${name} → Properties and give it another address (A0–A2 jumpers).`, 'warning'))
+      seen.set(w.addr, name)
+      if (w.swapped) reportIssue(makeIssue('electronics', `elec:pca-swap:${o.id}`,
+        `${name}: SDA and SCL are swapped`,
+        'SDA is the data line and SCL the clock. Crossed over, the chip never sees a valid start condition, so it ignores every command.',
+        `ELEC → Wiring: ${bus}.`))
+      else if (!(w.sda && w.scl)) reportIssue(makeIssue('electronics', `elec:pca-i2c:${o.id}`,
+        `${name} is not on the I2C bus`,
+        `The board gets its commands over two wires, SDA and SCL. ${!w.sda && !w.scl ? 'Neither is' : (!w.sda ? 'SDA is' : 'SCL is')} wired to the board's I2C pins, so no command reaches it.`,
+        `ELEC → Wiring: ${bus}.`))
+      if (!w.logic) reportIssue(makeIssue('electronics', `elec:pca-vcc:${o.id}`,
+        `${name}: the chip has no power`,
+        'VCC (3–5 V) runs the PCA9685 chip itself. Without VCC and GND it cannot answer on the bus.',
+        `ELEC → Wiring: connect ${name} VCC → 5V and GND → GND.`))
+      const used = Object.keys(w.channels).length
+      if (used && !w.rail) reportIssue(makeIssue('electronics', `elec:pca-vplus:${o.id}`,
+        `${name}: the servo headers have no power (V+)`,
+        'V+ feeds only the servo headers, separately from the chip’s VCC. Without it the pulses arrive but the servos have no power to move.',
+        `ELEC → Wiring: connect ${name} V+ → 5V (fine for a few small servos; a robot with many servos uses a separate 5–6 V supply on the screw terminal).`))
+      if (!used) reportIssue(makeIssue('electronics', `elec:pca-empty:${o.id}`,
+        `${name}: no servo is plugged into a channel`,
+        'The chip makes pulses on its 16 channels, but no servo SIGNAL is connected to any PWM pin.',
+        `Select ${name} → Properties → Plug a servo, or wire a servo SIGNAL → PWM0 … PWM15.`, 'warning'))
+    }
+  }
+
   /** Encoder motors whose pulses can't reach the code: no power, or A/B not wired. */
   _reportEncoderIssues(code) {
     clearIssues('elec:enc')
@@ -894,6 +973,7 @@ class SimulationManager {
   stop() {
     this._running = false
     clearIssues('elec:enc'); clearIssues('code:irq')
+    clearIssues('elec:pca'); clearIssues('code:pca')
     this.encoders = {}
     setSerialSink(null)
     clearIssues('elec:attach'); clearIssues('code:attach'); clearIssues('elec:l298n')

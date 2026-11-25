@@ -90,6 +90,7 @@ toolsapp/
 │       ├── ultrasonic.glb · ir_sensor.glb · gas_sensor.glb · oled.glb · buzzer.glb · ldr.glb · dht11.glb
 │       ├── l298n.glb               # generated from tools/models/l298n.model.js (scene units, no size target — pins in L298N_PINS line up)
 │       ├── stepper.glb · uln2003.glb # generated from tools/models/{stepper,uln2003}.model.js (28BYJ-48 + its driver; same rules as l298n)
+│       ├── pca9685.glb             # generated from tools/models/pca9685.model.js (16-ch servo driver; PCA9685_PINS line up)
 │       ├── weapon_autocannon.glb · weapon_shotgun.glb · weapon_rocket.glb · weapon_flame.glb   # combat weapons (lazy)
 │       └── subo_*.glb              # SUBO board backups/variants (see SUBO notes)
 │
@@ -275,6 +276,7 @@ toolsapp/
     │   ├── continuousServo.js      # FS90R-style 360° servo (type servo_cr): Servo.write angle → signed drive speed; wires/codes like a servo, drives like a motor
     │   ├── gearMotor.js            # BO motor gearbox (obj.gearRatio 48/90/120/220): speed↔torque + rolling-load model → per-side DifferentialDrive speedScale
     │   ├── encoderMotor.js         # TT motor + Hall encoder (type motor_enc): real shaft speed → signed quadrature count; sandbox replays A/B edges into attachInterrupt()/Encoder(a,b)
+    │   ├── pca9685.js              # 16-ch I2C servo driver: Adafruit_PWMServoDriver register maths → pulse µs → servo angle; I2C bus/VCC/V+ wiring (nets, chaining), address jumpers 0x40–0x47
     │   ├── export.js               # JSON/STL/GLTF export + import
     │   ├── printExport.js          # STL export + printability analysis
     │   ├── share.js                # Share-link build/read (project packed into URL hash)

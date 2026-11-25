@@ -546,7 +546,7 @@ const bondsCache = { obj: null, arr: [] }
 // Built-in models to warm at idle after boot. On Data-Saver / slow links only
 // the small, most-used parts are prefetched; everything else loads on use.
 const PREFETCH_SMALL = ['servo', 'motor_bo', 'motor_dc', 'led', 'buzzer', 'ultrasonic']
-const PREFETCH_REST  = ['arduino', 'subo', 'ir_sensor', 'ldr_sensor', 'oled', 'gas_sensor', 'dht11', 'free_wheels', 'l298n', 'stepper', 'uln2003']
+const PREFETCH_REST  = ['arduino', 'subo', 'ir_sensor', 'ldr_sensor', 'oled', 'gas_sensor', 'dht11', 'free_wheels', 'l298n', 'stepper', 'uln2003', 'pca9685']
 function prefetchAfterBoot() {
   const c = typeof navigator !== 'undefined' ? navigator.connection : null
   const constrained = !!(c && (c.saveData || /2g|3g/.test(c.effectiveType || '')))

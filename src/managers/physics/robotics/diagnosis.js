@@ -137,15 +137,28 @@ export function engineIssue(reason) {
  */
 export function servoWiring(servos, connections) {
   const out = new Map()
-  for (const s of servos) out.set(s.id, { signalPin: null, vcc: false, gnd: false })
-  for (const { fromPinId, toPinId } of Object.values(connections ?? {})) {
+  for (const s of servos) out.set(s.id, { signalPin: null, pca: null, vcc: false, gnd: false })
+  const conns = Object.values(connections ?? {})
+  // A servo plugged into a PCA9685 channel (utils/pca9685.js) takes its power
+  // from the board's V+ rail — which only has power if V+ is wired to a supply.
+  const rails = new Set()
+  for (const { fromPinId, toPinId } of conns)
+    for (const [a, b] of [[fromPinId, toPinId], [toPinId, fromPinId]]) {
+      const [aComp, aPin] = String(a).split(':')
+      const [bComp, bPin] = String(b).split(':')
+      if (aPin === 'V+' && !out.has(bComp) && isSupplyPinName(bPin)) rails.add(aComp)   // a servo's VCC is a load, not a supply
+    }
+  for (const { fromPinId, toPinId } of conns) {
     for (const [a, b] of [[fromPinId, toPinId], [toPinId, fromPinId]]) {
       const [aComp, aPin] = String(a).split(':')
       const st = out.get(aComp)
       if (!st) continue
-      const bPin = String(b).split(':')[1]
-      if (aPin === 'SIGNAL') { const n = pinNameToNumber(bPin); if (n != null) st.signalPin = n }
-      if (aPin === 'VCC' && isSupplyPinName(bPin)) st.vcc = true
+      const [bComp, bPin] = String(b).split(':')
+      if (aPin === 'SIGNAL') {
+        const n = pinNameToNumber(bPin); if (n != null) st.signalPin = n
+        const ch = /^PWM(\d+)$/.exec(bPin ?? ''); if (ch) st.pca = { id: bComp, ch: Number(ch[1]) }
+      }
+      if (aPin === 'VCC' && (isSupplyPinName(bPin) || (bPin === 'V+' && rails.has(bComp)))) st.vcc = true
       if (aPin === 'GND' && isGroundPinName(bPin)) st.gnd = true
     }
   }
@@ -153,11 +166,14 @@ export function servoWiring(servos, connections) {
   return out
 }
 
+/** The sketch can reach this servo: a board pin, or a PCA9685 channel. */
+export const hasSignal = (w) => w?.signalPin != null || w?.pca != null
+
 /** Servos the sketch can't move: no power, or no signal wire. */
 export function servoWiringIssues(servos, wiring) {
   const issues = []
   const noPower = servos.filter(s => !wiring.get(s.id)?.powered)
-  const noSignal = servos.filter(s => wiring.get(s.id)?.signalPin == null)
+  const noSignal = servos.filter(s => !hasSignal(wiring.get(s.id)))
   if (noPower.length) {
     issues.push(makeIssue('electronics', 'elec:servo-power',
       `${list(noPower)} ${noPower.length === 1 ? 'has' : 'have'} no power`,
@@ -168,14 +184,14 @@ export function servoWiringIssues(servos, wiring) {
     issues.push(makeIssue('electronics', 'elec:servo-signal',
       `${list(noSignal)} ${noSignal.length === 1 ? 'is' : 'are'} not connected to the board`,
       "Nothing is wired to the servo's SIGNAL pin, so the code can't reach it — it goes limp.",
-      'ELEC → Wiring: connect each servo SIGNAL to a board pin, and use that pin in Servo.attach().'))
+      'ELEC → Wiring: connect each servo SIGNAL to a board pin (and use that pin in Servo.attach()), or plug it into a PCA9685 channel.'))
   }
   return issues
 }
 
 /** Servo.attach(pin) on a pin with no servo: a wiring gap or a wrong pin in the code? */
 export function attachIssue(pin, servos, wiring) {
-  const unwired = servos.filter(s => wiring.get(s.id)?.signalPin == null)
+  const unwired = servos.filter(s => !hasSignal(wiring.get(s.id)))
   const used = [...new Set(servos.map(s => wiring.get(s.id)?.signalPin).filter(p => p != null))].sort((a, b) => a - b)
   if (unwired.length) {
     return makeIssue('electronics', `elec:attach-${pin}`,

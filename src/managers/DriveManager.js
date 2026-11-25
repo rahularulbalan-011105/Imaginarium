@@ -296,7 +296,12 @@ class DriveManager {
       // engine can't model doesn't walk — and the user is told why.
       if (this._articulatedFail) {
         this._leggedBlocked = true
-        reportIssue(engineIssue(this._articulatedFail))
+        // Only a robot with LEGS can fail to be built: servos with nothing on
+        // their horns are a bench test (servo tester, PCA9685 sweep) — their
+        // horns still turn, there is just no robot to walk.
+        const servoIds = new Set(topLevel.filter(o => o.type === 'servo').map(o => o.id))
+        const hasLegs = Object.values(useElectronicsStore.getState().attachments ?? {}).some(host => servoIds.has(host))
+        if (hasLegs) reportIssue(engineIssue(this._articulatedFail))
       }
     }
 
