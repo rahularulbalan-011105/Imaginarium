@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { v4 as uuidv4 } from 'uuid'
 import { esp32GpioFromName } from '../utils/esp32Board.js'
 import { L298N_INPUTS } from '../utils/l298n.js'
+import { ULN2003_INPUTS } from '../utils/stepper.js'
 
 const DEFAULT_CODE = `// Arduino Code
 // Motor TERM_A connected to Pin ~3 (PWM)
@@ -238,6 +239,10 @@ export function buildPinToComponentMap(connections, objects) {
         // names the input (IN1…IN4 / ENA / ENB); SimulationManager turns those
         // into OUT levels and on into the motors wired to them (utils/l298n.js).
         if (!L298N_INPUTS.includes(bPin)) continue
+        terminal = bPin
+      } else if (bObj.type === 'uln2003') {
+        // Stepper driver: IN1…IN4 switch the coils (utils/stepper.js).
+        if (!ULN2003_INPUTS.includes(bPin)) continue
         terminal = bPin
       } else {
         if (!SIGNAL_TERMINALS.some(t => bPin?.startsWith(t))) continue

@@ -170,8 +170,33 @@ export const L298N_PINS = {
   }])),
 }
 
+// 28BYJ-48 stepper: its five wires end in a JST plug — one pin per wire at the
+// plug face (tools/models/stepper.model.js, STEPPER_LAYOUT.plug). Colours are
+// the real wire colours, so the 3D pins read like the actual cable.
+const STEPPER_WIRE_HEX = { BLUE: 0x2563eb, PINK: 0xec4899, YELLOW: 0xeab308, ORANGE: 0xf97316, RED: 0xdc2626 }
+export const STEPPER_PINS = Object.fromEntries(Object.entries(STEPPER_WIRE_HEX).map(([name, color], i) => [name, {
+  x: -0.5 + i * 0.25, y: 0.3, z: -4.3, r: 0.1, color, type: name === 'RED' ? 'power' : 'digital',
+  label: name, ldy: i % 2 ? 0.3 : 0,
+}]))
+
+// ULN2003 board (tools/models/uln2003.model.js, ULN2003_LAYOUT): IN1–IN4 and
+// − + on the front header tips; OUT1–OUT4 + COM over the motor socket pins.
+export const ULN2003_PINS = {
+  ...Object.fromEntries(['IN1', 'IN2', 'IN3', 'IN4'].map((name, i) => [name, {
+    x: -1.45 + i * 0.254, y: 1.0, z: 1.35, r: 0.1, color: 0xff8800, type: 'digital', label: name, ldy: i % 2 ? 0.3 : 0,
+  }])),
+  GND: { x: 0.25,  y: 1.0, z: 1.35, r: 0.1, color: 0x333333, type: 'gnd',   label: 'GND' },
+  VCC: { x: 0.504, y: 1.0, z: 1.35, r: 0.1, color: 0xff2222, type: 'power', label: 'VCC', ldy: 0.3 },
+  ...Object.fromEntries(['OUT1', 'OUT2', 'OUT3', 'OUT4', 'COM'].map((name, i) => [name, {
+    x: -0.8 + i * 0.25, y: 0.95, z: -1.15, r: 0.1,
+    color: name === 'COM' ? 0xff2222 : 0xffcc00, type: 'power', label: name, ldy: i % 2 ? 0.3 : 0,
+  }])),
+}
+
 export const PIN_DEFS = {
   l298n:    L298N_PINS,
+  stepper:  STEPPER_PINS,
+  uln2003:  ULN2003_PINS,
   arduino:  ARDUINO_PINS,
   subo:     SUBO_PINS,
   motor:    MOTOR_PINS,
@@ -1254,6 +1279,82 @@ export function createLDRGroup() {
     root.add(pot)
   }
   root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
+}
+
+// ─── 28BYJ-48 stepper motor ──────────────────────────────────────────────────
+// GLB first: public/models/stepper.glb, generated from tools/models/stepper.model.js
+// (scene units, no rescale — STEPPER_PINS sit on its plug). The mesh named
+// 'shaft' is wrapped in a pivot (rotorGroup) about its own axis (y), so
+// SimulationManager can set the shaft angle and parts can be attached to it the
+// same way as to a servo horn. Logic: utils/stepper.js.
+export function createStepperGroup() {
+  const root = new THREE.Group()
+  root.userData.labelScale = 0.5
+  const glb = cloneModel('stepper')
+  let shaft = null
+  if (glb) {
+    root.add(glb)
+    root.traverse(c => {
+      if (!c.isMesh) return
+      c.castShadow = true; c.receiveShadow = true
+      if (c.name === 'shaft') shaft = c
+      if (c.name !== 'can' && c.name !== 'flange') c.userData.noOutline = true   // outline the body, not every wire
+    })
+  } else {
+    // Procedural stand-in: can + ears + brass shaft + wire box + plug.
+    const can = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.4, 1.9, 40), mat(0xc2c7ce, { metalness: 0.45, roughness: 0.35 }))
+    can.position.y = 0.95; root.add(can)
+    const ears = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.08, 0.7), mat(0xb3b9c1, { metalness: 0.45, roughness: 0.4 }))
+    ears.position.y = 1.94; root.add(ears)
+    const box = new THREE.Mesh(new THREE.BoxGeometry(1.46, 1.65, 0.78), mat(0x2c66d1))
+    box.position.set(0, 0.92, -1.34); root.add(box)
+    const plug = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.58, 0.62), mat(0xf1efe6))
+    plug.position.set(0, 0.3, -3.84); root.add(plug)
+    shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.9, 20), mat(0xd2a64a, { metalness: 0.55, roughness: 0.3 }))
+    shaft.position.set(0, 2.5, 0.8); shaft.name = 'shaft'; root.add(shaft)
+    root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  }
+  if (shaft) _setupServoPivot(root, shaft)          // rotorGroup = pivot on the shaft axis (y)
+  root.userData.isStepper = true
+  return root
+}
+
+// ─── ULN2003 stepper driver board ────────────────────────────────────────────
+// GLB first: public/models/uln2003.glb (tools/models/uln2003.model.js), same
+// frame as ULN2003_PINS. The four LEDs (led_A … led_D) get their own material
+// so they light per coil (ObjectManager.setUlnLeds).
+export function createUln2003Group() {
+  const root = new THREE.Group()
+  root.userData.labelScale = 0.5
+  const leds = []
+  const glb = cloneModel('uln2003')
+  if (glb) {
+    root.add(glb)
+    root.traverse(c => {
+      if (!c.isMesh) return
+      c.castShadow = true; c.receiveShadow = true
+      if (c.name !== 'pcb') c.userData.noOutline = true
+      if (c.name === 'pcb' || c.name === 'pcb_silkscreen') c.castShadow = false   // see createL298NGroup
+      const m = /^led_([ABCD])$/.exec(c.name)
+      if (m) { c.material = c.material.clone(); leds['ABCD'.indexOf(m[1])] = c }
+    })
+  } else {
+    const pcb = new THREE.Mesh(new THREE.BoxGeometry(3.5, 0.16, 3.2), mat(0x1f8a45, { roughness: 0.7 }))
+    root.add(pcb)
+    const chip = new THREE.Mesh(new THREE.BoxGeometry(0.64, 0.32, 1.98), mat(0x18181a))
+    chip.position.set(-0.3, 0.34, 0.2); root.add(chip)
+    const sock = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.7, 0.6), mat(0xf2f0e8))
+    sock.position.set(-0.3, 0.43, -1.15); root.add(sock)
+    const hdr = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.25, 0.25), mat(0x151517))
+    hdr.position.set(-0.2, 0.2, 1.35); root.add(hdr)
+    ;[-0.75, -0.3, 0.15, 0.6].forEach((z, i) => {
+      const led = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.4, 16), new THREE.MeshStandardMaterial({ color: 0xd42a2a, emissive: 0x000000 }))
+      led.position.set(1.2, 0.28, z); root.add(led); leds[i] = led
+    })
+    root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  }
+  root.userData.ulnLeds = leds
   return root
 }
 
