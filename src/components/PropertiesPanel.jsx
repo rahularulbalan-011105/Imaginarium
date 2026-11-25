@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { useSceneStore } from '../stores/sceneStore.js'
-import { effectiveMass } from '../managers/physics/MassCalculator.js'
+import { effectiveMass, totalMass } from '../managers/physics/MassCalculator.js'
+import { usePhysicsStore } from '../stores/physicsStore.js'
+import { GEAR_RATIOS, gearSpecs, ratioOf, rollingLoadNm, loadFactor, maxSlopeDeg, DEFAULT_WHEEL_RADIUS_M, GRIP_SLOPE_DEG } from '../utils/gearMotor.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSurfaceStore } from '../stores/surfaceStore.js'
 import { useRigidStore } from '../stores/rigidStore.js'
@@ -310,6 +312,57 @@ function StepperControls({ obj, objects, snapshot }) {
       <div className="text-[9px] text-gray-500 mt-1">
         2048 steps = one turn of the shaft, at most ~{MAX_RPM} RPM. Attach a part to the Stepper Shaft to turn it. In code: <span className="font-mono text-gray-300">Stepper s(2048, 8, 10, 9, 11);</span>
       </div>
+    </div>
+  )
+}
+
+// BO motor gearbox: the same motor behind 1:48 … 1:220 gears. Shows the
+// speed/torque trade-off and what it means for THIS robot (utils/gearMotor.js).
+const DRIVE_TYPES = new Set(['motor', 'motor_bo', 'motor_dc', 'servo_cr'])
+function GearboxControls({ obj, objects, update, snapshot }) {
+  const attachments = useElectronicsStore((s) => s.attachments)
+  const gravity = usePhysicsStore((s) => s.gravity)
+  const rollingFriction = usePhysicsStore((s) => s.rollingFriction)
+  const standalone = useSceneStore((s) => s.standaloneIds)
+  const ratio = ratioOf(obj)
+  const spec = gearSpecs(ratio)
+  // This robot: everything not detached as an obstacle (as the simulator does).
+  const robot = objects.filter((o) => !standalone.includes(o.id))
+  const massKg = Math.max(0.1, totalMass(robot))
+  const driveMotors = Math.max(1, robot.filter((o) => DRIVE_TYPES.has(o.type)).length)
+  const wheel = objects.find((o) => o.type === 'wheel' && attachments[o.id] === obj.id)
+  const wheelRadiusM = wheel ? ((wheel.wheelDiameter ?? 3.4) / 2) * Math.max(Math.abs(wheel.scale?.y ?? 1), Math.abs(wheel.scale?.z ?? 1)) / 100 : DEFAULT_WHEEL_RADIUS_M
+  const env = { massKg, gravity, rollingFriction, wheelRadiusM, driveMotors }
+  const lf = loadFactor(spec.stallNm, rollingLoadNm(env))
+  const slope = maxSlopeDeg({ ...env, stallNm: spec.stallNm })
+  const pick = (r) => { if (r !== ratio) { update({ gearRatio: r }); snapshot() } }
+  return (
+    <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
+      <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Gearbox</div>
+      <div className="grid grid-cols-4 gap-1 mb-2">
+        {GEAR_RATIOS.map(({ ratio: r }) => (
+          <button key={r} onClick={() => pick(r)}
+            className={`py-1 rounded text-[11px] font-semibold transition-colors ${r === ratio ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+            1:{r}
+          </button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-x-2 text-[10px] mb-1.5">
+        <span className="text-gray-400">Speed (no load)</span><span className="text-gray-100 font-semibold text-right">{Math.round(spec.rpm)} RPM</span>
+        <span className="text-gray-400">Stall torque</span><span className="text-gray-100 font-semibold text-right">{spec.stallKgCm.toFixed(1)} kg·cm</span>
+      </div>
+      <div className="text-[9px] text-gray-400 border-t border-gray-700/60 pt-1.5">
+        On this robot ({massKg.toFixed(2)} kg, {driveMotors} drive motor{driveMotors === 1 ? '' : 's'}):
+        <div className={lf <= 0 ? 'text-red-400 font-semibold' : lf < 0.5 ? 'text-yellow-500' : 'text-gray-200'}>
+          {lf <= 0 ? '✕ Stalls — too weak to move it' : `runs at ${Math.round(lf * 100)} % of its no-load speed`}
+        </div>
+        <div className="text-gray-200">
+          {slope >= GRIP_SLOPE_DEG
+            ? `could climb about ${Math.round(GRIP_SLOPE_DEG)}° — then the tyres slip, not the motors`
+            : `could climb a slope of about ${Math.round(slope)}° (motor torque is the limit)`}
+        </div>
+      </div>
+      <div className="text-[9px] text-gray-500 mt-1">Higher ratio = slower but stronger. Typical TT-motor values; real ones vary ±20 %.</div>
     </div>
   )
 }
@@ -1121,6 +1174,7 @@ export default function PropertiesPanel() {
         <RoundPartControls obj={obj} objects={objects} attachedTo={objects.find(o => o.id === attachments[obj.id])} update={update} snapshot={snapshot} />
       )}
       {obj.type === 'stepper' && <StepperControls obj={obj} objects={objects} snapshot={snapshot} />}
+      {obj.type === 'motor_bo' && <GearboxControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
 
       {/* Gear parameters — only for gear objects */}
       {obj.type === 'gear' && (() => {

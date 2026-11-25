@@ -48,6 +48,8 @@ class DifferentialDrivePhysics extends PhysicsModule {
     // Real Wheel-part sizes from DriveManager (null/undefined → default radius).
     this._drive.radiusLeft  = ctx?.radiusLeft  ?? null
     this._drive.radiusRight = ctx?.radiusRight ?? null
+    this._drive.speedScaleLeft  = ctx?.speedScaleLeft  ?? 1
+    this._drive.speedScaleRight = ctx?.speedScaleRight ?? 1
   }
   step(_dt, ctx) {
     if (!this._drive) this._drive = new DifferentialDrive()
