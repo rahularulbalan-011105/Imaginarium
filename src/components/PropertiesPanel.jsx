@@ -398,7 +398,7 @@ export default function PropertiesPanel() {
   const attachedMotor   = attachedMotorId ? objects.find(o => o.id === attachedMotorId) : null
 
   const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc']
-  const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'servo', 'stepper']
+  const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'servo', 'servo_cr', 'stepper']
   const isMotor      = obj && MOTOR_TYPES.includes(obj.type)
   const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led' || obj.type === 'uln2003')
 
@@ -416,7 +416,7 @@ export default function PropertiesPanel() {
   const canAttach = isAttachable && !secondaryShaft && shaftTargets.length > 0
 
   // Helper: human-readable label for a shaft target
-  const shaftLabel = (target) => target?.type === 'servo' ? 'Servo Horn' : target?.type === 'stepper' ? 'Stepper Shaft' : 'Motor Shaft'
+  const shaftLabel = (target) => (target?.type === 'servo' || target?.type === 'servo_cr') ? 'Servo Horn' : target?.type === 'stepper' ? 'Stepper Shaft' : 'Motor Shaft'
 
   // Rigid bonds involving the currently selected object
   const myBonds = obj
@@ -864,7 +864,7 @@ export default function PropertiesPanel() {
           </div>
           <div className="text-[9px] text-gray-400 mb-2">
             Attach <span className="text-gray-100 font-medium">{obj.name}</span> to{' '}
-            <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' ? 'horn' : 'shaft'}.
+            <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' || secondaryShaft.type === 'servo_cr' ? 'horn' : 'shaft'}.
           </div>
           <button
             onClick={() => handleAttachToMotor(secondaryShaft.id)}

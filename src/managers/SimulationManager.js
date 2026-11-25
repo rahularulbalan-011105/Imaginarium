@@ -1,5 +1,6 @@
 import { buildPinToComponentMap, buildSensorInputMap, isSensorPowered, isDriverGrounded, SENSOR_TYPES, useElectronicsStore } from '../stores/electronicsStore.js'
 import { buildDriverOutputMap, l298nOutputs } from '../utils/l298n.js'
+import { crMotorSpeed } from '../utils/continuousServo.js'
 import { buildStepperWiring, isUln2003Powered, uln2003Outputs, createRotor, driveRotor, shaftAngle, ULN2003_INPUTS, MAX_RPM } from '../utils/stepper.js'
 import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
@@ -138,6 +139,7 @@ class SimulationManager {
     this.leggedDrive = { speed: 0, turn: 0 }
     this._leggedCmd  = false
     this.actuatorCalls = 0    // Servo.write/walk/turn calls this run (diagnosis: is the code commanding anything?)
+    this._warnedCrPwm = false // "a continuous servo needs the Servo library" — once per run
     // "Why isn't it moving" notes go to this sketch's Serial monitor.
     setSerialSink(this._onSerialOut ? (t) => this._onSerialOut?.(t) : null)
 
@@ -292,6 +294,10 @@ class SimulationManager {
           const angle = Math.round((value / 255) * 180)
           self.servoAngles[comp.id] = angle
           if (self._onServoAngle) self._onServoAngle(comp.id, angle)
+        } else if (comp.type === 'servo_cr') {
+          // A servo needs pulses, not PWM duty: analogWrite can't drive it. Like a
+          // real one it just doesn't move; the Code tab hint says to use Servo.
+          if (!self._warnedCrPwm) { self._warnedCrPwm = true; self._onSerialOut?.('[sim] A continuous servo needs the Servo library: Servo s; s.attach(pin); s.write(0…180)\n') }
         } else if (comp.type === 'buzzer') {
           // Passive buzzer driven on/off via digitalWrite: HIGH → ~2 kHz, LOW → silent.
           if (value > 0) _beep(2000, 0); else _silence()
@@ -428,19 +434,26 @@ class SimulationManager {
     // VCC and GND are wired too. (The old auto-bind quietly claimed an unwired
     // servo, which no real Arduino can do.) A miss is reported with WHERE to
     // fix it: Electronics (a servo isn't wired) or Code (wrong pin number).
-    const sceneServos = self._objects.filter(o => o.type === 'servo').map(o => ({ id: o.id, name: o.name }))
+    // Continuous-rotation servos (servo_cr) use the same Servo class and wiring
+    // rules, but write() sets their SPEED (utils/continuousServo.js).
+    const sceneServos = self._objects.filter(o => o.type === 'servo' || o.type === 'servo_cr').map(o => ({ id: o.id, name: o.name }))
     const servoWire = servoWiring(sceneServos, self._connections)
     const _servoAttach = (pin) => {
       const p = Number(pin)
-      if ((pinMap[p] || []).some(c => c.type === 'servo')) return
+      if ((pinMap[p] || []).some(c => c.type === 'servo' || c.type === 'servo_cr')) return
       if (sceneServos.length) reportIssue(attachIssue(p, sceneServos, servoWire))
     }
     const _servoWrite = (pin, angle) => {
       self.actuatorCalls++
       const a = Math.max(0, Math.min(180, Number(angle) || 0))
       for (const comp of (pinMap[Number(pin)] || [])) {
-        if (comp.type === 'servo') {
-          if (servoWire.get(comp.id)?.powered === false) continue   // no VCC/GND → it can't move
+        if (comp.type !== 'servo' && comp.type !== 'servo_cr') continue
+        if (servoWire.get(comp.id)?.powered === false) continue   // no VCC/GND → it can't move
+        if (comp.type === 'servo_cr') {
+          const speed = crMotorSpeed(a)
+          self.motorSpeeds[comp.id] = speed
+          if (self._onMotorSpeed) self._onMotorSpeed(comp.id, speed)
+        } else {
           self.servoAngles[comp.id] = a
           if (self._onServoAngle) self._onServoAngle(comp.id, a)
         }

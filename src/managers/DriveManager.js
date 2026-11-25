@@ -42,7 +42,8 @@ export function loadRobotics() {
 /** Everything a simulation needs: Rapier WASM + the articulated engine. */
 export function preparePhysics() { return Promise.all([physicsManager.init(), loadRobotics()]) }
 
-const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc'])
+// servo_cr = continuous-rotation servo: a drive motor that speaks Servo.write (utils/continuousServo.js)
+const MOTOR_TYPES    = new Set(['motor', 'motor_bo', 'motor_dc', 'servo_cr'])
 const DRIVE_BODY_ID  = 'robot_drive'
 const MAX_V          = 200  // max vertical fall speed (scene units/s) — clamps gravity accumulation
 

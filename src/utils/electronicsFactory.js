@@ -204,6 +204,7 @@ export const PIN_DEFS = {
   motor_dc: MOTOR_PINS,
   led:      LED_PINS,
   servo:    SERVO_PINS,
+  servo_cr: SERVO_PINS,     // continuous servo: same 3-wire lead as a servo
   ir_sensor:  IR_PINS,
   ultrasonic: ULTRASONIC_PINS,
   buzzer:     BUZZER_PINS,
@@ -224,6 +225,7 @@ const LABEL_OFFSET = {
   motor_dc: { dx: -0.85, dy: 0, dz: 0 },
   led:      { dx: -0.6,  dy: 0, dz: 0 },
   servo:    { dx: -0.85, dy: 0, dz: 0 },
+  servo_cr: { dx: -0.85, dy: 0, dz: 0 },
 }
 
 // Create a canvas-texture sprite label for a pin
@@ -1279,6 +1281,27 @@ export function createLDRGroup() {
     root.add(pot)
   }
   root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  return root
+}
+
+// ─── Continuous-rotation servo (FS90R-style) ─────────────────────────────────
+// Same body, lead and horn pivot as the servo (servo.glb), so parts and wheels
+// attach to the horn exactly as before. The case is darkened (the FS90R is a
+// black servo) so it can't be mistaken for a positional one. The horn is
+// spun by ObjectManager.animateMotor from simulationManager.motorSpeeds.
+// Logic: utils/continuousServo.js.
+const CR_CASE = new THREE.Color(0x2a2c31)
+export function createContinuousServoGroup() {
+  const root = createServoGroup()
+  const horn = root.userData.rotorGroup
+  const inHorn = (o) => { for (let n = o; n; n = n.parent) if (n === horn) return true; return false }
+  root.traverse((c) => {
+    if (!c.isMesh || inHorn(c) || !c.material) return
+    const tint = (m) => { const k = m.clone(); if (k.color) k.color.lerp(CR_CASE, 0.8); return k }
+    c.material = Array.isArray(c.material) ? c.material.map(tint) : tint(c.material)
+  })
+  root.userData.isServo = false              // not a positional joint
+  root.userData.isContinuousServo = true
   return root
 }
 
