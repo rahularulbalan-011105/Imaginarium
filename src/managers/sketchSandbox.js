@@ -27,7 +27,7 @@
 // Calls the frame may forward. Anything not in this list is ignored by the parent.
 export const OUT_CALLS = new Set([
   'analogWrite', 'digitalWrite', 'tone', 'noTone',
-  'serial', 'oled', 'servoAttach', 'servoWrite', 'pinsWrite', 'irqAttach',
+  'serial', 'oled', 'servoAttach', 'servoWrite', 'pinsWrite', 'irqAttach', 'pcaOut',
   'matrix', 'playTone', 'stopBuzzer', 'playBuzSeq', 'driveMotors',
   'walk', 'turn', 'stopWalking',
   // ESP32
@@ -227,6 +227,61 @@ Servo.prototype = {
   read: function () { return this._angle },
   attached: function () { return this._pin >= 0 },
   detach: function () { this._pin = -1 },
+};
+
+// ── PCA9685 (Adafruit_PWMServoDriver) ───────────────────────────────────────
+// The library's own arithmetic: setPWMFreq() → prescale register (from the
+// oscillator frequency the sketch BELIEVES, default 25 MHz), setPWM(ch, on, off)
+// → tick values out of 4096. The chip's real clock is 25 MHz, so the pulse
+// that comes out is what the registers make at 25 MHz. Each channel's pulse
+// width (µs) and the frame rate go to the parent (utils/pca9685.js), which
+// moves the servos wired to that channel. Power-on state: asleep, 200 Hz.
+var _PCA_OSC = 25000000;
+function Adafruit_PWMServoDriver(addr) {
+  if (!(this instanceof Adafruit_PWMServoDriver)) return new Adafruit_PWMServoDriver(addr);
+  this._addr = addr == null || typeof addr === 'object' ? 0x40 : Number(addr);
+  this._osc = 25000000; this._pre = 30; this._sleep = true; this._on = {}; this._off = {};
+}
+Adafruit_PWMServoDriver.prototype = {
+  _hz: function () { return _PCA_OSC / (4096 * (this._pre + 1)) },
+  _emit: function (n) {
+    var on = this._on[n] || 0, off = this._off[n] == null ? 4096 : this._off[n], hz = this._hz(), us;
+    if (this._sleep || off >= 4096) us = 0;
+    else if (on >= 4096) us = 1e6 / hz;
+    else us = ((((off - on) % 4096) + 4096) % 4096) * (1e6 / hz) / 4096;
+    send('pcaOut', [this._addr, n, us, hz]);
+  },
+  _all: function () { for (var n in this._off) this._emit(Number(n)) },
+  begin: function (prescale) { this.reset(); if (prescale) { this._pre = Math.max(3, Math.min(255, Number(prescale))); this._sleep = false } else this.setPWMFreq(1000); return true },
+  reset: function () { this._sleep = false; this._on = {}; this._off = {} },
+  sleep: function () { this._sleep = true; this._all() },
+  wakeup: function () { this._sleep = false; this._all() },
+  setExtClk: function (p) { this._pre = Math.max(3, Math.min(255, Number(p) || 3)); this._sleep = false; this._all() },
+  setPWMFreq: function (f) {
+    f = Math.min(3500, Math.max(1, Number(f) || 1));
+    var v = this._osc / (f * 4096) + 0.5 - 1;
+    this._pre = Math.floor(Math.min(255, Math.max(3, v)));
+    this._sleep = false; this._all();
+  },
+  setOutputMode: function () {},
+  readPrescale: function () { return this._pre },
+  getPWM: function (n, off) { return off ? (this._off[n] || 0) : (this._on[n] || 0) },
+  setPWM: function (n, on, off) {
+    n = Number(n) & 15; this._on[n] = Number(on) | 0; this._off[n] = Number(off) | 0; this._emit(n); return 0;
+  },
+  setPin: function (n, val, invert) {
+    val = Math.min(Math.max(Number(val) | 0, 0), 4095);
+    if (invert) val = 4095 - val;
+    if (val === 4095) this.setPWM(n, 4096, 0);
+    else if (val === 0) this.setPWM(n, 0, 4096);
+    else this.setPWM(n, 0, val);
+  },
+  writeMicroseconds: function (n, us) {
+    var tickUs = 1e6 * (this._pre + 1) / this._osc;
+    this.setPWM(n, 0, Math.floor(Number(us) / tickUs));
+  },
+  setOscillatorFrequency: function (f) { this._osc = Number(f) || 25000000 },
+  getOscillatorFrequency: function () { return this._osc },
 };
 
 // ── Stepper (Arduino Stepper.h, 4-wire) ───────────────────────────────────

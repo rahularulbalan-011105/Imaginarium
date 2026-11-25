@@ -90,6 +90,7 @@ const MODEL_PATHS = {
   // Generated in scene units like l298n — no MODEL_SCALE_TARGET entry on purpose.
   stepper:      `${BASE}models/stepper.glb`, // tools/models/stepper.model.js (28BYJ-48)
   uln2003:      `${BASE}models/uln2003.glb`, // tools/models/uln2003.model.js
+  pca9685:      `${BASE}models/pca9685.glb`, // tools/models/pca9685.model.js
 }
 
 // module-level cache: name → THREE.Group (scaled & centered) | null (not found)

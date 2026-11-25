@@ -11,11 +11,16 @@ import { L298N_EXAMPLE_SKETCH } from '../utils/l298n.js'
 import { STEPPER_EXAMPLE_SKETCH } from '../utils/stepper.js'
 import { CR_SERVO_EXAMPLE_SKETCH } from '../utils/continuousServo.js'
 import { ENCODER_EXAMPLE_SKETCH } from '../utils/encoderMotor.js'
+import { PCA_EXAMPLE_SKETCH } from '../utils/pca9685.js'
 
 const TEMPLATES = [
   {
     label: 'L298N: 2 motors',
     code: L298N_EXAMPLE_SKETCH,
+  },
+  {
+    label: 'PCA9685: sweep servos on channels 0–3',
+    code: PCA_EXAMPLE_SKETCH,
   },
   {
     label: 'Encoder motor: one exact turn + RPM',
@@ -254,7 +259,7 @@ export default function CodeEditor({ full = false }) {
   // Components a sketch can drive OR read — motors/LED/servo/buzzer/OLED plus
   // every sensor (so sensor-only sketches like an LDR/DHT11/ColorSensor reader
   // are runnable, not just actuator sketches).
-  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'l298n', 'uln2003', 'stepper','led', 'servo', 'servo_cr', 'motor_enc', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'l298n', 'uln2003', 'pca9685', 'stepper','led', 'servo', 'servo_cr', 'motor_enc', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
   const hasConnections  = Object.keys(connections).length > 0
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo' || o.type === 'esp32')
   // Count ANY controllable component (sensors/buzzer/OLED included), not just
