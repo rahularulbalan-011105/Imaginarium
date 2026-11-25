@@ -131,6 +131,36 @@ const SHAPES = {
       </>
     ) }
   },
+  // PCA9685: blue board — the 6-pin header on the left end, the 16 channel
+  // signal pins (yellow row) along the bottom in four groups of four.
+  pca9685: () => {
+    const w = 330, h = 118
+    const [gnd, oe, scl, sda, vcc, vp, ...pwm] = PIN_DEFS.pca9685
+    const chX = (ch) => 46 + ch * 15.5 + Math.floor(ch / 4) * 12
+    return { w, h, title: 'PCA9685', pins: [
+      ...edge([gnd, oe, scl, sda, vcc, vp], 'left', w, h, 0.14, 0.86),
+      ...pwm.map((pin, ch) => ({ pin, x: chX(ch), y: h, side: 'bottom', label: String(ch) })),   // numbered like the board
+    ], art: (
+      <>
+        <rect x="1" y="1" width={w - 2} height={h - 2} rx="8" fill="#1d4fae" stroke="rgb(0 0 0 / 0.25)" strokeWidth="1.5" />
+        <rect x="4" y="10" width="14" height={h - 20} rx="3" fill="#111827" />
+        {[0, 1, 2, 3].map(g => (
+          <g key={g}>
+            {[['#e2b31c', 0], ['#c0262d', 1], ['#151517', 2]].map(([c, r]) => (
+              <rect key={r} x={chX(g * 4) - 7} y={h - 14 - (2 - r) * 9} width={15.5 * 3 + 14} height="8" rx="1.5" fill={c} />
+            ))}
+          </g>
+        ))}
+        <rect x={w * 0.36} y="12" width="44" height="34" rx="3" fill="#1f6fd1" stroke="#1e3a8a" />
+        <circle cx={w * 0.36 + 12} cy="29" r="6" fill="#c3c8cf" /><circle cx={w * 0.36 + 32} cy="29" r="6" fill="#c3c8cf" />
+        <text x={w * 0.36 + 22} y="56" textAnchor="middle" fontSize="7" fontWeight="700" fill="#dbeafe">V+  GND</text>
+        <rect x={w * 0.6} y="18" width="40" height="18" rx="2" fill="#111827" />
+        <text x={w * 0.6 + 20} y="30" textAnchor="middle" fontSize="6.5" fontWeight="700" fill="#c9ccd2">PCA9685</text>
+        <text x={w / 2} y={h * 0.6} textAnchor="middle" fontSize="13" fontWeight="800" fill="#fff" letterSpacing="1.5">16-CH SERVO DRIVER</text>
+        <text x={w - 8} y={h - 30} textAnchor="end" fontSize="6.5" fontWeight="700" fill="#dbeafe">PWM V+ GND</text>
+      </>
+    ) }
+  },
   // ULN2003: green board — IN1–IN4 on the left, − + power bottom-left, the
   // motor socket (OUT1–OUT4 + COM) along the top, LEDs A–D down the right.
   uln2003: () => {
@@ -188,7 +218,7 @@ const SHAPES = {
   arduino: () => {
     const w = 280, h = 150, pins = PIN_DEFS.arduino
     return { w, h, title: 'ARDUINO', art: <Board w={w} h={h} fill="#0f8f96" label="ARDUINO" sub="UNO" />,
-      pins: [...edge(pins.slice(0, 10), 'top', w, h, 0.1, 0.9), ...edge(pins.slice(10), 'bottom', w, h, 0.35, 0.65)] }
+      pins: [...edge(pins.slice(0, 10), 'top', w, h, 0.1, 0.9), ...edge(pins.slice(10, 13), 'bottom', w, h, 0.22, 0.5), ...edge(pins.slice(13), 'bottom', w, h, 0.72, 0.84)] }
   },
   subo: () => {
     const w = 320, h = 160, pins = PIN_DEFS.subo
@@ -273,6 +303,7 @@ export function shapeOf(type) {
   if (type === 'esp32') return SHAPES.esp32()
   if (type === 'l298n') return SHAPES.l298n()
   if (type === 'uln2003') return SHAPES.uln2003()
+  if (type === 'pca9685') return SHAPES.pca9685()
   if (type === 'stepper') return SHAPES.stepper()
   if (type === 'servo') return SHAPES.servo()
   if (type === 'servo_cr') return SHAPES.servo(true)
@@ -310,8 +341,15 @@ export default function WiringWorkbench({ onClose, embedded = false }) {
       const parts  = comps.filter(c => c.type !== 'arduino' && c.type !== 'subo')
       let by = 60
       for (const c of boards) if (!next[c.id]) { next[c.id] = { x: 50, y: by }; by += shapes[c.id].h + 110 }
-      let i = Object.keys(prev).filter(id => parts.some(p => p.id === id)).length
-      for (const c of parts) if (!next[c.id]) { next[c.id] = { x: 450 + (i % 3) * 210, y: 60 + Math.floor(i / 3) * 170 }; i++ }
+      // Parts flow left → right by their real width (a 16-channel driver is wider
+      // than a servo), wrapping into rows; only unplaced cards take the slot.
+      let x = 450, y = 60, rowH = 0
+      for (const c of parts) {
+        const { w, h } = shapes[c.id]
+        if (x > 450 && x + w > 1150) { x = 450; y += rowH + 110; rowH = 0 }
+        if (!next[c.id]) next[c.id] = { x, y }
+        x += w + 70; rowH = Math.max(rowH, h)
+      }
       for (const [id, p] of Object.entries(next)) savedPos.set(id, p)
       return next
     })
@@ -435,7 +473,7 @@ export default function WiringWorkbench({ onClose, embedded = false }) {
                 <div className="absolute text-[10px] font-semibold truncate pointer-events-none" style={{ left: LABEL_PAD, top: LABEL_PAD + s.h + (s.pins.some(q => q.side === 'bottom') ? 26 : 6), width: s.w, textAlign: 'center', color: 'rgb(var(--g-300))' }}>
                   {c.name}
                 </div>
-                {s.pins.map(({ pin, x, y, side }) => {
+                {s.pins.map(({ pin, x, y, side, label }) => {
                   const role = pinRole(pin)
                   const lx = side === 'left' ? -4 : side === 'right' ? 4 : 0
                   const ly = side === 'top' ? -11 : side === 'bottom' ? 11 : 0
@@ -459,7 +497,7 @@ export default function WiringWorkbench({ onClose, embedded = false }) {
                           transform: side === 'left' ? 'translate(-100%, -50%)' : side === 'right' ? 'translate(0, -50%)' : 'translate(-50%, -50%)',
                           color: 'rgb(var(--g-300))',
                         }}>
-                        {pin}
+                        {label ?? pin}
                       </span>
                     </div>
                   )

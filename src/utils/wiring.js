@@ -8,8 +8,9 @@ import { ESP32_PIN_NAMES } from './esp32Board.js'
 import { L298N_PIN_ORDER } from './l298n.js'
 import { ULN2003_PIN_ORDER, STEPPER_WIRES } from './stepper.js'
 import { ENC_MOTOR_PIN_ORDER } from './encoderMotor.js'
+import { PCA_PIN_ORDER } from './pca9685.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc'])
+export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685'])
 
 export const PIN_DEFS = {
   // L298N motor driver: motor outputs, power terminal, logic header (utils/l298n.js).
@@ -17,10 +18,12 @@ export const PIN_DEFS = {
   // 28BYJ-48 stepper (wires by colour) and its ULN2003 driver (utils/stepper.js).
   stepper:  STEPPER_WIRES,
   uln2003:  ULN2003_PIN_ORDER,
+  // PCA9685 servo driver: header (GND OE SCL SDA VCC V+) + PWM0…PWM15 (utils/pca9685.js).
+  pca9685:  PCA_PIN_ORDER,
   // ESP32 pin names are derived from the board table (utils/esp32Board.js) so the
   // wiring UI and the 3D board can never drift apart.
   esp32:    ESP32_PIN_NAMES,
-  arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2'],
+  arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2','SDA','SCL'],   // SDA = A4, SCL = A5 (I2C)
   // Official Subo IO header (Subo.h): IO1..IO21 + power rails. Matches SUBO_PIN_ORDER in
   // electronicsFactory so these map to the same pinIds as the 3D pin spheres.
   subo:     ['IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12','IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21','5V','GND1','GND2'],
@@ -43,7 +46,7 @@ export const PIN_DEFS = {
 
 /** 'power' | 'gnd' | 'signal' for a pin name. */
 export function pinRole(pin) {
-  if (/^(5V|3V3|12V|VCC|VIN|ANODE|COM|RED)$/i.test(pin)) return 'power'
+  if (/^(5V|3V3|12V|VCC|VIN|V\+|ANODE|COM|RED)$/i.test(pin)) return 'power'
   if (/^(GND\d*|CATHODE)$/i.test(pin)) return 'gnd'
   return 'signal'
 }

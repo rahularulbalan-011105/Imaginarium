@@ -22,6 +22,8 @@ import Placeholder from './ui/Placeholder.jsx'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, wheelWorldRadius, wheelSpeedFactor } from '../utils/wheels.js'
 import { STEPPER_WIRES, STEPPER_PLUG, MAX_RPM, buildStepperWiring } from '../utils/stepper.js'
 import { ENC_PPR, pulsesPerWheelTurn } from '../utils/encoderMotor.js'
+import { PCA_ADDRESSES, PCA_CHANNELS, hex, addrOf, plugWires, boardWires, pcaWiring } from '../utils/pca9685.js'
+import { isSupplyPinName, isGroundPinName } from '../stores/electronicsStore.js'
 import { v4 as uuidv4 } from 'uuid'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
@@ -317,6 +319,97 @@ function StepperControls({ obj, objects, snapshot }) {
   )
 }
 
+// PCA9685: address jumpers, one-click header wiring to the board, and servo
+// leads plugged onto channels (three wires each, like the real 3-pin header).
+// The bus/power checks are the simulator's own (utils/pca9685.js).
+const PCA_BOARDS = new Set(['arduino', 'esp32', 'subo'])
+function PcaControls({ obj, objects, update, snapshot }) {
+  const connections = useElectronicsStore((s) => s.connections)
+  const addWire     = useElectronicsStore((s) => s.addWireConnection)
+  const removeWire  = useElectronicsStore((s) => s.removeWireConnection)
+  const w = pcaWiring(connections, objects, { isSupply: isSupplyPinName, isGround: isGroundPinName })[obj.id]
+  const boards = objects.filter((o) => PCA_BOARDS.has(o.type))
+  const servos = objects.filter((o) => o.type === 'servo' || o.type === 'servo_cr')
+  const onCh = new Map()                                  // servoId → channel on THIS board
+  for (const [ch, ids] of Object.entries(w?.channels ?? {})) for (const id of ids) onCh.set(id, Number(ch))
+  const used = new Set(onCh.values())
+  const free = Array.from({ length: PCA_CHANNELS }, (_, i) => i).filter((i) => !used.has(i))
+  const [pick, setPick] = useState('')
+  const wiresOf = (servoId) => Object.entries(connections).filter(([, c]) =>
+    [c.fromPinId, c.toPinId].some((p) => p.startsWith(`${servoId}:`)) && [c.fromPinId, c.toPinId].some((p) => p.startsWith(`${obj.id}:`)))
+  const unplug = (servoId) => { for (const [id] of wiresOf(servoId)) removeWire(id) }
+  const plug = (servoId, ch) => {
+    // a servo lead fits one header: take it off its old board pin / channel first
+    for (const [id, c] of Object.entries(connections))
+      if ([`${servoId}:SIGNAL`, `${servoId}:VCC`, `${servoId}:GND`].some((p) => c.fromPinId === p || c.toPinId === p)) removeWire(id)
+    for (const [a, b, color] of plugWires(obj.id, ch, servoId)) addWire(a, b, uuidv4(), { color })
+    snapshot()
+  }
+  const connectBoard = (board) => {
+    for (const [a, b, color] of boardWires(obj.id, board))
+      if (!Object.values(connections).some((c) => (c.fromPinId === a && c.toPinId === b) || (c.fromPinId === b && c.toPinId === a)))
+        addWire(a, b, uuidv4(), { color })
+    snapshot()
+  }
+  const ok = w && w.sda && w.scl && w.logic
+  const unplugged = servos.filter((sv) => !onCh.has(sv.id))
+  const nameOf = (id) => objects.find((o) => o.id === id)?.name ?? id
+  return (
+    <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
+      <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Servo driver · PCA9685</div>
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[10px] text-gray-400 w-16">I2C address</span>
+        <select value={addrOf(obj)} onChange={(e) => { update({ i2cAddr: Number(e.target.value) }); snapshot() }}
+          className="flex-1 bg-gray-900 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-100">
+          {PCA_ADDRESSES.map((a) => (
+            <option key={a} value={a}>{hex(a)}{a === 0x40 ? ' (default)' : `  · A${[0, 1, 2].filter((b) => (a - 0x40) & (1 << b)).join('+A')} bridged`}</option>
+          ))}
+        </select>
+      </div>
+      {ok ? (
+        <div className="text-[9px] text-green-500 mb-1.5">✓ On the I2C bus and powered{w.rail ? '' : ' — ⚠ V+ (servo power) not connected'}</div>
+      ) : (
+        <div className="text-[9px] text-yellow-500/80 mb-1.5">
+          ⚠ {w?.swapped ? 'SDA and SCL are swapped' : !(w?.sda && w?.scl) ? 'Not on the I2C bus (SDA / SCL)' : 'Chip has no power (VCC / GND)'}
+        </div>
+      )}
+      {!ok && boards.map((b) => (
+        <button key={b.id} onClick={() => connectBoard(b)}
+          className="w-full mb-1 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 text-white transition-colors">
+          Connect to {b.name}
+        </button>
+      ))}
+      {!ok && boards.length === 0 && <div className="text-[9px] text-gray-400 mb-1">Add an Arduino (or ESP32) to control it.</div>}
+
+      <div className="text-[10px] text-gray-400 mt-2 mb-1">Channels ({onCh.size}/{PCA_CHANNELS} used)</div>
+      {[...onCh.entries()].sort((a, b) => a[1] - b[1]).map(([id, ch]) => (
+        <div key={id} className="flex items-center gap-2 text-[11px] text-gray-200 py-0.5">
+          <span className="font-mono text-orange-300 w-8">CH{ch}</span>
+          <span className="flex-1 truncate">{nameOf(id)}</span>
+          <button onClick={() => { unplug(id); snapshot() }} className="text-[10px] text-gray-400 hover:text-red-400">unplug</button>
+        </div>
+      ))}
+      {unplugged.length > 0 && free.length > 0 && (
+        <div className="flex items-center gap-1.5 mt-1.5">
+          <select value={pick} onChange={(e) => setPick(e.target.value)}
+            className="flex-1 min-w-0 bg-gray-900 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-100">
+            <option value="">Plug a servo…</option>
+            {unplugged.map((sv) => <option key={sv.id} value={sv.id}>{sv.name}</option>)}
+          </select>
+          <button disabled={!pick} onClick={() => { plug(pick, free[0]); setPick('') }}
+            className="px-2 py-1 rounded text-xs bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white">→ CH{free[0]}</button>
+        </div>
+      )}
+      {servos.length === 0 && <div className="text-[9px] text-gray-400 mt-1">Add servos from Electronics → Actuators, then plug them in here.</div>}
+      <div className="text-[9px] text-gray-500 mt-2">
+        Plugging a servo adds its three wires: SIGNAL → PWM<i>n</i>, VCC → V+, GND → GND. In code:{' '}
+        <span className="font-mono text-gray-300">Adafruit_PWMServoDriver pwm{addrOf(obj) === 0x40 ? '' : `(${hex(addrOf(obj))})`};</span> then{' '}
+        <span className="font-mono text-gray-300">pwm.setPWM(channel, 0, pulse);</span>
+      </div>
+    </div>
+  )
+}
+
 // BO motor gearbox: the same motor behind 1:48 … 1:220 gears. Shows the
 // speed/torque trade-off and what it means for THIS robot (utils/gearMotor.js).
 const DRIVE_TYPES = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo_cr'])
@@ -460,7 +553,7 @@ export default function PropertiesPanel() {
   const MOTOR_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'motor_enc']
   const SHAFT_TYPES  = ['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper']
   const isMotor      = obj && MOTOR_TYPES.includes(obj.type)
-  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led' || obj.type === 'uln2003')
+  const isElectronics = obj && (SHAFT_TYPES.includes(obj.type) || obj.type === 'arduino' || obj.type === 'subo' || obj.type === 'led' || obj.type === 'uln2003' || obj.type === 'pca9685')
 
   // Secondary selection: shift-click on a motor or servo → direct Attach button
   const secondaryObj    = objects.find(o => o.id === secondaryId) ?? null
@@ -1181,6 +1274,7 @@ export default function PropertiesPanel() {
         <RoundPartControls obj={obj} objects={objects} attachedTo={objects.find(o => o.id === attachments[obj.id])} update={update} snapshot={snapshot} />
       )}
       {obj.type === 'stepper' && <StepperControls obj={obj} objects={objects} snapshot={snapshot} />}
+      {obj.type === 'pca9685' && <PcaControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
       {(obj.type === 'motor_bo' || obj.type === 'motor_enc') && <GearboxControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
 
       {/* Gear parameters — only for gear objects */}

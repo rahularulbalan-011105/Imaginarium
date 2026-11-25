@@ -22,6 +22,8 @@ export const ARDUINO_PINS = {
   '5V': { x: 2.12,            y: 0.62, z: -3.1, color: 0xff2222, type: 'power',   label: '5V'  },
   GND1: { x: 2.45,            y: 0.62, z: -3.1, color: 0x333333, type: 'gnd',     label: 'GND' },
   GND2: { x: 2.78,            y: 0.62, z: -3.1, color: 0x333333, type: 'gnd',     label: 'GND' },
+  SDA:  { x: -1.0,            y: 0.62, z: -3.1, color: 0x22c55e, type: 'digital', label: 'SDA' },
+  SCL:  { x: -0.67,           y: 0.62, z: -3.1, color: 0x3b82f6, type: 'digital', label: 'SCL' },
 }
 
 export const MOTOR_PINS = {
@@ -202,7 +204,24 @@ export const ENC_MOTOR_PINS = Object.fromEntries(ENC_HDR.map(([name, label, colo
   x: -2.62, y: 1.02, z: -0.635 + i * 0.254, r: 0.09, color, type, label, ldy: i % 2 ? 0.3 : 0,
 }]))
 
+// PCA9685 (tools/models/pca9685.model.js, PCA9685_LAYOUT): the 6-pin header on
+// the left end, and each channel's PWM pin (the yellow row) along the front.
+// Servo V+ / GND go to the header's V+ / GND (on the board they are the same
+// rails as each channel's red and black pins).
+const PCA_HDR = [['GND', 0x333333, 'gnd'], ['OE', 0xa855f7, 'digital'], ['SCL', 0x3b82f6, 'digital'],
+  ['SDA', 0x22c55e, 'digital'], ['VCC', 0xff2222, 'power'], ['V+', 0xff6a00, 'power']]
+const pcaChannelX = (ch) => -2.2 + ch * 0.254 + Math.floor(ch / 4) * 0.33
+export const PCA9685_PINS = {
+  ...Object.fromEntries(PCA_HDR.map(([name, color, type], i) => [name, {
+    x: -2.86, y: 1.0, z: -0.635 + i * 0.254, r: 0.09, color, type, label: name, ldx: -0.45,
+  }])),
+  ...Object.fromEntries(Array.from({ length: 16 }, (_, ch) => [`PWM${ch}`, {
+    x: pcaChannelX(ch), y: 1.0, z: 0.42, r: 0.085, color: 0xffcc00, type: 'pwm', label: String(ch), ldy: ch % 2 ? 0.28 : 0,
+  }])),
+}
+
 export const PIN_DEFS = {
+  pca9685:  PCA9685_PINS,
   l298n:    L298N_PINS,
   motor_enc: ENC_MOTOR_PINS,
   stepper:  STEPPER_PINS,
@@ -304,7 +323,7 @@ export function addPinSpheresToGroup(group, componentId, type) {
     if (ls) { label.scale.x *= ls; label.scale.y *= ls }
     // def.ldy: per-pin extra label lift — lets a dense header stagger its labels
     // over two rows instead of overlapping (L298N control header).
-    label.position.set(def.x + offset.dx, def.y + offset.dy + (def.ldy ?? 0), def.z + offset.dz)
+    label.position.set(def.x + offset.dx + (def.ldx ?? 0), def.y + offset.dy + (def.ldy ?? 0), def.z + offset.dz)
     label.userData.isPinLabel = true
     label.userData.pinId      = `${componentId}:${pinName}`
     label.userData.rootId     = componentId
@@ -377,6 +396,9 @@ function buildArduinoFromGLB(scene) {
     { name: '5V',   t: 0.20, color: 0xff2222, type: 'power', label: '5V'  },
     { name: 'GND1', t: 0.40, color: 0x444444, type: 'gnd',   label: 'GND' },
     { name: 'GND2', t: 0.60, color: 0x444444, type: 'gnd',   label: 'GND' },
+    // I2C: A4 = SDA, A5 = SCL on the analog header (same end as the real board)
+    { name: 'SDA',  t: 0.80, color: 0x22c55e, type: 'digital', label: 'SDA' },
+    { name: 'SCL',  t: 0.88, color: 0x3b82f6, type: 'digital', label: 'SCL' },
   ]
   for (const { name, t, color, type, label } of pwrDefs) {
     const p = { x: 0, y: 0, z: 0 }
@@ -1382,6 +1404,39 @@ export function createStepperGroup() {
   }
   if (shaft) _setupServoPivot(root, shaft)          // rotorGroup = pivot on the shaft axis (y)
   root.userData.isStepper = true
+  return root
+}
+
+// ─── PCA9685 16-channel servo driver ─────────────────────────────────────────
+// GLB first: public/models/pca9685.glb (tools/models/pca9685.model.js), same
+// frame as PCA9685_PINS. Logic: utils/pca9685.js.
+export function createPca9685Group() {
+  const root = new THREE.Group()
+  root.userData.labelScale = 0.45
+  const glb = cloneModel('pca9685')
+  if (glb) {
+    root.add(glb)
+    root.traverse(c => {
+      if (!c.isMesh) return
+      c.castShadow = true; c.receiveShadow = true
+      if (c.name !== 'pcb') c.userData.noOutline = true
+      if (c.name === 'pcb' || c.name === 'pcb_silkscreen') c.castShadow = false   // see createL298NGroup
+    })
+  } else {
+    const pcb = new THREE.Mesh(new THREE.BoxGeometry(6.25, 0.16, 2.54), mat(0x1d4fae, { roughness: 0.7 }))
+    root.add(pcb)
+    const chip = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 0.44), mat(0x18181a))
+    chip.position.set(0.75, 0.13, -0.55); root.add(chip)
+    const term = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.75, 0.8), mat(0x1f6fd1))
+    term.position.set(-0.55, 0.455, -0.78); root.add(term)
+    ;[[0xe2b31c, 0.42], [0xc0262d, 0.674], [0x151517, 0.928]].forEach(([c, z]) => {
+      const row = new THREE.Mesh(new THREE.BoxGeometry(4.9, 0.25, 0.254), mat(c))
+      row.position.set(0, 0.205, z); root.add(row)
+    })
+    const hdr = new THREE.Mesh(new THREE.BoxGeometry(0.254, 0.25, 1.52), mat(0x151517))
+    hdr.position.set(-2.86, 0.205, 0); root.add(hdr)
+    root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  }
   return root
 }
 

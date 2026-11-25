@@ -61,6 +61,7 @@ const CATEGORIES = [
     key: 'drivers', label: 'Motor Drivers', color: '#f59e0b', icon: '🎛', blurb: 'Sit between the board and the motors.',
     items: [
       { type: 'l298n', label: 'L298N Driver', icon: '🎛', desc: 'Dual H-bridge · 2 motors', purpose: 'Lets the board drive two DC motors forwards and backwards with speed control. IN1/IN2 set motor A’s direction, ENA its speed (IN3/IN4 + ENB for motor B). Its GND must connect to the board’s GND. Motor power on 12V is assumed — battery parts are coming soon. Loses ≈2 V, so motors run ≈73 % as fast as wired straight to the battery.', usage: 'wheeled robots · reversing motors · speed control' },
+      { type: 'pca9685', label: 'PCA9685 Servo Driver', icon: '🎚', desc: '16 servos over I2C', purpose: 'Runs up to 16 servos from just two board pins (SDA and SCL). The board tells the chip each channel’s pulse width over I2C and the chip keeps making the pulses, so the board is free for other work. Several boards can share the bus at different addresses.', usage: 'hexapods & quadrupeds · robot arms · animatronics' },
       { type: 'uln2003', label: 'ULN2003 Driver', icon: '🟩', desc: 'Stepper driver · 4 coils', purpose: 'Drives a 28BYJ-48 stepper: IN1–IN4 from the board switch the four coils, and the LEDs A–D show which coils are on. Plug the stepper into its socket, then wire VCC → 5V and GND → GND. Program it with the Stepper library.', usage: 'stepper motors · precise rotation' },
     ],
   },

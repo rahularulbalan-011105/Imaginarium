@@ -18,6 +18,7 @@ const ELEC_MASS = {
   servo_cr: 0.011, // FS90R continuous servo
   stepper: 0.037, // 28BYJ-48 incl. gearbox + cable
   uln2003: 0.008, // ULN2003 driver board
+  pca9685: 0.009, // PCA9685 16-channel servo driver
 }
 
 // Returns geometry volume in m³, using scene-unit scale (scale.x etc. = dimensionless
