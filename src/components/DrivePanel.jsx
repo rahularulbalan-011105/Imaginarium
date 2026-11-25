@@ -154,7 +154,7 @@ export default function DrivePanel() {
 
   const hasConnections = Object.keys(connections).length > 0
   const hasMotors = objects.some(o =>
-    o.type === 'motor' || o.type === 'motor_bo' || o.type === 'motor_dc')
+    o.type === 'motor' || o.type === 'motor_bo' || o.type === 'motor_dc' || o.type === 'servo_cr')
 
   // Legged robot info from driveManager
   const legCount  = isLeggedRobot ? (driveManager._leggedSystem?.numLegs ?? 0)  : 0

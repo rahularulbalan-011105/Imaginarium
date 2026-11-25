@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ensureModels, isModelLoaded, hasModel, loadModel } from '../utils/modelLoader.js'
+import { ensureModels, isModelLoaded, hasModel, loadModel, modelKeyOf } from '../utils/modelLoader.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { variantOverrides } from '../utils/componentVariants.js'
@@ -48,6 +48,9 @@ const CATEGORIES = [
       { type: 'servo', variant: 'ds3218', label: 'DS3218 Servo', icon: '🔩', desc: 'High torque · 60 g · 21 kg·cm', purpose: 'A high-torque digital servo, about twice as strong as an MG996R. For heavy legs and arm shoulders that carry the most load.', usage: 'heavy legs · arm shoulders · lifting' },
       { type: 'motor_dc', label: 'DC Motor',    icon: '🔧', desc: 'Continuous rotation',     purpose: 'Spins continuously at a set speed.', usage: 'wheels · fans · propellers' },
       { type: 'motor_bo', label: 'BO Motor',    icon: '⚙',  desc: 'Geared drive motor',      purpose: 'A geared DC motor — high torque at low speed.', usage: 'driving robot wheels' },
+      // Its own type (not a servo variant): wired + coded like a servo, but it is a
+      // drive MOTOR — write() sets speed (utils/continuousServo.js).
+      { type: 'servo_cr', variant: 'fs90r', label: 'FS90R 360° Servo', icon: '🔄', desc: 'Continuous rotation · 110 RPM', purpose: 'Looks and wires like a micro servo, but spins all the way round. write(90) stops it; towards 180 it spins faster one way, towards 0 the other way. Put a wheel on its horn and it drives a robot — no motor driver needed.', usage: 'small wheeled robots · turntables · winches' },
       { type: 'stepper',  label: 'Stepper 28BYJ-48', icon: '🌀', desc: 'Exact steps · 2048 / turn', purpose: 'A geared stepper motor: it turns in exact steps instead of spinning freely, so code can move it to a precise angle and back. Needs a ULN2003 driver (Motor Drivers). Slow — about 15 RPM at most — but strong and accurate.', usage: 'turntables · pointers · camera sliders · clocks' },
       { type: 'led',      label: 'LED',         icon: '💡', desc: 'Light output',            purpose: 'A light you can switch on/off or dim from code.', usage: 'status indicators · signals' },
       { type: 'buzzer',   label: 'Buzzer',      icon: '🔔', desc: 'Tone output',            purpose: 'Plays tones and beeps from code.', usage: 'alarms · feedback · melodies' },
@@ -86,9 +89,10 @@ export default function ElectronicsLibrary() {
   const [loadingType, setLoadingType] = useState(null)
   const addPart = async (type, variant) => {
     const key = variant ?? type
-    if (!isModelLoaded(type) && hasModel(type)) {
+    const mk = modelKeyOf(type)          // e.g. a continuous servo is drawn with servo.glb
+    if (!isModelLoaded(mk) && hasModel(mk)) {
       setLoadingType(key)
-      await ensureModels([type])
+      await ensureModels([mk])
       setLoadingType(null)
     }
     const overrides = variant ? variantOverrides(variant, useSceneStore.getState().objects) : undefined
@@ -126,7 +130,7 @@ export default function ElectronicsLibrary() {
                         key={key}
                         data-tour={`elec-${key}`}
                         onClick={() => addPart(type, variant)}
-                        onPointerEnter={() => { if (hasModel(type)) loadModel(type) }}
+                        onPointerEnter={() => { const mk = modelKeyOf(type); if (hasModel(mk)) loadModel(mk) }}
                         disabled={loadingType === key}
                         title={`${label}\n${purpose}\nCommonly used for: ${usage}`}
                         className="elec-item group flex items-center gap-2.5 w-full px-2 py-1.5 rounded-lg bg-gray-800/70 border border-transparent transition-all duration-150 text-left"

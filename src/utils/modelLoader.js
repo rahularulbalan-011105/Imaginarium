@@ -131,6 +131,11 @@ function _prepare(key, root) {
 /** True once a model has resolved (loaded, or known-missing → procedural fallback). */
 export function isModelLoaded(key) { return key in _cache }
 
+// Part types that are drawn with another part's GLB (no file of their own).
+const MODEL_ALIAS = { servo_cr: 'servo' }
+/** The GLB key a part type is drawn with (its own type unless aliased). */
+export function modelKeyOf(type) { return MODEL_ALIAS[type] ?? type }
+
 /** Model keys that have a GLB (built-in electronics + library models). */
 export function hasModel(key) { return key in MODEL_PATHS }
 
@@ -170,7 +175,8 @@ export async function ensureModels(keys, onProgress) {
 export function modelKeysFor(objects) {
   const keys = new Set()
   for (const o of objects ?? []) {
-    if (o?.type && (o.type in MODEL_PATHS || o.type in WEAPON_PATHS)) keys.add(o.type)
+    const k = o?.type && modelKeyOf(o.type)
+    if (k && (k in MODEL_PATHS || k in WEAPON_PATHS)) keys.add(k)
     if (o?.modelKey && o.modelKey in MODEL_PATHS) keys.add(o.modelKey)
   }
   return [...keys]

@@ -195,15 +195,18 @@ const SHAPES = {
     return { w, h, title: 'SUBO', art: <Board w={w} h={h} fill="#7c3aed" label="SUBO" sub="ESP32-S3" />,
       pins: [...edge(pins.slice(0, 12), 'top', w, h, 0.07, 0.93), ...edge(pins.slice(12), 'bottom', w, h, 0.07, 0.93)] }
   },
-  servo: () => {
+  // servo_cr (continuous) uses the same card with a dark case and a 360° badge.
+  servo: (cr = false) => {
     const w = 150, h = 78
-    return { w, h, title: 'SERVO', pins: edge(PIN_DEFS.servo, 'bottom', w, h, 0.25, 0.75), art: (
+    const body = cr ? '#2a2c31' : '#2563eb', ear = cr ? '#18191c' : '#1e40af'
+    return { w, h, title: cr ? '360° SERVO' : 'SERVO', pins: edge(PIN_DEFS.servo, 'bottom', w, h, 0.25, 0.75), art: (
       <>
-        <rect x="1" y="12" width={w - 2} height={h - 13} rx="9" fill="#2563eb" stroke="rgb(0 0 0 / 0.25)" strokeWidth="1.5" />
-        <rect x="-0" y="24" width="12" height="18" rx="3" fill="#1e40af" /><rect x={w - 12} y="24" width="12" height="18" rx="3" fill="#1e40af" />
+        <rect x="1" y="12" width={w - 2} height={h - 13} rx="9" fill={body} stroke="rgb(0 0 0 / 0.25)" strokeWidth="1.5" />
+        <rect x="-0" y="24" width="12" height="18" rx="3" fill={ear} /><rect x={w - 12} y="24" width="12" height="18" rx="3" fill={ear} />
         <circle cx={w * 0.7} cy="14" r="12" fill="#f8fafc" stroke="#94a3b8" /><rect x={w * 0.7 - 22} y="10" width="44" height="8" rx="4" fill="#f8fafc" stroke="#94a3b8" />
         <circle cx={w * 0.7} cy="14" r="3" fill="#64748b" />
-        <text x={w * 0.36} y="46" textAnchor="middle" fontSize="12" fontWeight="800" fill="#fff" letterSpacing="1.5">SERVO</text>
+        <text x={w * 0.36} y="46" textAnchor="middle" fontSize="12" fontWeight="800" fill="#fff" letterSpacing="1.5">{cr ? 'FS90R' : 'SERVO'}</text>
+        {cr && <text x={w * 0.36} y="60" textAnchor="middle" fontSize="8.5" fontWeight="700" fill="#9ca3af">360° · SPEED</text>}
       </>
     ) }
   },
@@ -265,6 +268,7 @@ export function shapeOf(type) {
   if (type === 'uln2003') return SHAPES.uln2003()
   if (type === 'stepper') return SHAPES.stepper()
   if (type === 'servo') return SHAPES.servo()
+  if (type === 'servo_cr') return SHAPES.servo(true)
   if (type === 'motor' || type === 'motor_bo' || type === 'motor_dc') return SHAPES.motor(type)
   if (type === 'led') return SHAPES.led()
   return SHAPES.module(type)
