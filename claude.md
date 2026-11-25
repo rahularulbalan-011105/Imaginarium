@@ -175,6 +175,7 @@ toolsapp/
     │   ├── StorageManager.js       # IndexedDB persistence + auto-save
     │   ├── BattleManager.js        # Robo-Sumo sim (arcade 2D disc physics, HP, ring-out) + WebRTC netcode
     │   ├── NetworkManager.js       # WebRTC P2P transport (PeerJS) for online battles
+    │   ├── GripperSystem.js        # gripper runtime: jaws at servo speed, stop on a LOOSE part (obj.loose), hold/slip/drop; resets to design pose when sim + code stop
     │   ├── CombatManager.js        # Physics-Arena orchestrator: 1 Rapier body/robot, player-vs-AI, drive, ram damage, camera+effects+audio wiring, chassis lean
     │   ├── WeaponManager.js        # Per-robot weapons — primary+secondary SLOTS (ray/rocket/flame), reload/heat, mounts GLB, VFX, onFire hook
     │   ├── arena/                  # ── Third-person PvP layer (arena-only) ──
@@ -277,6 +278,7 @@ toolsapp/
     │   ├── gearMotor.js            # BO motor gearbox (obj.gearRatio 48/90/120/220): speed↔torque + rolling-load model → per-side DifferentialDrive speedScale
     │   ├── encoderMotor.js         # TT motor + Hall encoder (type motor_enc): real shaft speed → signed quadrature count; sandbox replays A/B edges into attachInterrupt()/Encoder(a,b)
     │   ├── pca9685.js              # 16-ch I2C servo driver: Adafruit_PWMServoDriver register maths → pulse µs → servo angle; I2C bus/VCC/V+ wiring (nets, chaining), address jumpers 0x40–0x47
+    │   ├── gripper.js              # servo claw (type gripper): jaw geometry, servo squeeze force, hold check 2·μ·F ≥ m·g; coded/wired like a servo (write(0)=open)
     │   ├── export.js               # JSON/STL/GLTF export + import
     │   ├── printExport.js          # STL export + printability analysis
     │   ├── share.js                # Share-link build/read (project packed into URL hash)

@@ -225,6 +225,20 @@ const SHAPES = {
     return { w, h, title: 'SUBO', art: <Board w={w} h={h} fill="#7c3aed" label="SUBO" sub="ESP32-S3" />,
       pins: [...edge(pins.slice(0, 12), 'top', w, h, 0.07, 0.93), ...edge(pins.slice(12), 'bottom', w, h, 0.07, 0.93)] }
   },
+  // Gripper: the claw drawn open, its servo lead (SIGNAL VCC GND) along the bottom.
+  gripper: () => {
+    const w = 150, h = 86
+    return { w, h, title: 'GRIPPER', pins: edge(PIN_DEFS.gripper, 'bottom', w, h, 0.25, 0.75), art: (
+      <>
+        <rect x="1" y="22" width={w * 0.5} height={h - 23} rx="8" fill="#2563eb" stroke="rgb(0 0 0 / 0.25)" strokeWidth="1.5" />
+        <rect x={w * 0.42} y="30" width="22" height="30" rx="3" fill="#23262d" />
+        <path d={`M${w * 0.55} 34 L${w - 8} 8 L${w - 4} 16 L${w * 0.62} 40 Z`} fill="#23262d" />
+        <path d={`M${w * 0.55} 56 L${w - 8} 76 L${w - 4} 68 L${w * 0.62} 50 Z`} fill="#23262d" />
+        <rect x={w - 14} y="4" width="10" height="16" rx="2" fill="#111" /><rect x={w - 14} y="64" width="10" height="16" rx="2" fill="#111" />
+        <text x={w * 0.25} y="52" textAnchor="middle" fontSize="11" fontWeight="800" fill="#fff" letterSpacing="1">CLAW</text>
+      </>
+    ) }
+  },
   // servo_cr (continuous) uses the same card with a dark case and a 360° badge.
   servo: (cr = false) => {
     const w = 150, h = 78
@@ -307,6 +321,7 @@ export function shapeOf(type) {
   if (type === 'stepper') return SHAPES.stepper()
   if (type === 'servo') return SHAPES.servo()
   if (type === 'servo_cr') return SHAPES.servo(true)
+  if (type === 'gripper') return SHAPES.gripper()
   if (type === 'motor' || type === 'motor_bo' || type === 'motor_dc' || type === 'motor_enc') return SHAPES.motor(type)
   if (type === 'led') return SHAPES.led()
   return SHAPES.module(type)
