@@ -28,6 +28,8 @@ export class DifferentialDrive {
     wheelbase   = 3.0,   // axle-to-axle distance in scene units (overridden by DriveManager)
     radiusLeft  = null,  // per-side override (scene units); null → wheelRadius
     radiusRight = null,
+    speedScaleLeft  = 1, // per-side gearbox × load factor (utils/gearMotor.js); 1 = unchanged
+    speedScaleRight = 1,
   } = {}) {
     this.Kv          = Kv
     this.voltage     = voltage
@@ -35,6 +37,8 @@ export class DifferentialDrive {
     this.wheelbase   = wheelbase
     this.radiusLeft  = radiusLeft
     this.radiusRight = radiusRight
+    this.speedScaleLeft  = speedScaleLeft
+    this.speedScaleRight = speedScaleRight
   }
 
   // Convert PWM (−255…+255) → wheel surface velocity (scene units/s)
@@ -46,8 +50,8 @@ export class DifferentialDrive {
 
   // Returns { v, omega, vL, vR } from left/right PWM signals
   compute(leftPWM, rightPWM) {
-    const vL    = this.pwmToVelocity(leftPWM,  this.radiusLeft  ?? this.wheelRadius)
-    const vR    = this.pwmToVelocity(rightPWM, this.radiusRight ?? this.wheelRadius)
+    const vL    = this.pwmToVelocity(leftPWM,  this.radiusLeft  ?? this.wheelRadius) * (this.speedScaleLeft  ?? 1)
+    const vR    = this.pwmToVelocity(rightPWM, this.radiusRight ?? this.wheelRadius) * (this.speedScaleRight ?? 1)
     const v     = (vL + vR) / 2
     const omega = this.wheelbase > 0 ? (vR - vL) / this.wheelbase : 0
     return { v, omega, vL, vR }
