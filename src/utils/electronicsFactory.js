@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { GRIP, fingerRoot } from './gripper.js'
 import { cloneModel, findRotorNode, detectRotorAxis, findEmissiveMeshes } from './modelLoader.js'
 import { ESP32_PINS } from './esp32Board.js'
 
@@ -220,7 +221,16 @@ export const PCA9685_PINS = {
   }])),
 }
 
+// Servo gripper (createGripperGroup): its servo's 3-wire lead ends in a
+// connector behind the claw — the same SIGNAL / VCC / GND as a servo.
+export const GRIPPER_PINS = {
+  GND:    { x: -0.704, y: 1.55, z: -2.95, r: 0.09, color: 0x8b5a2b, type: 'gnd',   label: 'GND' },
+  VCC:    { x: -0.45,  y: 1.55, z: -2.95, r: 0.09, color: 0xff2222, type: 'power', label: 'VCC', ldy: 0.3 },
+  SIGNAL: { x: -0.196, y: 1.55, z: -2.95, r: 0.09, color: 0xff8800, type: 'pwm',   label: 'SIG' },
+}
+
 export const PIN_DEFS = {
+  gripper:  GRIPPER_PINS,
   pca9685:  PCA9685_PINS,
   l298n:    L298N_PINS,
   motor_enc: ENC_MOTOR_PINS,
@@ -256,6 +266,7 @@ const LABEL_OFFSET = {
   led:      { dx: -0.6,  dy: 0, dz: 0 },
   servo:    { dx: -0.85, dy: 0, dz: 0 },
   servo_cr: { dx: -0.85, dy: 0, dz: 0 },
+  gripper:  { dx: 0, dy: 0.35, dz: 0 },
 }
 
 // Create a canvas-texture sprite label for a pin
@@ -1404,6 +1415,95 @@ export function createStepperGroup() {
   }
   if (shaft) _setupServoPivot(root, shaft)          // rotorGroup = pivot on the shaft axis (y)
   root.userData.isStepper = true
+  return root
+}
+
+// ─── Servo gripper (parallel claw) ───────────────────────────────────────────
+// Frame (scene units = cm): fingers point +z, jaws open along ±x, the pads'
+// middle at y = 0. Layout from utils/gripper.js (GRIP): two meshing gears at
+// x = ±pivotX turn the links; each finger rides a parallelogram so the rubber
+// pads stay parallel. The servo sits on top of the plate, its shaft driving the
+// left gear. root.userData.setGap(gap) poses the jaws (ObjectManager.setGripperGap).
+export function createGripperGroup() {
+  const root = new THREE.Group()
+  root.userData.labelScale = 0.5
+  const acrylic = mat(0x23262d, { roughness: 0.35, metalness: 0.05 })
+  const steel   = mat(0xb9bec6, { roughness: 0.3, metalness: 0.8 })
+  const rubber  = mat(0x15161a, { roughness: 0.95 })
+  const plateY = 0.42
+  const PIVOT_X = GRIP.pivotX, PIVOT_Z = GRIP.pivotZ
+
+  // top plate, with the servo above it
+  const plate = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.25, 3.7), acrylic)
+  plate.position.set(0, plateY, -0.55); plate.name = 'plate'; root.add(plate)
+  const servo = new THREE.Mesh(new THREE.BoxGeometry(1.22, 2.2, 2.3), mat(0x2563eb, { roughness: 0.5 }))
+  servo.position.set(-PIVOT_X, plateY + 0.125 + 1.1, PIVOT_Z - 0.75); root.add(servo)
+  const tabs = new THREE.Mesh(new THREE.BoxGeometry(1.22, 0.14, 3.2), mat(0x1e40af, { roughness: 0.5 }))
+  tabs.position.set(-PIVOT_X, plateY + 0.125 + 1.55, PIVOT_Z - 0.75); root.add(tabs)
+  const label = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.5, 1.2), mat(0xf8fafc, { roughness: 0.6 }))
+  label.position.set(-PIVOT_X, plateY + 0.125 + 0.9, PIVOT_Z - 1.1); root.add(label)
+  // its lead: cable to a 3-pin connector behind the claw (GRIPPER_PINS)
+  const cable = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.08, 1.6), mat(0x8b5a2b, { roughness: 0.8 }))
+  cable.position.set(-0.45, 1.05, -2.1); root.add(cable)
+  const plug = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.35, 0.3), mat(0x111111))
+  plug.position.set(-0.45, 1.1, -2.95); root.add(plug)
+  for (const x of [-0.704, -0.45, -0.196]) {
+    const pin = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.4, 0.06), mat(0xd4a017, { roughness: 0.3, metalness: 0.7 }))
+    pin.position.set(x, 1.35, -2.95); root.add(pin)
+  }
+  // standoffs between plate and the link plane
+  for (const [x, z] of [[-1.3, -2.1], [1.3, -2.1], [-1.3, 0.9], [1.3, 0.9]]) {
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.42, 10), steel)
+    st.position.set(x, plateY / 2, z); root.add(st)
+  }
+
+  // gears + links + fingers, mirrored
+  const jaws = []
+  for (const side of [-1, 1]) {
+    const gear = new THREE.Group()
+    gear.position.set(side * PIVOT_X, 0, PIVOT_Z)
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.28, 20), acrylic)
+    gear.add(disc)
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2
+      const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.28, 0.12), acrylic)
+      tooth.position.set(Math.cos(a) * 0.45, 0, Math.sin(a) * 0.45); tooth.rotation.y = -a
+      gear.add(tooth)
+    }
+    const link = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.24, GRIP.link), acrylic)
+    link.position.set(0, 0, GRIP.link / 2); gear.add(link)
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.34, 10), steel)
+    gear.add(hub)
+    root.add(gear)
+    // the parallel follower link (beside the main one, its own pivot)
+    const follower = new THREE.Group()
+    follower.position.set(side * (PIVOT_X + 0.75), 0.02, PIVOT_Z - 0.25)
+    const fbar = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.2, GRIP.link), acrylic)
+    fbar.position.set(0, 0, GRIP.link / 2); follower.add(fbar)
+    root.add(follower)
+    // finger: plate + rubber pad on its inner face; it only translates
+    const finger = new THREE.Group()
+    const fplate = new THREE.Mesh(new THREE.BoxGeometry(0.17, 1.2, GRIP.padLen + 0.35), acrylic)
+    fplate.position.set(-side * 0.085, 0, GRIP.padLen / 2 - 0.1); finger.add(fplate)
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.1, GRIP.padLen), rubber)
+    pad.position.set(-side * (0.17 + 0.05), 0, GRIP.padLen / 2); finger.add(pad)
+    const knuckle = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.2, 0.3), acrylic)   // where the follower link joins
+    knuckle.position.set(side * 0.375, 0.02, -0.25); finger.add(knuckle)
+    root.add(finger)
+    jaws.push({ side, gear, follower, finger })
+  }
+
+  root.userData.isGripper = true
+  root.userData.setGap = (gap) => {
+    const { x, z, theta } = fingerRoot(gap)
+    for (const { side, gear, follower, finger } of jaws) {
+      gear.rotation.y = side * theta            // link swings outward on each side
+      follower.rotation.y = side * theta
+      finger.position.set(side * x, 0, z)
+    }
+  }
+  root.userData.setGap(GRIP.maxGap)
+  root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
   return root
 }
 

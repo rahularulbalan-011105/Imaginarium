@@ -10,7 +10,7 @@ import { ULN2003_PIN_ORDER, STEPPER_WIRES } from './stepper.js'
 import { ENC_MOTOR_PIN_ORDER } from './encoderMotor.js'
 import { PCA_PIN_ORDER } from './pca9685.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685'])
+export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
 
 export const PIN_DEFS = {
   // L298N motor driver: motor outputs, power terminal, logic header (utils/l298n.js).
@@ -34,6 +34,7 @@ export const PIN_DEFS = {
   led:      ['ANODE','CATHODE'],
   servo:    ['SIGNAL','VCC','GND'],
   servo_cr: ['SIGNAL','VCC','GND'],   // continuous servo: same lead
+  gripper:  ['SIGNAL','VCC','GND'],   // the gripper's servo lead
   ir_sensor:  ['OUT','GND','VCC'],
   ultrasonic: ['VCC','TRIG','ECHO','GND'],
   buzzer:     ['SIGNAL','GND'],
