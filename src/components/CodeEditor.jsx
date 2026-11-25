@@ -9,11 +9,16 @@ import CompilerOutput from './CompilerOutput.jsx'
 import { LEGGED_TEMPLATES } from '../utils/leggedTemplates.js'
 import { L298N_EXAMPLE_SKETCH } from '../utils/l298n.js'
 import { STEPPER_EXAMPLE_SKETCH } from '../utils/stepper.js'
+import { CR_SERVO_EXAMPLE_SKETCH } from '../utils/continuousServo.js'
 
 const TEMPLATES = [
   {
     label: 'L298N: 2 motors',
     code: L298N_EXAMPLE_SKETCH,
+  },
+  {
+    label: 'Continuous servos: 2-wheel drive',
+    code: CR_SERVO_EXAMPLE_SKETCH,
   },
   {
     label: 'Stepper: 28BYJ-48 + ULN2003',
@@ -244,7 +249,7 @@ export default function CodeEditor({ full = false }) {
   // Components a sketch can drive OR read — motors/LED/servo/buzzer/OLED plus
   // every sensor (so sensor-only sketches like an LDR/DHT11/ColorSensor reader
   // are runnable, not just actuator sketches).
-  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'l298n', 'uln2003', 'stepper','led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'l298n', 'uln2003', 'stepper','led', 'servo', 'servo_cr', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
   const hasConnections  = Object.keys(connections).length > 0
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo' || o.type === 'esp32')
   // Count ANY controllable component (sensors/buzzer/OLED included), not just

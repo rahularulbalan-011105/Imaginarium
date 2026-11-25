@@ -17,7 +17,7 @@ import { getMassForObject } from '../MassCalculator.js'
 import { resolveObjectPhysics, resolveServoConfig, resolveJointConfig } from './config.js'
 
 const SERVO_TYPES = new Set(['servo'])
-const MOTOR_TYPES = new Set(['motor', 'motor_dc', 'motor_bo'])
+const MOTOR_TYPES = new Set(['motor', 'motor_dc', 'motor_bo', 'servo_cr'])   // free-spinning shafts (servo_cr = continuous servo)
 const CONTROLLER_TYPES = new Set(['arduino', 'subo'])
 const DEG = Math.PI / 180
 const TOUCH = 0.05   // su — AABB tolerance for "physically touching"

@@ -272,6 +272,7 @@ toolsapp/
     │   ├── sliceTool.js            # Plane/polyline mesh slice
     │   ├── robotAssembly.js        # Union-find grouping of bonded/attached parts → robots (rootId, robotOptions)
     │   ├── l298n.js · stepper.js   # motor drivers as pure logic: L298N H-bridge · ULN2003 + 28BYJ-48 coil-field stepper model (Stepper.h runs in the sandbox)
+    │   ├── continuousServo.js      # FS90R-style 360° servo (type servo_cr): Servo.write angle → signed drive speed; wires/codes like a servo, drives like a motor
     │   ├── export.js               # JSON/STL/GLTF export + import
     │   ├── printExport.js          # STL export + printability analysis
     │   ├── share.js                # Share-link build/read (project packed into URL hash)

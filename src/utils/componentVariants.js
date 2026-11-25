@@ -30,6 +30,14 @@ export const COMPONENT_VARIANTS = {
     scale: 1.0,                                    // standard size, 40.7 × 19.7 × 42.9 mm
     physics: { mass: 0.055, servo: { preset: 'mg996r' } }, // 55 g, 11 kg·cm stall @ 6 V
   },
+  // FS90R: a variant of the CONTINUOUS servo type (servo_cr), not of 'servo' —
+  // its behaviour differs (speed, not angle), so the type differs too.
+  fs90r: {
+    base:  'servo_cr',
+    name:  'FS90R',
+    scale: 0.6,                                    // SG90-size micro servo body
+    physics: { mass: 0.011 },                      // 11 g
+  },
   ds3218: {
     base:  'servo',
     name:  'DS3218',

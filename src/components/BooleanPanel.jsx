@@ -46,7 +46,7 @@ const COLOR_CLASSES = {
 
 const OP_NAMES = { union: 'Union', subtract: 'Subtract', subtractB: 'Subtract', intersect: 'Intersect' }
 
-const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo'])
+const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr'])
 const GEOMETRY_TYPES = new Set(['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane',
   'tetrahedron', 'pyramid', 'pentpyramid', 'octahedron', 'dodecahedron', 'rectprism',
   'capsule', 'prism', 'diamond', 'hexagon', 'star', 'text',

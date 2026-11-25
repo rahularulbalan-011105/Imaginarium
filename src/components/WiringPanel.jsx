@@ -14,7 +14,7 @@ import { ELEC_TYPES, PIN_DEFS, pinRole, wireStyle, friendlyPin, isDuplicate, ROL
 // the pins it joins; right-click a wire (or a wired pin) → Edit / Delete.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩', ir_sensor: '👁', ultrasonic: '📡', buzzer: '🔔', oled: '📺', gas_sensor: '💨', color_sensor: '🎨', ldr_sensor: '🔆', dht11: '🌡', l298n: '🎛', stepper: '🌀', uln2003: '🟩' }
+const COMP_ICONS = { arduino: '🟢', subo: '🟣', motor: '⚙', motor_bo: '⚙', motor_dc: '🔧', led: '💡', servo: '🔩', ir_sensor: '👁', ultrasonic: '📡', buzzer: '🔔', oled: '📺', gas_sensor: '💨', color_sensor: '🎨', ldr_sensor: '🔆', dht11: '🌡', l298n: '🎛', stepper: '🌀', uln2003: '🟩', servo_cr: '🔄' }
 const ROLE_DOT = { power: ROLE_COLORS.power, gnd: ROLE_COLORS.gnd, signal: '#f97316' }
 
 export default function WiringPanel() {
