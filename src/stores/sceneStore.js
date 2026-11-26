@@ -95,6 +95,11 @@ export const useSceneStore = create((set, get) => ({
       },
     }
     if (overrides) Object.assign(obj, overrides, { id: obj.id, type })
+    // Mecanum wheels are numbered per hand (MecanumA_1, MecanumB_1 …) — the hand matters when building.
+    if (obj.wheelStyle === 'mecanum' && !overrides?.name) {
+      const n = get().objects.filter(o => o.wheelStyle === 'mecanum' && o.rollerHand === obj.rollerHand).length + 1
+      obj.name = `Mecanum${obj.rollerHand ?? 'A'}_${n}`
+    }
     set((state) => ({ objects: [...state.objects, obj] }))
     // Analytics: user added a shape/part — carry the running scene count so the
     // dashboard can show "shapes in the pane" (peak per user).

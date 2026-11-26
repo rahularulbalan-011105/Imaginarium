@@ -213,14 +213,38 @@ function RoundPartControls({ obj, objects, attachedTo, update, snapshot }) {
     const d = obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter
     const w = obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth
     const factor = wheelSpeedFactor(wheelWorldRadius(obj))
+    const mec = obj.wheelStyle === 'mecanum', hand = obj.rollerHand ?? 'A'
     return (
       <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
         <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Wheel</div>
         <SizeRow label="Diameter" value={d} min={1} max={10} step={0.1} onChange={(v) => update({ wheelDiameter: v })} onCommit={snapshot} />
         <SizeRow label="Width"    value={w} min={0.3} max={4} step={0.1} onChange={(v) => update({ wheelWidth: v })} onCommit={snapshot} />
+        {/* Plain tyre or mecanum rollers (utils/mecanum.js); a mecanum wheel comes in two hands. */}
+        <div className="flex items-center gap-1 mb-1.5">
+          <span className="text-[9px] text-gray-400 w-14 shrink-0">Type</span>
+          {[['plain', 'Plain'], ['mecanum', 'Mecanum']].map(([v, label]) => (
+            <button key={v} onClick={() => { if ((obj.wheelStyle ?? 'plain') !== v) { update(v === 'mecanum' ? { wheelStyle: 'mecanum', rollerHand: obj.rollerHand ?? 'A' } : { wheelStyle: undefined }); snapshot() } }}
+              className={`flex-1 py-0.5 rounded text-[10px] font-semibold ${(obj.wheelStyle ?? 'plain') === v ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>{label}</button>
+          ))}
+        </div>
+        {mec && (
+          <>
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-[9px] text-gray-400 w-14 shrink-0">Rollers</span>
+              {['A', 'B'].map((h) => (
+                <button key={h} onClick={() => { if (hand !== h) { update({ rollerHand: h }); snapshot() } }}
+                  className={`flex-1 py-0.5 rounded text-[10px] font-semibold ${hand === h ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>{h}</button>
+              ))}
+            </div>
+            <div className="text-[9px] text-gray-400 mb-1.5">
+              A mecanum robot needs two of each, in an X: <span className="text-gray-100 font-semibold">A</span> on front-left + rear-right,
+              <span className="text-gray-100 font-semibold"> B</span> on front-right + rear-left. Mixed up, it can't drive sideways.
+            </div>
+          </>
+        )}
         {/* The rim uses the normal Colour picker; the tyre has its own. */}
         <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[9px] text-gray-400 w-14 shrink-0">Tyre</span>
+          <span className="text-[9px] text-gray-400 w-14 shrink-0">{mec ? 'Rollers' : 'Tyre'}</span>
           <input type="color" value={obj.tyreColor ?? WHEEL_TYRE_COLOR}
             onChange={(e) => update({ tyreColor: e.target.value })} onBlur={snapshot}
             className="w-8 h-5 rounded border border-gray-700 bg-transparent cursor-pointer" title="Tyre colour (the rim uses the main Colour)" />

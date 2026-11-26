@@ -4,6 +4,7 @@ import { FontLoader } from 'three/addons/loaders/FontLoader.js'
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import helvetiker from 'three/examples/fonts/helvetiker_regular.typeface.json'
+import { rollerAxisLocal } from './mecanum.js'
 
 // Lazily parse the bundled font once — TextGeometry needs a parsed Font instance.
 let _font = null
@@ -260,6 +261,119 @@ export function createWheelParts({ diameter = 3.4, width = 1.3, segments = 64 } 
     return g
   }
   return { tyre: finish(tyreParts), rim: finish(rimParts), tyreOutline }
+}
+
+/**
+ * Mecanum wheel, styled on the common yellow 60–80 mm kit wheel:
+ *   rollers — fat black barrels with rounded ends, set at 45° to the axle
+ *             (utils/mecanum.js — the same roller axes the drive physics reads)
+ *   rim     — two yellow side plates with a "flower" edge: one rounded lobe
+ *             cups each roller end, so the lobes on the two plates are offset
+ *             by the roller's slant
+ *   hub     — the grey bushing through the middle, standing proud of one face
+ * Axle = local X like the plain wheel; the rollers reach the requested diameter.
+ * `hand` A / B mirrors the rollers (and the lobes with them).
+ */
+export function createMecanumParts({ diameter = 3.4, width = 1.3, hand = 'A', rollers = 9 } = {}) {
+  const R  = Math.max(0.3, diameter / 2)
+  const hw = Math.max(0.15, width) / 2
+  const rr = R * 0.2                            // roller radius at its middle
+  const rc = R - rr                             // roller centre radius
+  const L  = (2 * hw * 0.98) / Math.SQRT1_2 - 2 * rr * 0.8   // roller length: spans the width at 45° (its thickness too)
+  const pt = Math.max(0.05, hw * 0.2)           // side-plate thickness
+
+  // ── rollers: barrel profile along Y with rounded (hemispherical-ish) ends ──
+  const prof = [], n = 14, cap = rr * 0.55
+  prof.push(new THREE.Vector2(0, -L / 2))
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, y = -L / 2 + L * t
+    const end = Math.min(y + L / 2, L / 2 - y)                      // distance to the nearer end
+    const round = end < cap ? Math.sqrt(Math.max(0, 1 - ((cap - end) / cap) ** 2)) : 1
+    const barrel = 0.86 + 0.14 * Math.cos((Math.PI * y) / L)      // slightly fatter in the middle
+    prof.push(new THREE.Vector2(rr * barrel * (0.35 + 0.65 * round), y))
+  }
+  prof.push(new THREE.Vector2(0, L / 2))
+  const up = new THREE.Vector3(0, 1, 0), q = new THREE.Quaternion(), ax = new THREE.Vector3()
+  const rollerGeos = [], endAngles = { '1': [], '-1': [] }
+  for (let k = 0; k < rollers; k++) {
+    const phi = (k / rollers) * Math.PI * 2
+    ax.set(...rollerAxisLocal(phi, hand))
+    const g = new THREE.LatheGeometry(prof, 16)
+    g.applyQuaternion(q.setFromUnitVectors(up, ax))
+    g.translate(0, rc * Math.cos(phi), rc * Math.sin(phi))
+    rollerGeos.push(g.toNonIndexed()); g.dispose()
+    // where this roller's two ends meet the plates (angle around the axle)
+    for (const sgn of [1, -1]) {
+      const k2 = (sgn * Math.sign(ax.x) * L) / 2
+      const ey = rc * Math.cos(phi) + ax.y * k2, ez = rc * Math.sin(phi) + ax.z * k2
+      endAngles[String(sgn)].push({ a: Math.atan2(ez, ey), phi })
+    }
+  }
+
+  // ── side plates: a ring, and one swept petal per roller end ──────────────
+  // Each petal runs from the ring out to a rounded tip that cups the roller's
+  // end, leaning toward the roller's middle — so the petals swirl the same way
+  // as the rollers (mirrored on an A vs a B wheel), like the kit wheel.
+  const Rb = rc - rr * 1.25                     // ring radius
+  const tipR = rr * 0.78                        // petal tip radius
+  const baseR = rr * 0.95                       // petal root half-width
+  const polar = (r, th) => [-r * Math.sin(th), r * Math.cos(th)]   // shape (u, v) → wheel (z = −u, y = v)
+  // `k` < 1 makes the petals a hair thinner than the ring, so where they
+  // overlap the ring's faces win cleanly (no coplanar flicker)
+  const extrude = (sh, x, k = 1) => {
+    const d = pt * k
+    const g = new THREE.ExtrudeGeometry(sh, { depth: d, bevelEnabled: true, bevelThickness: d * 0.3, bevelSize: pt * 0.25, bevelSegments: 2, curveSegments: 10 })
+    g.translate(0, 0, -d / 2)
+    g.rotateY(Math.PI / 2)                                          // extrude axis Z → axle X
+    g.translate(x, 0, 0)
+    return g
+  }
+  const petal = ({ a, phi }) => {
+    const lean = Math.atan2(Math.sin(phi - a), Math.cos(phi - a))   // toward the roller's middle
+    const [tx, ty] = polar(rc + rr * 0.12, a)                       // tip centre, at the roller end
+    const [bx, by] = polar(Rb, a + lean * 1.6)                      // root centre, on the ring
+    const dir = Math.atan2(ty - by, tx - bx), sh = new THREE.Shape(), N = 12
+    for (let i = 0; i <= N; i++) {                                  // round tip
+      const t = dir - Math.PI / 2 + (Math.PI * i) / N
+      const px = tx + tipR * Math.cos(t), py = ty + tipR * Math.sin(t)
+      i ? sh.lineTo(px, py) : sh.moveTo(px, py)
+    }
+    for (let i = 0; i <= N; i++) {                                  // wider root
+      const t = dir + Math.PI / 2 + (Math.PI * i) / N
+      sh.lineTo(bx + baseR * Math.cos(t), by + baseR * Math.sin(t))
+    }
+    return sh
+  }
+  const plate = (ends, x) => {
+    const ring = new THREE.Shape(); ring.absarc(0, 0, Rb + rr * 0.15, 0, Math.PI * 2, false)
+    const hole = new THREE.Path(); hole.absarc(0, 0, R * 0.4, 0, Math.PI * 2, true)   // the hub disc shows through
+    ring.holes.push(hole)
+    return [extrude(ring, x), ...ends.map((e) => extrude(petal(e), x, 0.92))]
+  }
+  const rimGeos = [...plate(endAngles['1'], hw - pt * 0.8), ...plate(endAngles['-1'], -hw + pt * 0.8)]
+  // a drum joining the plates under the rollers, and the recessed hub disc with its two screws
+  rimGeos.push(new THREE.CylinderGeometry(Rb * 0.92, Rb * 0.92, 2 * hw * 0.8, 36, 1, true).rotateZ(Math.PI / 2))
+  rimGeos.push(new THREE.CylinderGeometry(R * 0.42, R * 0.42, 2 * hw * 0.55, 36).rotateZ(Math.PI / 2))
+  for (const a of [0.6, 0.6 + Math.PI])
+    rimGeos.push(new THREE.CylinderGeometry(R * 0.035, R * 0.035, 2 * hw * 0.6, 10).rotateZ(Math.PI / 2).translate(0, R * 0.3 * Math.cos(a), R * 0.3 * Math.sin(a)))
+
+  // ── hub: grey bushing, proud of the outer (+x) face ───────────────────────
+  const bushR = R * 0.17, bushL = 2 * hw * 1.25
+  const hubGeos = [
+    new THREE.CylinderGeometry(bushR, bushR, bushL, 28).rotateZ(Math.PI / 2).translate(bushL / 2 - hw * 0.9, 0, 0),
+    new THREE.CylinderGeometry(bushR * 1.45, bushR * 1.45, pt * 1.2, 28).rotateZ(Math.PI / 2).translate(hw * 0.95, 0, 0),
+  ]
+
+  const merge = (parts) => {
+    const flat = parts.map((p) => (p.index ? p.toNonIndexed() : p))
+    const keep = flat.map((g) => { for (const k of Object.keys(g.attributes)) if (k !== 'position' && k !== 'normal') g.deleteAttribute(k); return g })
+    const g = mergeGeometries(keep, false)
+    new Set([...parts, ...flat]).forEach((p) => p.dispose())
+    g.computeBoundingBox()
+    return g
+  }
+  const outline = new THREE.CylinderGeometry(R, R, 2 * hw * 0.9, 48, 1, true).rotateZ(Math.PI / 2)
+  return { tyre: merge(rollerGeos), rim: merge(rimGeos), hub: merge(hubGeos), tyreOutline: outline }
 }
 
 /** The whole wheel as ONE geometry (mass estimate, export, tests). */

@@ -279,6 +279,7 @@ toolsapp/
     │   ├── encoderMotor.js         # TT motor + Hall encoder (type motor_enc): real shaft speed → signed quadrature count; sandbox replays A/B edges into attachInterrupt()/Encoder(a,b)
     │   ├── pca9685.js              # 16-ch I2C servo driver: Adafruit_PWMServoDriver register maths → pulse µs → servo angle; I2C bus/VCC/V+ wiring (nets, chaining), address jumpers 0x40–0x47
     │   ├── gripper.js              # servo claw (type gripper): jaw geometry, servo squeeze force, hold check 2·μ·F ≥ m·g; coded/wired like a servo (write(0)=open)
+    │   ├── mecanum.js              # mecanum wheels (Wheel part, wheelStyle 'mecanum', rollerHand A/B): roller axes shared by model + physics; least-squares twist (vx, vy, ω) from every wheel → DriveManager strafes; X/O/mixed layout check
     │   ├── export.js               # JSON/STL/GLTF export + import
     │   ├── printExport.js          # STL export + printability analysis
     │   ├── share.js                # Share-link build/read (project packed into URL hash)
