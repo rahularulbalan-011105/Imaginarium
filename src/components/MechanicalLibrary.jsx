@@ -10,6 +10,10 @@ import { useHistory } from '../hooks/useHistory.js'
 
 const PARTS = [
   { type: 'wheel',  label: 'Robot Wheel', icon: '🛞', desc: 'Attach to a motor · size sets speed' },
+  // Mecanum: the Wheel part with rollers (utils/mecanum.js). Two hands, as sold:
+  // a robot needs two A and two B, A on front-left + rear-right.
+  { type: 'wheel', key: 'mecanum-A', label: 'Mecanum Wheel A', icon: '🛞', desc: 'Rollers ↗ · front-left + rear-right', overrides: { wheelStyle: 'mecanum', rollerHand: 'A', color: '#ffd23f', tyreColor: '#1c1d21' } },
+  { type: 'wheel', key: 'mecanum-B', label: 'Mecanum Wheel B', icon: '🛞', desc: 'Rollers ↖ · front-right + rear-left', overrides: { wheelStyle: 'mecanum', rollerHand: 'B', color: '#ffd23f', tyreColor: '#1c1d21' } },
   { type: 'caster', label: 'Ball Caster', icon: '⚪', desc: 'Free-rolling support wheel' },
   { type: 'gear',  label: 'Spur Gear', icon: '⚙',  desc: 'Mesh two to transfer motion' },
   { type: 'bolt',  label: 'Bolt',      icon: '🔩', desc: 'Fastener part' },
@@ -20,16 +24,16 @@ const PARTS = [
 export default function MechanicalLibrary() {
   const addObject = useSceneStore((s) => s.addObject)
   const { snapshot } = useHistory()
-  const addPart = (type) => { addObject(type); snapshot() }
+  const addPart = (type, overrides) => { addObject(type, undefined, overrides); snapshot() }
 
   return (
     <div className="flex flex-col h-full overflow-y-auto p-2">
       <div className="text-[9px] text-orange-500 uppercase tracking-wider mb-1.5 font-semibold px-1">Mechanical</div>
       <div className="flex flex-col gap-1">
-        {PARTS.map(({ type, label, desc }) => (
+        {PARTS.map(({ type, key, label, desc, overrides }) => (
           <button
-            key={type}
-            onClick={() => addPart(type)}
+            key={key ?? type}
+            onClick={() => addPart(type, overrides)}
             title={label}
             className="group flex items-center gap-2.5 w-full px-2 py-2 rounded-lg bg-gray-800/70 border border-transparent hover:border-orange-500/40 hover:bg-orange-500/10 transition-all duration-150 text-left"
           >

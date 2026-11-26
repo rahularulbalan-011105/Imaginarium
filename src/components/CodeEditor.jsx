@@ -13,11 +13,16 @@ import { CR_SERVO_EXAMPLE_SKETCH } from '../utils/continuousServo.js'
 import { ENCODER_EXAMPLE_SKETCH } from '../utils/encoderMotor.js'
 import { PCA_EXAMPLE_SKETCH } from '../utils/pca9685.js'
 import { GRIPPER_EXAMPLE_SKETCH, GRIPPER_ARM_SKETCH } from '../utils/gripper.js'
+import { MECANUM_EXAMPLE_SKETCH } from '../utils/mecanum.js'
 
 const TEMPLATES = [
   {
     label: 'L298N: 2 motors',
     code: L298N_EXAMPLE_SKETCH,
+  },
+  {
+    label: 'Mecanum robot: forward, sideways, turn',
+    code: MECANUM_EXAMPLE_SKETCH,
   },
   {
     label: 'Gripper: close, hold, let go',
