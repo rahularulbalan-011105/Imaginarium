@@ -5,7 +5,8 @@ import { objectManager } from '../managers/ObjectManager.js'
 // 1 scene unit = 0.05 m = 50 mm (matches SCENE_TO_M in EnvironmentConfig).
 export const MM_PER_UNIT = 50
 
-const ELECTRONICS = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
+const ELECTRONICS = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper',
+  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
 
 // Objects worth sending to a 3D printer (skip boards/sensors/motors).
 export function printableObjects(objects) {

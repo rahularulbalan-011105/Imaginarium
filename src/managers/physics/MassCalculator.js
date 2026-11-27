@@ -20,6 +20,12 @@ const ELEC_MASS = {
   uln2003: 0.008, // ULN2003 driver board
   pca9685: 0.009, // PCA9685 16-channel servo driver
   gripper: 0.045, // acrylic parallel claw incl. its SG90-class servo
+  // Module sensors (typical module weights)
+  pir_sensor: 0.0065,    // HC-SR501 incl. Fresnel lens
+  flame_sensor: 0.003, sound_sensor: 0.004, touch_sensor: 0.001, hall_sensor: 0.002,
+  soil_moisture: 0.008,  // YL-69 probe + YL-38 board + lead
+  rain_sensor: 0.010,    // FC-37 plate + comparator + lead
+  bmp280: 0.001, accelerometer: 0.002, gyroscope: 0.002,   // GY-BMP280 · GY-521
 }
 
 // Returns geometry volume in m³, using scene-unit scale (scale.x etc. = dimensionless

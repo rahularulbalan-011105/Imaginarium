@@ -10,7 +10,8 @@ import { ULN2003_PIN_ORDER, STEPPER_WIRES } from './stepper.js'
 import { ENC_MOTOR_PIN_ORDER } from './encoderMotor.js'
 import { PCA_PIN_ORDER } from './pca9685.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
+export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper',
+  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
 
 export const PIN_DEFS = {
   // L298N motor driver: motor outputs, power terminal, logic header (utils/l298n.js).
@@ -43,6 +44,17 @@ export const PIN_DEFS = {
   color_sensor: ['VCC','GND','S0','S1','S2','S3','OUT'],
   ldr_sensor:   ['VCC','GND','AO','DO'],
   dht11:        ['VCC','GND','DATA'],
+  // Module sensors — header order as on the real boards (electronicsFactory MODULE_SENSOR_LAYOUT).
+  pir_sensor:    ['VCC','OUT','GND'],
+  flame_sensor:  ['VCC','GND','DO','AO'],
+  soil_moisture: ['VCC','GND','DO','AO'],
+  rain_sensor:   ['VCC','GND','DO','AO'],
+  sound_sensor:  ['AO','GND','VCC','DO'],
+  touch_sensor:  ['GND','OUT','VCC'],
+  bmp280:        ['VCC','GND','SCL','SDA','CSB','SDO'],
+  accelerometer: ['VCC','GND','SCL','SDA','XDA','XCL','AD0','INT'],
+  gyroscope:     ['VCC','GND','SCL','SDA','XDA','XCL','AD0','INT'],
+  hall_sensor:   ['GND','VCC','OUT'],
 }
 
 /** 'power' | 'gnd' | 'signal' for a pin name. */

@@ -273,7 +273,8 @@ export default function CodeEditor({ full = false }) {
   // Components a sketch can drive OR read — motors/LED/servo/buzzer/OLED plus
   // every sensor (so sensor-only sketches like an LDR/DHT11/ColorSensor reader
   // are runnable, not just actuator sketches).
-  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'l298n', 'uln2003', 'pca9685', 'gripper', 'stepper','led', 'servo', 'servo_cr', 'motor_enc', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32']
+  const CONTROLLABLE = ['motor', 'motor_bo', 'motor_dc', 'l298n', 'uln2003', 'pca9685', 'gripper', 'stepper','led', 'servo', 'servo_cr', 'motor_enc', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'subo', 'esp32',
+    'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor']
   const hasConnections  = Object.keys(connections).length > 0
   const hasArduino      = objects.some(o => o.type === 'arduino' || o.type === 'subo' || o.type === 'esp32')
   // Count ANY controllable component (sensors/buzzer/OLED included), not just
@@ -297,7 +298,16 @@ export default function CodeEditor({ full = false }) {
     import('../utils/esp32Examples.js').then(m => { if (live) setEsp32Examples(m.ESP32_EXAMPLES) })
     return () => { live = false }
   }, [hasEsp32, esp32Examples])
-  const templates       = hasEsp32 ? (esp32Examples ?? []) : TEMPLATES
+  // Module + I²C sensor examples (PIR, flame, soil, rain, sound, touch, BMP280,
+  // MPU6050, Hall): a lazy chunk too, appended after the built-in templates.
+  const [sensorExamples, setSensorExamples] = useState(null)
+  useEffect(() => {
+    if (sensorExamples) return
+    let live = true
+    import('../arduino/sensorExamples.js').then(m => { if (live) setSensorExamples(m.SENSOR_EXAMPLES.map(({ label, code }) => ({ label, code }))) })
+    return () => { live = false }
+  }, [sensorExamples])
+  const templates       = hasEsp32 ? (esp32Examples ?? []) : (sensorExamples ? [...TEMPLATES, ...sensorExamples] : TEMPLATES)
 
   // Jump the editor caret to a diagnostic's line/column and scroll it into view.
   const jumpTo = (line, col) => {

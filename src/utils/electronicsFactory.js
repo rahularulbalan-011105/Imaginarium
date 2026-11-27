@@ -97,6 +97,60 @@ export const DHT11_PINS = {
   DATA: { x:  0.7, y: -0.1, z: 1.0, color: 0xffcc00, type: 'digital', label: 'DATA' },
 }
 
+// ─── Module sensors (procedural models, real module sizes — 1 unit = 1 cm) ───
+// PIR · flame · soil moisture · rain · sound · touch · BMP280 · MPU6050 (as the
+// accelerometer and the gyroscope parts) · Hall. Each pin sphere sits on the tip
+// of its real 2.54 mm-pitch header pin (createModuleSensor builds the header
+// from the same layout), with labels staggered over two rows like the L298N.
+const MS_TOP = 0.08                       // PCB top face (1.6 mm board centred on y = 0)
+const MS_PITCH = 0.254
+const MS_PIN_STYLE = {
+  VCC: [0xff2222, 'power'], GND: [0x333333, 'gnd'],
+  DO: [0xffcc00, 'digital'], OUT: [0xffcc00, 'digital'], AO: [0x22cc88, 'analog'],
+  SCL: [0x3b82f6, 'digital'], SDA: [0x22c55e, 'digital'],
+}
+const MS_PIN_LABEL = { OUT: 'OUT' }
+// names → { [name]: pinDef } for a right-angle header whose pins point out of
+// the +Z board edge (style 'out') or straight down under the board ('down').
+function moduleHeaderPins(names, { z, cx = 0, style = 'out' }) {
+  const x0 = cx - ((names.length - 1) * MS_PITCH) / 2
+  return Object.fromEntries(names.map((name, i) => {
+    const [color, type] = MS_PIN_STYLE[name] ?? [0xa855f7, 'digital']
+    const pos = style === 'down'
+      ? { x: x0 + i * MS_PITCH, y: -0.66, z }
+      : { x: x0 + i * MS_PITCH, y: MS_TOP + 0.125, z: z + 0.58 }
+    return [name, { ...pos, r: 0.1, color, type, label: MS_PIN_LABEL[name] ?? name, ldy: i % 2 ? 0.3 : 0 }]
+  }))
+}
+// Board outlines + header placement, shared by the pin tables and the models.
+export const MODULE_SENSOR_LAYOUT = {
+  pir_sensor:    { w: 3.2, d: 2.4,  pins: ['VCC', 'OUT', 'GND'],      hdrZ: 1.02, style: 'down' },
+  flame_sensor:  { w: 1.5, d: 3.2,  pins: ['VCC', 'GND', 'DO', 'AO'], hdrZ: 1.6 },
+  // Probe boards (soil fork / rain plate) + the YL-38 comparator they plug into:
+  // the comparator is centred at `compZ`, its 4-pin header at its +Z end.
+  soil_moisture: { w: 1.6, d: 3.0,  pins: ['VCC', 'GND', 'DO', 'AO'], hdrZ: 5.3, compZ: 3.8 },
+  rain_sensor:   { w: 1.6, d: 3.0,  pins: ['VCC', 'GND', 'DO', 'AO'], hdrZ: 4.85, compZ: 3.35 },
+  sound_sensor:  { w: 1.5, d: 3.5,  pins: ['AO', 'GND', 'VCC', 'DO'], hdrZ: 1.75 },
+  touch_sensor:  { w: 1.1, d: 1.5,  pins: ['GND', 'OUT', 'VCC'],      hdrZ: 0.75 },
+  bmp280:        { w: 1.5, d: 1.15, pins: ['VCC', 'GND', 'SCL', 'SDA', 'CSB', 'SDO'], hdrZ: 0.575 },
+  accelerometer: { w: 2.1, d: 1.6,  pins: ['VCC', 'GND', 'SCL', 'SDA', 'XDA', 'XCL', 'AD0', 'INT'], hdrZ: 0.8 },
+  gyroscope:     { w: 2.1, d: 1.6,  pins: ['VCC', 'GND', 'SCL', 'SDA', 'XDA', 'XCL', 'AD0', 'INT'], hdrZ: 0.8 },
+  hall_sensor:   { w: 1.5, d: 1.85, pins: ['GND', 'VCC', 'OUT'],      hdrZ: 0.925 },
+}
+const msPins = (type) => {
+  const L = MODULE_SENSOR_LAYOUT[type]
+  return moduleHeaderPins(L.pins, { z: L.hdrZ, style: L.style })
+}
+export const PIR_PINS    = msPins('pir_sensor')
+export const FLAME_PINS  = msPins('flame_sensor')
+export const SOIL_PINS   = msPins('soil_moisture')
+export const RAIN_PINS   = msPins('rain_sensor')
+export const SOUND_PINS  = msPins('sound_sensor')
+export const TOUCH_PINS  = msPins('touch_sensor')
+export const BMP280_PINS = msPins('bmp280')
+export const MPU6050_PINS = msPins('accelerometer')
+export const HALL_PINS   = msPins('hall_sensor')
+
 // SUBO board (custom ESP32-S3). Pin names + GPIO map come STRAIGHT from the official Subo
 // library (Subo.h): the header exposes IO1..IO21 (the exact silk labels), plus 5V and GND.
 // The simulator resolves IOn → GPIO via pinNameToNumber (SUBO_IO_TO_GPIO). ADC-capable IOs
@@ -252,6 +306,16 @@ export const PIN_DEFS = {
   color_sensor: COLOR_PINS,
   ldr_sensor:   LDR_PINS,
   dht11:        DHT11_PINS,
+  pir_sensor:    PIR_PINS,
+  flame_sensor:  FLAME_PINS,
+  soil_moisture: SOIL_PINS,
+  rain_sensor:   RAIN_PINS,
+  sound_sensor:  SOUND_PINS,
+  touch_sensor:  TOUCH_PINS,
+  bmp280:        BMP280_PINS,
+  accelerometer: MPU6050_PINS,
+  gyroscope:     MPU6050_PINS,
+  hall_sensor:   HALL_PINS,
 }
 
 const PIN_SPHERE_R = 0.17
@@ -1697,4 +1761,416 @@ export function createDHT11Group() {
   }
   root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
   return root
+}
+
+// ─── Module sensors: procedural models ───────────────────────────────────────
+// PIR HC-SR501 · flame (LM393) · YL-69 soil probe + YL-38 · FC-37 rain board +
+// comparator · KY-038 sound · TTP223 touch · GY-BMP280 · GY-521 (MPU6050) ·
+// KY-003 Hall (A3144). Drawn at their real sizes (1 unit = 1 cm) in the frame of
+// MODULE_SENSOR_LAYOUT, so the header pins line up with the pin spheres. A GLB
+// named after the type is used instead if one is ever added (same rule as the
+// other sensors). The board mesh is named 'pcb'; the small parts skip the
+// selection outline (see createL298NGroup) so a selected module stays readable.
+const MS_GOLD   = () => mat(0xd4a017, { roughness: 0.3, metalness: 0.75 })
+const MS_BLACK  = () => mat(0x111113, { roughness: 0.55 })
+const MS_NICKEL = () => mat(0xcfd3d8, { roughness: 0.25, metalness: 0.85 })
+
+function msBox(root, w, h, d, x, y, z, material) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material)
+  m.position.set(x, y, z)
+  root.add(m)
+  return m
+}
+function msPcb(root, w, d, color, cz = 0) {
+  const pcb = msBox(root, w, 0.16, d, 0, 0, cz, mat(color, { roughness: 0.75 }))
+  pcb.name = 'pcb'
+  return pcb
+}
+// Silkscreen: a canvas sheet just above (or below) the board. draw(ctx, P, text, sz)
+// gets P(x, z) → canvas pixels, a text helper and pixels-per-unit, all in board units.
+function msSilk(root, w, d, cz, draw, { bottom = false } = {}) {
+  const S = 96, W = Math.min(1024, Math.round(w * S)), H = Math.min(1024, Math.round(d * S))
+  const canvas = document.createElement('canvas')
+  canvas.width = W; canvas.height = H
+  const ctx = canvas.getContext('2d')
+  const sx = W / w, sz = H / d
+  const P = (x, z) => [(x + w / 2) * sx, ((bottom ? -1 : 1) * (z - cz) + d / 2) * sz]
+  const text = (s, x, z, size = 0.11, align = 'center') => {
+    ctx.font = `bold ${Math.round(size * sz)}px Arial, sans-serif`
+    ctx.textAlign = align; ctx.textBaseline = 'middle'
+    const [px, py] = P(x, z)
+    ctx.fillText(s, px, py)
+  }
+  ctx.fillStyle = '#f4f4f0'; ctx.strokeStyle = '#f4f4f0'; ctx.lineWidth = Math.max(1, 0.018 * sz)
+  draw(ctx, P, text, sz)
+  const tex = new THREE.CanvasTexture(canvas)
+  tex.anisotropy = 4
+  const sheet = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
+    new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.8, depthWrite: false }))
+  sheet.rotation.x = bottom ? Math.PI / 2 : -Math.PI / 2
+  sheet.position.set(0, bottom ? -MS_TOP - 0.002 : MS_TOP + 0.002, cz)
+  sheet.name = 'pcb_silkscreen'
+  root.add(sheet)
+  return sheet
+}
+// 2.54 mm header. 'out' = right-angle pins leaving the +Z edge at `edgeZ`;
+// 'down' = straight pins under the board; 'up' = straight pins standing on top.
+function msHeader(root, n, { edgeZ, cx = 0, style = 'out' }) {
+  const span = n * MS_PITCH, x0 = cx - ((n - 1) * MS_PITCH) / 2
+  const gold = MS_GOLD()
+  if (style === 'out') {
+    msBox(root, span, 0.25, 0.25, cx, MS_TOP + 0.125, edgeZ - 0.15, MS_BLACK())
+    for (let i = 0; i < n; i++) {
+      const x = x0 + i * MS_PITCH
+      msBox(root, 0.064, 0.064, 0.86, x, MS_TOP + 0.125, edgeZ + 0.15, gold)          // horizontal pin
+      msBox(root, 0.064, 0.3, 0.064, x, 0.0, edgeZ - 0.27, gold)                      // leg through the board
+    }
+  } else if (style === 'down') {
+    msBox(root, span, 0.25, 0.25, cx, -MS_TOP - 0.125, edgeZ, MS_BLACK())
+    for (let i = 0; i < n; i++) msBox(root, 0.064, 0.84, 0.064, x0 + i * MS_PITCH, -0.26, edgeZ, gold)
+  } else {
+    msBox(root, span, 0.25, 0.25, cx, MS_TOP + 0.125, edgeZ, MS_BLACK())
+    for (let i = 0; i < n; i++) msBox(root, 0.064, 0.84, 0.064, x0 + i * MS_PITCH, MS_TOP + 0.3, edgeZ, gold)
+  }
+}
+// 0805/0603 SMD resistor or capacitor (black/tan body, tinned ends).
+function msSmd(root, x, z, { rot = 0, cap = false, under = false } = {}) {
+  const g = new THREE.Group()
+  const body = cap ? mat(0xb08d57, { roughness: 0.6 }) : mat(0x1b1b1b, { roughness: 0.5 })
+  const tin = mat(0xcfd2d6, { roughness: 0.3, metalness: 0.8 })
+  msBox(g, 0.12, 0.05, 0.08, 0, 0, 0, body)
+  msBox(g, 0.03, 0.055, 0.085, -0.075, 0, 0, tin)
+  msBox(g, 0.03, 0.055, 0.085, 0.075, 0, 0, tin)
+  g.position.set(x, under ? -MS_TOP - 0.025 : MS_TOP + 0.025, z)
+  g.rotation.y = rot
+  root.add(g)
+}
+// 0805 LED; returns the lens mesh (own material) so the sim can light it.
+function msLed(root, x, z, color, { under = false } = {}) {
+  const sign = under ? -1 : 1
+  msBox(root, 0.16, 0.04, 0.08, x, sign * (MS_TOP + 0.02), z, mat(0xe8e8e8, { roughness: 0.4 }))
+  const lens = msBox(root, 0.12, 0.05, 0.075, x, sign * (MS_TOP + 0.06), z,
+    new THREE.MeshStandardMaterial({ color, roughness: 0.25, transparent: true, opacity: 0.85, emissive: 0x000000 }))
+  lens.userData.ledColor = color
+  return lens
+}
+// SOIC / SOT IC body with gull-wing legs along its two long sides.
+function msChip(root, x, z, { w = 0.5, d = 0.39, h = 0.15, legs = 4, under = false, rot = 0 } = {}) {
+  const g = new THREE.Group()
+  msBox(g, w, h, d, 0, h / 2, 0, mat(0x18181a, { roughness: 0.45 }))
+  const leg = mat(0xb9bdc3, { roughness: 0.3, metalness: 0.8 })
+  const pitch = w / legs
+  for (let i = 0; i < legs; i++) for (const s of [-1, 1])
+    msBox(g, 0.04, 0.03, 0.1, -w / 2 + pitch * (i + 0.5), 0.02, s * (d / 2 + 0.04), leg)
+  if (under) { g.rotation.x = Math.PI; g.position.set(x, -MS_TOP, z) } else g.position.set(x, MS_TOP, z)
+  g.rotation.y = rot
+  root.add(g)
+}
+// Blue 3296 multi-turn trim-pot (the threshold adjuster on comparator modules).
+function msTrimpot(root, x, z, { rot = 0 } = {}) {
+  const g = new THREE.Group()
+  msBox(g, 0.48, 0.95, 0.95, 0, 0.475, 0, mat(0x2563eb, { roughness: 0.55 }))
+  const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.05, 16), mat(0xd6b45a, { roughness: 0.3, metalness: 0.8 }))
+  screw.position.set(0, 0.975, -0.3)
+  g.add(screw)
+  msBox(g, 0.18, 0.012, 0.03, 0, 1.0, -0.3, MS_BLACK())                               // screw slot
+  g.position.set(x, MS_TOP, z)
+  g.rotation.y = rot
+  root.add(g)
+}
+// Plated mounting hole (gold annulus over a dark drill).
+function msHole(root, x, z, r = 0.15) {
+  const ring = new THREE.Mesh(new THREE.RingGeometry(r * 0.62, r, 24), mat(0xd4a017, { roughness: 0.35, metalness: 0.7, side: THREE.DoubleSide }))
+  ring.rotation.x = -Math.PI / 2
+  ring.position.set(x, MS_TOP + 0.004, z)
+  root.add(ring)
+  const drill = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.62, r * 0.62, 0.17, 20), mat(0x050505, { roughness: 0.9 }))
+  drill.position.set(x, 0, z)
+  root.add(drill)
+}
+const msLabelRow = (names, edgeZ, cx = 0, map = {}) => (ctx, P, text) => {
+  const x0 = cx - ((names.length - 1) * MS_PITCH) / 2
+  names.forEach((n, i) => text(map[n] ?? n, x0 + i * MS_PITCH, edgeZ - 0.42, 0.075))
+}
+function msFinish(root, leds) {
+  root.userData.labelScale = 0.5                       // dense 2.54 mm headers → small pin labels
+  root.userData.moduleLeds = leds
+  root.traverse(c => {
+    if (!c.isMesh) return
+    c.castShadow = true; c.receiveShadow = true
+    if (c.name !== 'pcb') c.userData.noOutline = true
+    if (c.name === 'pcb' || c.name === 'pcb_silkscreen') c.castShadow = false
+  })
+  return root
+}
+
+// LM393 comparator module body (flame / sound / YL-38): chip, trim-pot,
+// PWR + DO LEDs and the passives. Returns { pwr, sig } LEDs.
+function msComparatorParts(root, { cz = 0, potX = -0.35, potZ = -0.3, chipX = 0.32, chipZ = 0.35, ledX = 0.5, ledZ = -0.7 }) {
+  msTrimpot(root, potX, cz + potZ)
+  msChip(root, chipX, cz + chipZ, { rot: Math.PI / 2 })
+  const pwr = msLed(root, ledX, cz + ledZ, 0xff2a1a)
+  const sig = msLed(root, ledX, cz + ledZ - 0.3, 0x22ff55)
+  msSmd(root, -0.45, cz + 0.55, { rot: Math.PI / 2 })
+  msSmd(root, -0.2, cz + 0.6, { rot: Math.PI / 2 })
+  msSmd(root, 0.05, cz + 0.85, { cap: true })
+  msSmd(root, ledX - 0.25, cz + ledZ - 0.15, { rot: Math.PI / 2 })
+  return { pwr, sig }
+}
+
+function buildPir() {
+  const L = MODULE_SENSOR_LAYOUT.pir_sensor, root = new THREE.Group()
+  msPcb(root, L.w, L.d, 0x23733a)
+  // Fresnel lens: white square flange + faceted dome over the pyro sensor.
+  const lensMat = mat(0xf2f2ec, { roughness: 0.92, flatShading: true })
+  msBox(root, 2.4, 0.18, 2.4, 0, MS_TOP + 0.09, 0, lensMat)
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(1.15, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), lensMat)
+  dome.position.y = MS_TOP + 0.18
+  root.add(dome)
+  msHole(root, -1.43, 0); msHole(root, 1.43, 0)
+  // Underside: BISS0001 controller, the two orange trim-pots (sensitivity, time),
+  // the trigger-mode jumper and the header pointing down.
+  msChip(root, 0.25, -0.2, { w: 0.98, d: 0.39, legs: 8, under: true })
+  for (const z of [-0.6, 0.15]) {
+    msBox(root, 0.6, 0.22, 0.6, -1.0, -MS_TOP - 0.11, z, mat(0xf08a1c, { roughness: 0.5 }))
+    const rotor = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.05, 16), mat(0xf6f6f6))
+    rotor.position.set(-1.0, -MS_TOP - 0.245, z)
+    root.add(rotor)
+  }
+  msHeader(root, 3, { edgeZ: -0.55, cx: 1.15, style: 'down' })                            // H / L jumper
+  msBox(root, 0.25, 0.3, 0.5, 1.15 - MS_PITCH / 2, -0.55, -0.55, mat(0xf5c518, { roughness: 0.5 }))
+  msHeader(root, 3, { edgeZ: L.hdrZ, style: 'down' })
+  for (const [x, z] of [[0.9, 0.6], [0.6, 0.65], [-0.3, 0.55], [-0.55, 0.6]]) msSmd(root, x, z, { under: true, rot: Math.PI / 2 })
+  msSilk(root, L.w, L.d, 0, (ctx, P, text) => {
+    msLabelRow(L.pins, L.hdrZ + 0.1)(ctx, P, text)
+    text('HC-SR501', 0.25, -0.75, 0.13)
+    text('SX', -1.0, -0.98, 0.08); text('TX', -1.0, 0.53, 0.08)
+  }, { bottom: true })
+  return msFinish(root, { pwr: null, sig: null })
+}
+
+function buildFlame() {
+  const L = MODULE_SENSOR_LAYOUT.flame_sensor, root = new THREE.Group()
+  msPcb(root, L.w, L.d, 0x1d4fb0)
+  const leds = msComparatorParts(root, {})
+  msHole(root, 0, 0.95, 0.14)
+  // 5 mm IR receiver (black) on bent leads, looking out of the −Z end.
+  const black = mat(0x0b0b0d, { roughness: 0.18 })
+  const ledZ = -L.d / 2 - 0.35, ledY = MS_TOP + 0.3
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.5, 24), black)
+  body.rotation.x = Math.PI / 2; body.position.set(0, ledY, ledZ)
+  root.add(body)
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(0.25, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), black)
+  tip.rotation.x = -Math.PI / 2; tip.position.set(0, ledY, ledZ - 0.25)
+  root.add(tip)
+  const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.29, 0.29, 0.08, 24), black)
+  flange.rotation.x = Math.PI / 2; flange.position.set(0, ledY, ledZ + 0.27)
+  root.add(flange)
+  const gold = MS_GOLD()
+  for (const x of [-0.1, 0.1]) {
+    msBox(root, 0.04, 0.04, 0.42, x, ledY, -L.d / 2 + 0.0, gold)
+    msBox(root, 0.04, ledY - MS_TOP + 0.02, 0.04, x, (ledY + MS_TOP) / 2, -L.d / 2 + 0.2, gold)
+  }
+  msHeader(root, 4, { edgeZ: L.hdrZ })
+  msSilk(root, L.w, L.d, 0, (ctx, P, text) => {
+    msLabelRow(L.pins, L.hdrZ, 0, { AO: 'A0', DO: 'D0' })(ctx, P, text)
+    text('PWR', 0.22, -0.7, 0.07, 'right'); text('D0', 0.22, -1.0, 0.07, 'right')
+  })
+  return msFinish(root, leds)
+}
+
+// YL-38 style comparator + the 2-wire lead to its probe (soil / rain).
+function buildComparatorWithLead(root, L, probeHdrZ, wires = [0xef4444, 0x1f2937]) {
+  const cz = L.compZ
+  msPcb(root, L.w, L.d, 0x1d4fb0, cz)
+  const leds = msComparatorParts(root, { cz })
+  msHeader(root, 2, { edgeZ: cz - L.d / 2 + 0.25, style: 'up' })                           // to the probe
+  msHeader(root, 4, { edgeZ: L.hdrZ })
+  msSilk(root, L.w, L.d, cz, (ctx, P, text) => {
+    msLabelRow(L.pins, L.hdrZ, 0, { AO: 'A0', DO: 'D0' })(ctx, P, text)
+    text('+  −', 0, cz - L.d / 2 + 0.55, 0.08)
+    text('PWR', 0.22, cz - 0.7, 0.07, 'right'); text('D0', 0.22, cz - 1.0, 0.07, 'right')
+  })
+  // Dupont lead: female housings on both 2-pin headers, wires arcing between.
+  const from = cz - L.d / 2 + 0.25
+  wires.forEach((c, i) => {
+    const x = (i - 0.5) * MS_PITCH
+    msBox(root, 0.24, 0.6, 0.24, x, MS_TOP + 0.62, from, MS_BLACK())
+    msBox(root, 0.24, 0.6, 0.24, x, MS_TOP + 0.62, probeHdrZ, MS_BLACK())
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(x, MS_TOP + 0.92, from), new THREE.Vector3(x * 1.6, MS_TOP + 1.35, (from * 2 + probeHdrZ) / 3),
+      new THREE.Vector3(x * 1.6, MS_TOP + 1.35, (from + probeHdrZ * 2) / 3), new THREE.Vector3(x, MS_TOP + 0.92, probeHdrZ),
+    ])
+    root.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 24, 0.045, 6, false), mat(c, { roughness: 0.6 })))
+  })
+  return leds
+}
+
+function buildSoil() {
+  const L = MODULE_SENSOR_LAYOUT.soil_moisture, root = new THREE.Group()
+  // YL-69 fork (60 × 20 mm): head at +Z, two pointed prongs towards −Z.
+  // Shape y = −z (the extrude is rotated −90° about X).
+  const head = 0.7, prongEnd = -4.9, tip = -5.3
+  const s = new THREE.Shape()
+  s.moveTo(-1, -head); s.lineTo(1, -head); s.lineTo(1, -prongEnd); s.lineTo(0.69, -tip); s.lineTo(0.38, -prongEnd)
+  s.lineTo(0.38, 1.1); s.lineTo(-0.38, 1.1); s.lineTo(-0.38, -prongEnd); s.lineTo(-0.69, -tip); s.lineTo(-1, -prongEnd); s.lineTo(-1, -head)
+  const geo = new THREE.ExtrudeGeometry(s, { depth: 0.16, bevelEnabled: false })
+  geo.rotateX(-Math.PI / 2); geo.translate(0, -0.08, 0)
+  const fork = new THREE.Mesh(geo, mat(0x2a2d33, { roughness: 0.7 }))
+  fork.name = 'pcb'
+  root.add(fork)
+  // Nickel-plated electrodes down each prong + the pads in the head.
+  const ni = MS_NICKEL()
+  for (const x of [-0.69, 0.69]) msBox(root, 0.46, 0.012, 3.7, x, MS_TOP + 0.006, -2.95, ni)
+  for (const x of [-0.69, 0.69]) msBox(root, 0.46, 0.012, 1.0, x, MS_TOP + 0.006, -0.55, ni)
+  msHeader(root, 2, { edgeZ: 0.35, style: 'up' })
+  msSilk(root, 2.0, 1.8, -0.2, (ctx, P, text) => { text('YL-69', 0, -0.55, 0.2) })
+  const leds = buildComparatorWithLead(root, L, 0.35)
+  return msFinish(root, leds)
+}
+
+function buildRain() {
+  const L = MODULE_SENSOR_LAYOUT.rain_sensor, root = new THREE.Group()
+  // FC-37 rain plate (54 × 40 mm) with an interleaved nickel comb.
+  const pw = 4.0, pd = 5.4, pz = -2.55
+  msPcb(root, pw, pd, 0x14253f, pz)
+  const ni = MS_NICKEL()
+  msBox(root, 0.2, 0.012, 4.7, -1.75, MS_TOP + 0.006, pz - 0.15, ni)
+  msBox(root, 0.2, 0.012, 4.7, 1.75, MS_TOP + 0.006, pz - 0.15, ni)
+  for (let i = 0; i < 14; i++) {
+    const z = pz - 2.3 + i * 0.33, left = i % 2 === 0
+    msBox(root, 3.25, 0.012, 0.14, left ? -0.075 : 0.075, MS_TOP + 0.006, z, ni)
+  }
+  msHole(root, -1.6, pz + pd / 2 - 0.35); msHole(root, 1.6, pz + pd / 2 - 0.35)
+  msHeader(root, 2, { edgeZ: pz + pd / 2 - 0.25, style: 'up' })
+  msSilk(root, pw, pd, pz, (ctx, P, text) => { text('FC-37', 0, pz + pd / 2 - 0.62, 0.18) })
+  const leds = buildComparatorWithLead(root, L, pz + pd / 2 - 0.25, [0xf59e0b, 0x1f2937])
+  return msFinish(root, leds)
+}
+
+function buildSound() {
+  const L = MODULE_SENSOR_LAYOUT.sound_sensor, root = new THREE.Group()
+  msPcb(root, L.w, L.d, 0xb3201e)
+  const leds = msComparatorParts(root, { potX: 0.25, potZ: -0.25, chipX: -0.3, chipZ: 0.45, ledX: -0.45, ledZ: -0.55 })
+  // Electret capsule (9.7 mm) lying at the −Z end, felt face outwards.
+  const can = new THREE.Mesh(new THREE.CylinderGeometry(0.485, 0.485, 0.67, 32), mat(0xc4c7cc, { roughness: 0.3, metalness: 0.8 }))
+  can.rotation.x = Math.PI / 2; can.position.set(0, MS_TOP + 0.49, -L.d / 2 - 0.05)
+  root.add(can)
+  const felt = new THREE.Mesh(new THREE.CircleGeometry(0.44, 32), mat(0x141414, { roughness: 1 }))
+  felt.rotation.y = Math.PI; felt.position.set(0, MS_TOP + 0.49, -L.d / 2 - 0.385)
+  root.add(felt)
+  msHole(root, 0, 0.95, 0.14)
+  msHeader(root, 4, { edgeZ: L.hdrZ })
+  msSilk(root, L.w, L.d, 0, (ctx, P, text) => {
+    msLabelRow(L.pins, L.hdrZ, 0, { AO: 'A0', GND: 'G', VCC: '+', DO: 'D0' })(ctx, P, text)
+    text('L1', -0.2, -0.55, 0.07, 'left'); text('L2', -0.2, -0.85, 0.07, 'left')
+  })
+  return msFinish(root, leds)
+}
+
+function buildTouch() {
+  const L = MODULE_SENSOR_LAYOUT.touch_sensor, root = new THREE.Group()
+  msPcb(root, L.w, L.d, 0xc0262d)
+  const sig = msLed(root, 0.36, 0.38, 0xff2a1a)
+  msChip(root, 0, 0, { w: 0.29, d: 0.16, h: 0.11, legs: 3, under: true })                  // TTP223 (SOT-23-6)
+  msSmd(root, 0.3, 0.2, { under: true, cap: true }); msSmd(root, -0.3, 0.2, { under: true })
+  msHeader(root, 3, { edgeZ: L.hdrZ })
+  const pad = new THREE.Mesh(new THREE.CircleGeometry(0.39, 32), mat(0xd9483e, { roughness: 0.4, metalness: 0.3 }))
+  pad.rotation.x = -Math.PI / 2; pad.position.set(0, MS_TOP + 0.001, -0.2)
+  root.add(pad)
+  msSilk(root, L.w, L.d, 0, (ctx, P, text, sz) => {
+    // The copper touch pad under the mask, outlined in silk.
+    const [cx, cy] = P(0, -0.2)
+    ctx.beginPath(); ctx.arc(cx, cy, 0.4 * sz, 0, Math.PI * 2); ctx.stroke()
+    ctx.beginPath(); ctx.arc(cx, cy, 0.3 * sz, 0, Math.PI * 2); ctx.stroke()
+    msLabelRow(L.pins, L.hdrZ, 0, { OUT: 'I/O' })(ctx, P, text)
+  })
+  return msFinish(root, { pwr: null, sig })
+}
+
+function buildBmp280() {
+  const L = MODULE_SENSOR_LAYOUT.bmp280, root = new THREE.Group()
+  msPcb(root, L.w, L.d, 0x5b2a86)
+  // The BMP280 itself: a 2.0 × 2.5 mm metal-lid LGA with its vent hole.
+  msBox(root, 0.2, 0.09, 0.25, 0.15, MS_TOP + 0.045, -0.12, mat(0xd7d9dd, { roughness: 0.25, metalness: 0.85 }))
+  const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.01, 12), MS_BLACK())
+  vent.position.set(0.2, MS_TOP + 0.095, -0.18)
+  root.add(vent)
+  msSmd(root, -0.15, -0.15, { cap: true, rot: Math.PI / 2 }); msSmd(root, 0.45, -0.1, { rot: Math.PI / 2 })
+  msSmd(root, 0.45, 0.12, { rot: Math.PI / 2 }); msSmd(root, -0.15, 0.1, { cap: true, rot: Math.PI / 2 })
+  msHole(root, -0.5, -0.25, 0.15)
+  msHeader(root, 6, { edgeZ: L.hdrZ })
+  msSilk(root, L.w, L.d, 0, (ctx, P, text) => {
+    msLabelRow(L.pins, L.hdrZ)(ctx, P, text)
+    text('GY-BMP280', 0.15, -0.42, 0.1)
+  })
+  return msFinish(root, { pwr: null, sig: null })
+}
+
+function buildMpu6050() {
+  const L = MODULE_SENSOR_LAYOUT.accelerometer, root = new THREE.Group()
+  msPcb(root, L.w, L.d, 0x1d4fb0)
+  msBox(root, 0.4, 0.09, 0.4, 0, MS_TOP + 0.045, -0.15, mat(0x161618, { roughness: 0.4 }))    // MPU-6050 (4 × 4 mm QFN)
+  msBox(root, 0.04, 0.005, 0.04, -0.15, MS_TOP + 0.092, -0.3, mat(0x8a8a8a))                 // pin-1 dot
+  msChip(root, -0.62, -0.38, { w: 0.29, d: 0.16, h: 0.1, legs: 3 })                          // 3.3 V regulator
+  const pwr = msLed(root, 0.68, -0.05, 0x22ff55)
+  for (const [x, z, cap] of [[0.42, -0.35, true], [-0.4, 0.15, false], [0.42, 0.15, false], [-0.35, -0.12, true], [0.6, -0.35, false]])
+    msSmd(root, x, z, { cap, rot: Math.PI / 2 })
+  msHole(root, -0.8, -0.55); msHole(root, 0.8, -0.55)
+  msHeader(root, 8, { edgeZ: L.hdrZ })
+  msSilk(root, L.w, L.d, 0, (ctx, P, text, sz) => {
+    msLabelRow(L.pins, L.hdrZ)(ctx, P, text)
+    text('GY-521', 0, -0.62, 0.11)
+    // Axis arrows: chip X → +X, chip Y → −Z (see arduino/motionSim.js).
+    const arrow = (x1, z1, x2, z2) => {
+      const [a, b] = P(x1, z1), [c, d] = P(x2, z2)
+      ctx.beginPath(); ctx.moveTo(a, b); ctx.lineTo(c, d); ctx.stroke()
+      const ang = Math.atan2(d - b, c - a), h = 0.06 * sz
+      ctx.beginPath(); ctx.moveTo(c, d)
+      ctx.lineTo(c - h * Math.cos(ang - 0.5), d - h * Math.sin(ang - 0.5))
+      ctx.lineTo(c - h * Math.cos(ang + 0.5), d - h * Math.sin(ang + 0.5)); ctx.closePath(); ctx.fill()
+    }
+    arrow(0.3, 0.3, 0.62, 0.3); text('X', 0.72, 0.3, 0.08)
+    arrow(0.3, 0.3, 0.3, -0.02); text('Y', 0.3, -0.1, 0.08)
+  })
+  return msFinish(root, { pwr, sig: null })
+}
+
+function buildHall() {
+  const L = MODULE_SENSOR_LAYOUT.hall_sensor, root = new THREE.Group()
+  msPcb(root, L.w, L.d, 0x18181b)
+  // A3144 in its TO-92S package, standing on three legs at the −Z end.
+  const legY = 0.4
+  msBox(root, 0.4, 0.3, 0.15, 0, MS_TOP + legY + 0.15, -0.72, mat(0x141416, { roughness: 0.35 }))
+  const gold = MS_GOLD()
+  for (const x of [-0.127, 0, 0.127]) msBox(root, 0.04, legY, 0.03, x, MS_TOP + legY / 2, -0.72, gold)
+  const sig = msLed(root, 0.45, 0.15, 0xff2a1a)
+  msSmd(root, 0.45, -0.15, { rot: Math.PI / 2 }); msSmd(root, -0.4, 0.15, { rot: Math.PI / 2 })
+  msHole(root, -0.45, -0.3, 0.15)
+  msHeader(root, 3, { edgeZ: L.hdrZ })
+  msSilk(root, L.w, L.d, 0, (ctx, P, text) => {
+    msLabelRow(L.pins, L.hdrZ, 0, { GND: '−', VCC: '+', OUT: 'S' })(ctx, P, text)
+    text('KY-003', 0, 0.15, 0.1)
+  })
+  return msFinish(root, { pwr: null, sig })
+}
+
+const MODULE_SENSOR_BUILDERS = {
+  pir_sensor: buildPir, flame_sensor: buildFlame, soil_moisture: buildSoil, rain_sensor: buildRain,
+  sound_sensor: buildSound, touch_sensor: buildTouch, bmp280: buildBmp280,
+  accelerometer: buildMpu6050, gyroscope: buildMpu6050, hall_sensor: buildHall,
+}
+/** True for the module sensors built by createModuleSensorGroup. */
+export const isModuleSensorType = (type) => type in MODULE_SENSOR_BUILDERS
+
+export function createModuleSensorGroup(type) {
+  const glb = cloneModel(type)
+  if (glb) {
+    const root = new THREE.Group()
+    root.add(glb)
+    root.userData.labelScale = 0.5
+    root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+    return root
+  }
+  return MODULE_SENSOR_BUILDERS[type]()
 }

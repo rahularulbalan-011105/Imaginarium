@@ -230,7 +230,7 @@ export default function DrivePanel() {
       {/* ── Peripherals: live sensor inputs + OLED + buzzer + SUBO on-board ───── */}
       {(sensors.length > 0 || hasOled || hasBuzzer || hasSubo) && (
         <div className="flex flex-wrap items-end gap-4 px-4 py-2 bg-gray-950/60 border-b border-gray-800/60">
-          {sensors.some(s => s.type === 'ir_sensor' || s.type === 'ultrasonic') && (
+          {sensors.some(s => s.type === 'ir_sensor' || s.type === 'ultrasonic' || SCENE_DRIVEN.has(s.type)) && (
             <div className="flex flex-col">
               <div className="text-[9px] text-gray-500 mb-0.5">Detection</div>
               <button onClick={() => setAutoSense(a => !a)}
@@ -425,7 +425,139 @@ function RealtimeBadge() {
   )
 }
 
+// New module / I²C sensors that also read the scene in Auto mode.
+const SCENE_DRIVEN = new Set(['pir_sensor', 'bmp280', 'accelerometer', 'gyroscope'])
+
+// A 0–100 % slider for the comparator modules (flame / soil / rain / sound),
+// with the module's real output shown underneath so the polarity is clear.
+function LevelSlider({ icon, obj, value, def, label, accent, onChange, outputs }) {
+  const v = value ?? def
+  return (
+    <div className="flex flex-col">
+      <div className="text-[9px] text-gray-500 mb-0.5">{icon} {obj.name} · <span className="font-mono text-gray-300">{label} {v}%</span></div>
+      <input type="range" min="0" max="100" value={v} onChange={e => onChange(+e.target.value)} className={`w-36 ${accent}`} />
+      <div className="text-[9px] font-mono text-gray-600">{outputs(v)}</div>
+    </div>
+  )
+}
+
+// Live readout of a BMP280 / MPU6050 while Auto mode drives it from the scene.
+function I2cLive({ id, fmt }) {
+  const [r, setR] = useState(null)
+  useEffect(() => {
+    const t = setInterval(() => setR(simulationManager.i2cReadings?.[id] ?? null), 250)
+    return () => clearInterval(t)
+  }, [id])
+  return <div className="px-2 py-1 rounded text-[10px] font-mono bg-gray-800 text-teal-300 min-w-[120px]">{r ? fmt(r) : 'not on the I²C bus'}</div>
+}
+
+function Toggle({ on, onLabel, offLabel, onClick, auto }) {
+  return auto ? (
+    <div className={`px-2 py-1 rounded text-[10px] font-semibold ${on ? 'bg-green-700 text-white' : 'bg-gray-800 text-gray-500'}`}>{on ? onLabel : offLabel}</div>
+  ) : (
+    <button onClick={onClick}
+      className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors ${on ? 'bg-green-700 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+      {on ? onLabel : offLabel}
+    </button>
+  )
+}
+
 function SensorControl({ obj, value, values = {}, onChange, setValue, auto }) {
+  if (obj.type === 'pir_sensor') {
+    const on = !!value
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">🚶 {obj.name} · <span className="font-mono">OUT {on ? 'HIGH' : 'LOW'}</span></div>
+        <Toggle auto={auto} on={on} onLabel="Motion detected" offLabel={auto ? 'No motion' : 'No motion (click)'} onClick={() => onChange(on ? 0 : 1)} />
+      </div>
+    )
+  }
+  if (obj.type === 'touch_sensor') {
+    const on = !!value
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">👆 {obj.name} · <span className="font-mono">OUT {on ? 'HIGH' : 'LOW'}</span></div>
+        <button onPointerDown={() => onChange(1)} onPointerUp={() => onChange(0)} onPointerLeave={() => on && onChange(0)}
+          className={`px-2 py-1 rounded text-[10px] font-semibold transition-colors select-none ${on ? 'bg-green-700 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>
+          {on ? 'Touching' : 'Hold to touch'}
+        </button>
+      </div>
+    )
+  }
+  if (obj.type === 'hall_sensor') {
+    const on = !!value
+    return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5">🧲 {obj.name} · <span className="font-mono">OUT {on ? 'LOW' : 'HIGH'}</span></div>
+        <Toggle on={on} onLabel="Magnet near" offLabel="No magnet" onClick={() => onChange(on ? 0 : 1)} />
+      </div>
+    )
+  }
+  if (obj.type === 'flame_sensor') return (
+    <LevelSlider icon="🔥" obj={obj} value={value} def={0} label="flame" accent="accent-orange-500" onChange={onChange}
+      outputs={v => `DO ${v >= 50 ? 'LOW (flame)' : 'HIGH'} · AO ≈${Math.round(1015 - v * 9.6)}`} />
+  )
+  if (obj.type === 'soil_moisture') return (
+    <LevelSlider icon="🌱" obj={obj} value={value} def={30} label="moisture" accent="accent-green-500" onChange={onChange}
+      outputs={v => `DO ${v >= 40 ? 'LOW (wet)' : 'HIGH (dry)'} · AO ≈${Math.round(1015 - v * 7.65)}`} />
+  )
+  if (obj.type === 'rain_sensor') return (
+    <LevelSlider icon="🌧" obj={obj} value={value} def={0} label="wet" accent="accent-sky-500" onChange={onChange}
+      outputs={v => `DO ${v >= 30 ? 'LOW (rain)' : 'HIGH (dry)'} · AO ≈${Math.round(1018 - v * 8.2)}`} />
+  )
+  if (obj.type === 'sound_sensor') return (
+    <LevelSlider icon="🎤" obj={obj} value={value} def={10} label="sound" accent="accent-pink-500" onChange={onChange}
+      outputs={v => `DO ${v >= 50 ? 'HIGH (loud)' : 'LOW'} · AO 512±${Math.round(v * 5)}`} />
+  )
+  if (obj.type === 'bmp280') {
+    const temp = values[`${obj.id}:temp`] ?? 25
+    const alt  = values[`${obj.id}:alt`] ?? 0
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="text-[9px] text-gray-500 mb-0.5">🎈 {obj.name} · <span className="font-mono text-gray-300">{(1013.25 * Math.pow(1 - alt / 44330, 5.255)).toFixed(1)} hPa</span></div>
+        <label className="text-[9px] text-gray-500 flex items-center gap-1.5">
+          <span className="w-8">Temp</span>
+          <input type="range" min="-20" max="60" value={temp} onChange={e => setValue(`${obj.id}:temp`, +e.target.value)} className="w-28 accent-red-500" />
+          <span className="text-red-300 font-mono w-10">{temp}°C</span>
+        </label>
+        <label className="text-[9px] text-gray-500 flex items-center gap-1.5" title={auto ? 'Auto: the part’s height in the scene is added on top' : undefined}>
+          <span className="w-8">Alt</span>
+          <input type="range" min="0" max="3000" step="10" value={alt} onChange={e => setValue(`${obj.id}:alt`, +e.target.value)} className="w-28 accent-sky-500" />
+          <span className="text-sky-300 font-mono w-10">{alt} m</span>
+        </label>
+        {auto && <I2cLive id={obj.id} fmt={r => `${(r.pressure / 100).toFixed(2)} hPa · ${r.temp.toFixed(1)}°C`} />}
+      </div>
+    )
+  }
+  if (obj.type === 'accelerometer' || obj.type === 'gyroscope') {
+    const acc = obj.type === 'accelerometer'
+    const icon = acc ? '📐' : '🌀'
+    if (auto) return (
+      <div className="flex flex-col">
+        <div className="text-[9px] text-gray-500 mb-0.5" title="Auto: reads the part’s real tilt and movement in the scene">{icon} {obj.name} · scene motion</div>
+        <I2cLive id={obj.id} fmt={r => acc
+          ? `a ${r.ax.toFixed(2)} ${r.ay.toFixed(2)} ${r.az.toFixed(2)} g`
+          : `ω ${r.gx.toFixed(0)} ${r.gy.toFixed(0)} ${r.gz.toFixed(0)} °/s`} />
+      </div>
+    )
+    const axes = acc ? [['roll', 'Roll', -90, 90, '°'], ['pitch', 'Pitch', -90, 90, '°']]
+      : [['gx', 'X', -250, 250, '°/s'], ['gy', 'Y', -250, 250, '°/s'], ['gz', 'Z', -250, 250, '°/s']]
+    return (
+      <div className="flex flex-col gap-1">
+        <div className="text-[9px] text-gray-500 mb-0.5">{icon} {obj.name}</div>
+        {axes.map(([k, label, min, max, unit]) => {
+          const v = values[`${obj.id}:${k}`] ?? 0
+          return (
+            <label key={k} className="text-[9px] text-gray-500 flex items-center gap-1.5">
+              <span className="w-8">{label}</span>
+              <input type="range" min={min} max={max} value={v} onChange={e => setValue(`${obj.id}:${k}`, +e.target.value)} className="w-28 accent-violet-500" />
+              <span className="text-violet-300 font-mono w-12">{v}{unit}</span>
+            </label>
+          )
+        })}
+      </div>
+    )
+  }
   if (obj.type === 'ldr_sensor') {
     const raw = value ?? 512
     return (

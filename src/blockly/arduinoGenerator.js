@@ -163,6 +163,51 @@ G['arduino_read_color'] = function (block, gen) {
   return [`color_pin${pin}.readColor()`, Order.ATOMIC]
 }
 
+// ── Module sensors: plain pin reads with each module's REAL polarity ─────────
+G['sensor_pir_motion']     = (block) => [`(digitalRead(${block.getFieldValue('PIN')}) == HIGH)`, Order.EQUALITY]
+G['sensor_flame_detected'] = (block) => [`(digitalRead(${block.getFieldValue('PIN')}) == LOW)`, Order.EQUALITY]
+G['sensor_rain_detected']  = (block) => [`(digitalRead(${block.getFieldValue('PIN')}) == LOW)`, Order.EQUALITY]
+G['sensor_sound_detected'] = (block) => [`(digitalRead(${block.getFieldValue('PIN')}) == HIGH)`, Order.EQUALITY]
+G['sensor_touch']          = (block) => [`(digitalRead(${block.getFieldValue('PIN')}) == HIGH)`, Order.EQUALITY]
+G['sensor_hall_magnet']    = (block) => [`(digitalRead(${block.getFieldValue('PIN')}) == LOW)`, Order.EQUALITY]
+G['sensor_sound_level']    = (block) => [`analogRead(${block.getFieldValue('PIN')})`, Order.ATOMIC]
+G['sensor_soil_moisture']  = (block) => [`map(analogRead(${block.getFieldValue('PIN')}), 1023, 0, 0, 100)`, Order.ATOMIC]
+
+// ── I²C sensors (Adafruit_BMP280 · MPU6050_light) ───────────────────────────
+function ensureBMP(gen) {
+  gen.includes_.add('<Wire.h>')
+  gen.includes_.add('<Adafruit_BMP280.h>')
+  gen.definitions_['bmp280'] = 'Adafruit_BMP280 bmp;'
+}
+function ensureMPU(gen) {
+  gen.includes_.add('<Wire.h>')
+  gen.includes_.add('<MPU6050_light.h>')
+  gen.definitions_['mpu6050'] = 'MPU6050 mpu(Wire);'
+}
+G['sensor_bmp280_begin'] = function (block, gen) {
+  ensureBMP(gen)
+  return `bmp.begin(${block.getFieldValue('ADDR')});\n`
+}
+G['sensor_bmp280_read'] = function (block, gen) {
+  ensureBMP(gen)
+  const w = block.getFieldValue('WHAT')
+  if (w === 'T') return ['bmp.readTemperature()', Order.ATOMIC]
+  if (w === 'A') return ['bmp.readAltitude(1013.25)', Order.ATOMIC]
+  return ['(bmp.readPressure() / 100.0)', Order.ATOMIC]
+}
+G['sensor_mpu6050_begin'] = function (block, gen) {
+  ensureMPU(gen)
+  return 'Wire.begin();\nmpu.begin();\nmpu.calcOffsets();\n'
+}
+G['sensor_mpu6050_update'] = function (block, gen) {
+  ensureMPU(gen)
+  return 'mpu.update();\n'
+}
+G['sensor_mpu6050_read'] = function (block, gen) {
+  ensureMPU(gen)
+  return [`mpu.${block.getFieldValue('WHAT')}()`, Order.ATOMIC]
+}
+
 // ── SUBO board (official Subo library) ───────────────────────────────────────
 G['subo_matrix_init'] = function (block, gen) {
   gen.includes_.add('<Subo.h>')

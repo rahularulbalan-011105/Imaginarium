@@ -93,6 +93,16 @@ registerComponent({ type: 'ir_sensor',  category: 'sensor', label: 'IR Sensor', 
 registerComponent({ type: 'ir',         category: 'sensor', label: 'IR Sensor',  icon: '🔆', role: 'ir',    physicsModules: ['RangeSensorSim'], capabilities: { sensor: 'proximity' } }) // alias key
 registerComponent({ type: 'gas_sensor', category: 'sensor', label: 'Gas Sensor', icon: '🟤', role: 'gas',   physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'gas' } })
 registerComponent({ type: 'gas',        category: 'sensor', label: 'Gas Sensor', icon: '🟤', role: 'gas',   physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'gas' } }) // alias key
+registerComponent({ type: 'pir_sensor',    category: 'sensor', label: 'PIR Sensor',        icon: '🚶', role: 'motion',   physicsModules: ['RangeSensorSim'],  capabilities: { sensor: 'motion' } })
+registerComponent({ type: 'flame_sensor',  category: 'sensor', label: 'Flame Sensor',      icon: '🔥', role: 'flame',    physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'flame' } })
+registerComponent({ type: 'soil_moisture', category: 'sensor', label: 'Soil Moisture',     icon: '🌱', role: 'moisture', physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'moisture' } })
+registerComponent({ type: 'rain_sensor',   category: 'sensor', label: 'Rain Sensor',       icon: '🌧', role: 'rain',     physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'rain' } })
+registerComponent({ type: 'sound_sensor',  category: 'sensor', label: 'Sound Sensor',      icon: '🎤', role: 'sound',    physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'sound' } })
+registerComponent({ type: 'touch_sensor',  category: 'sensor', label: 'Touch Sensor',      icon: '👆', role: 'touch',    physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'touch' } })
+registerComponent({ type: 'bmp280',        category: 'sensor', label: 'Pressure Sensor',   icon: '🎈', role: 'pressure', physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'pressure', bus: 'i2c' } })
+registerComponent({ type: 'accelerometer', category: 'sensor', label: 'Accelerometer',     icon: '📐', role: 'imu',      physicsModules: ['IMUSim'],          capabilities: { sensor: 'acceleration', bus: 'i2c' } })
+registerComponent({ type: 'gyroscope',     category: 'sensor', label: 'Gyroscope',         icon: '🌀', role: 'imu',      physicsModules: ['IMUSim'],          capabilities: { sensor: 'rotation', bus: 'i2c' } })
+registerComponent({ type: 'hall_sensor',   category: 'sensor', label: 'Hall Effect',       icon: '🧲', role: 'magnet',   physicsModules: ['AnalogSensorSim'], capabilities: { sensor: 'magnetic' } })
 registerComponent({ type: 'imu',        category: 'sensor', label: 'IMU',        icon: '🧭', role: 'imu',   physicsModules: ['IMUSim'],         capabilities: { sensor: 'orientation' } })
 
 // ── Typical current draw (mA) ─────────────────────────────────────────────────
@@ -110,6 +120,8 @@ const DRAW_mA = {
   pca9685: 10, // chip only; the servos' draw is counted on the servos
   led: 20, buzzer: 30, oled: 20,
   ultrasonic: 15, ir_sensor: 25, ir: 25, gas_sensor: 150, gas: 150, imu: 10,
+  pir_sensor: 1, flame_sensor: 15, soil_moisture: 35, rain_sensor: 15, sound_sensor: 5, touch_sensor: 2,
+  bmp280: 1, accelerometer: 4, gyroscope: 4, hall_sensor: 5,
 }
 for (const [type, mA] of Object.entries(DRAW_mA)) {
   const d = getComponentDef(type)

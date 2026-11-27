@@ -259,7 +259,9 @@ export function buildPinToComponentMap(connections, objects) {
 }
 
 // Sensor components whose output pins feed a value back to the controller.
-export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11'])
+export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11',
+  // Module sensors (digital/analog) + the I²C BMP280 / MPU6050 parts (utils/i2cSensors.js)
+  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
 const SENSOR_OUTPUT_PINS = ['OUT', 'DO', 'AO', 'ECHO', 'SIGNAL', 'DATA']
 
 // ── Pin ROLE tests (by pin-key name, matching PIN_DEFS naming across boards) ──

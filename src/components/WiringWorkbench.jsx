@@ -286,8 +286,10 @@ const SHAPES = {
   module: (type) => {
     const pins = PIN_DEFS[type]
     const w = Math.max(120, 30 + pins.length * 26), h = 92
-    const T = { ultrasonic: 'ULTRASONIC', ir_sensor: 'IR SENSOR', oled: 'OLED', buzzer: 'BUZZER', gas_sensor: 'GAS', color_sensor: 'COLOR', ldr_sensor: 'LDR', dht11: 'DHT11' }[type] ?? type.toUpperCase()
-    const fill = { oled: '#1e3a8a', buzzer: '#111827', dht11: '#0369a1', gas_sensor: '#0f766e' }[type] ?? '#1d4ed8'
+    const T = { ultrasonic: 'ULTRASONIC', ir_sensor: 'IR SENSOR', oled: 'OLED', buzzer: 'BUZZER', gas_sensor: 'GAS', color_sensor: 'COLOR', ldr_sensor: 'LDR', dht11: 'DHT11',
+      pir_sensor: 'PIR', flame_sensor: 'FLAME', soil_moisture: 'SOIL', rain_sensor: 'RAIN', sound_sensor: 'SOUND', touch_sensor: 'TOUCH', bmp280: 'BMP280', accelerometer: 'ACCEL', gyroscope: 'GYRO', hall_sensor: 'HALL' }[type] ?? type.toUpperCase()
+    const fill = { oled: '#1e3a8a', buzzer: '#111827', dht11: '#0369a1', gas_sensor: '#0f766e',
+      pir_sensor: '#166534', sound_sensor: '#991b1b', touch_sensor: '#b91c1c', bmp280: '#6b21a8', hall_sensor: '#18181b', rain_sensor: '#172554' }[type] ?? '#1d4ed8'
     const cx = w / 2
     const face = {
       ultrasonic: <><circle cx={cx - 26} cy="36" r="19" fill="#e5e7eb" stroke="#94a3b8" /><circle cx={cx + 26} cy="36" r="19" fill="#e5e7eb" stroke="#94a3b8" /><circle cx={cx - 26} cy="36" r="9" fill="#64748b" /><circle cx={cx + 26} cy="36" r="9" fill="#64748b" /></>,
@@ -298,6 +300,16 @@ const SHAPES = {
       dht11: <rect x={cx - 24} y="10" width="48" height="50" rx="5" fill="#bae6fd" stroke="#0284c7" />,
       ldr_sensor: <><circle cx={cx} cy="34" r="16" fill="#fde68a" stroke="#d97706" /><path d={`M${cx - 10} 34 q3 -8 6 0 t6 0 t6 0`} stroke="#b45309" strokeWidth="2" fill="none" /></>,
       color_sensor: <>{[-14, 14].map(dx => [-12, 12].map(dy => <circle key={`${dx}${dy}`} cx={cx + dx} cy={34 + dy} r="6" fill="#fff" stroke="#94a3b8" />))}</>,
+      pir_sensor: <><circle cx={cx} cy="36" r="24" fill="#f5f5f0" stroke="#cbd5e1" />{[-12, 0, 12].map(d => <line key={d} x1={cx + d} y1="16" x2={cx + d} y2="56" stroke="#d4d4d8" strokeWidth="1.2" />)}{[-12, 0, 12].map(d => <line key={`h${d}`} x1={cx - 20} y1={36 + d} x2={cx + 20} y2={36 + d} stroke="#d4d4d8" strokeWidth="1.2" />)}</>,
+      flame_sensor: <><rect x={cx - 26} y="20" width="18" height="30" rx="2" fill="#2563eb" /><ellipse cx={cx + 14} cy="34" rx="11" ry="14" fill="#0b0b0d" /><path d={`M${cx + 14} 12 q8 8 0 16 q-8 -8 0 -16`} fill="#f97316" /></>,
+      soil_moisture: <>{[-1, 1].map(s => <path key={s} d={`M${cx + s * 12 - 6} 12 h12 v34 l-6 10 l-6 -10 Z`} fill="#d4d4d8" stroke="#71717a" />)}</>,
+      rain_sensor: <><rect x={cx - 28} y="12" width="56" height="44" rx="3" fill="#0f172a" />{[0, 1, 2, 3, 4, 5].map(i => <line key={i} x1={i % 2 ? cx - 24 : cx - 20} y1={17 + i * 7} x2={i % 2 ? cx + 20 : cx + 24} y2={17 + i * 7} stroke="#cbd5e1" strokeWidth="2" />)}</>,
+      sound_sensor: <><circle cx={cx - 16} cy="36" r="17" fill="#d4d4d8" stroke="#71717a" /><circle cx={cx - 16} cy="36" r="12" fill="#18181b" /><rect x={cx + 8} y="20" width="18" height="30" rx="2" fill="#2563eb" /></>,
+      touch_sensor: <><circle cx={cx} cy="36" r="22" fill="#ef4444" stroke="#fee2e2" strokeWidth="2" /><circle cx={cx} cy="36" r="15" fill="none" stroke="#fee2e2" strokeWidth="2" /></>,
+      bmp280: <><rect x={cx - 9} y="24" width="18" height="22" rx="2" fill="#d4d4d8" stroke="#a1a1aa" /><circle cx={cx + 3} cy="30" r="2" fill="#18181b" /></>,
+      accelerometer: <><rect x={cx - 14} y="20" width="28" height="28" rx="2" fill="#111827" /><path d={`M${cx + 22} 50 h22 m-6 -4 l6 4 l-6 4 M${cx + 22} 50 v-22 m-4 6 l4 -6 l4 6`} stroke="#fff" strokeWidth="1.6" fill="none" /></>,
+      gyroscope: <><rect x={cx - 14} y="20" width="28" height="28" rx="2" fill="#111827" /><path d={`M${cx + 24} 22 a12 12 0 1 1 -2 22`} stroke="#fff" strokeWidth="1.8" fill="none" /><path d={`M${cx + 17} 41 l5 4 l-6 3`} stroke="#fff" strokeWidth="1.6" fill="none" /></>,
+      hall_sensor: <><rect x={cx - 9} y="18" width="18" height="16" rx="2" fill="#0a0a0a" stroke="#52525b" />{[-5, 0, 5].map(d => <line key={d} x1={cx + d} y1="34" x2={cx + d} y2="48" stroke="#d4a017" strokeWidth="2" />)}</>,
     }[type]
     return { w, h, title: T, pins: edge(pins, 'bottom', w, h, 0.12, 0.88), art: (
       <Module w={w} h={h} fill={fill}>

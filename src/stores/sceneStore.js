@@ -29,7 +29,8 @@ export const useSceneStore = create((set, get) => ({
     // Sensors/peripherals are electronics too — they must be on this list so they
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
-    const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
+    const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer',
+      'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor']
     const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'motor_enc', 'l298n', 'stepper', 'uln2003', 'pca9685', 'gripper', ...SENSOR_TYPES].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw', 'wheel', 'caster']
     const isMech = mechTypes.includes(type)

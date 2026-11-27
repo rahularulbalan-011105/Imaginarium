@@ -12,6 +12,9 @@ import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
 import { createSensorLibraries } from '../arduino/sensorLibs.js'
+import { MODULE_SENSOR_TYPES, moduleLevel, moduleAnalogRaw, moduleDigital, moduleTriggered, readBMP280, readMPU6050 } from '../arduino/sensorSim.js'
+import { createMotionTracker } from '../arduino/motionSim.js'
+import { i2cSensorWiring, I2C_SENSOR_TYPES } from '../utils/i2cSensors.js'
 import { runSketchSandboxed } from './sketchSandbox.js'
 import { ESP32_PINS } from '../utils/esp32Board.js'
 import { parseControlAnnotations, controlDefaults } from '../utils/esp32Controls.js'
@@ -60,6 +63,8 @@ const BUILTIN_NAMES = new Set([
   'SSD1306_SWITCHCAPVCC','SSD1306_EXTERNALVCC','SCREEN_WIDTH','SCREEN_HEIGHT',
   // New sensor libraries (LDR / DHT11 / ColorSensor) + their pin macros
   'LDR','DHT11','ColorSensor','RGB','S0','S1','S2','S3','OUT',
+  // I²C sensor libraries (Adafruit_BMP280 · MPU6050_light) — sketchSandbox.js
+  'Adafruit_BMP280','MPU6050',
   // Physics-simulated hardware (articulated robots): IMU / joint encoders / battery
   'IMU','Encoder','Battery',
   // ESP32: LEDC PWM / DAC / touch, simulated Wi-Fi + Bluetooth, sim controls
@@ -285,6 +290,41 @@ class SimulationManager {
     this._pcaWire = pcaWiring(this._connections, this._objects, { isSupply: isSupplyPinName, isGround: isGroundPinName })
     this._reportPcaIssues(code)
 
+    // ── I²C sensors: BMP280 + MPU6050 (utils/i2cSensors.js) ───────────────────
+    // Each frame the sandbox gets every sensor that answers on the bus (wired
+    // to SDA/SCL and powered) with its address and reading; Adafruit_BMP280 /
+    // MPU6050 in the sketch talk to the one at their address. Auto mode reads
+    // the part itself: its height for the BMP280's altitude, its tilt and
+    // movement for the MPU6050 (arduino/motionSim.js).
+    this._i2cWire = i2cSensorWiring(this._connections, this._objects, { isSupply: isSupplyPinName, isGround: isGroundPinName })
+    this._reportI2cIssues()
+    this.i2cReadings = {}
+    const _motion = createMotionTracker()
+    this._i2cInput = () => {
+      const st = useElectronicsStore.getState(), now = performance.now(), out = []
+      for (const [id, w] of Object.entries(this._i2cWire)) {
+        if (!(w.powered && w.sda && w.scl)) continue
+        const obj3d = objectManager.objects.get(id)
+        let r
+        if (w.kind === 'bmp280') {
+          let extra = 0
+          if (st.autoSense && obj3d) { obj3d.updateMatrixWorld(true); extra = Math.max(0, obj3d.matrixWorld.elements[13]) * 0.05 }   // 1 unit = 5 cm
+          r = readBMP280(st, id, extra)
+        } else {
+          r = readMPU6050(st, id, w.type, st.autoSense ? _motion(id, obj3d, now) : null)
+        }
+        if (!r) continue
+        this.i2cReadings[id] = r
+        out.push({ kind: w.kind, addr: w.addr, ...r })
+      }
+      return out
+    }
+    // On-board LEDs of the module / I²C sensors: PWR when powered, the signal
+    // LED when the module's output is triggered. Updated only on change.
+    this._sensorLedState = new Map()
+    this._sensorPowered = new Map(this._objects.filter(o => MODULE_SENSOR_TYPES.has(o.type) || I2C_SENSOR_TYPES.has(o.type))
+      .map(o => [o.id, isSensorPowered(this._connections, this._objects, o.id)]))
+
     const _write = (pin, val, isDigital, skipUln = false) => {
       if (!self._running) return
       const comps = pinMap[pin]
@@ -370,8 +410,41 @@ class SimulationManager {
       }
       return st.sensorValues[s.id] ?? (s.type === 'ultrasonic' ? 100 : 0)
     }
+    // Module sensors (PIR / flame / soil / rain / sound / touch / Hall): the
+    // panel value is the physical quantity; sensorSim turns it into what the
+    // module's DO/OUT and AO pins really output. In Auto mode the PIR watches
+    // the scene in front of its dome and holds OUT HIGH ~3 s after motion.
+    const _pir = new Map()          // id → { ref: distance at last trigger, until: hold-end ms }
+    const _modLevel = (s) => {
+      const st = _store()
+      if (s.type === 'pir_sensor' && st.autoSense) {
+        const now = performance.now()
+        const d = objectManager.senseAlong(s.id, [0, 1, 0], 55, 140)     // 110° cone, 140 units = 7 m
+        const p = _pir.get(s.id)
+        if (!p) _pir.set(s.id, { ref: d, until: 0 })                     // first look: warm-up, no trigger
+        else if ((d == null) !== (p.ref == null) || (d != null && Math.abs(d - p.ref) > 0.5)) { p.ref = d; p.until = now + 3000 }
+        const v = now < _pir.get(s.id).until ? 1 : 0
+        _report(s.id, v)
+        return v
+      }
+      return moduleLevel(st, s.type, s.id)
+    }
+    const _modDigital = (s) => {
+      const level = _modLevel(s)
+      if (s.pin === 'AO') return moduleAnalogRaw(s.type, level, performance.now()) > 512 ? 1 : 0
+      return moduleDigital(s.type, level)
+    }
+    const _modAnalog10 = (s) => {
+      const level = _modLevel(s)
+      if (s.pin === 'AO') return moduleAnalogRaw(s.type, level, performance.now())
+      return moduleDigital(s.type, level) ? 1023 : 0
+    }
+    this._modLevelOf = (o) => (o.type === 'pir_sensor' && _store().autoSense)
+      ? (performance.now() < (_pir.get(o.id)?.until ?? 0) ? 1 : 0)
+      : moduleLevel(_store(), o.type, o.id)
     const digitalRead = (pin) => {
       const s = sensorMap[pin]
+      if (s && MODULE_SENSOR_TYPES.has(s.type)) return _modDigital(s)
       if (s) {
         if (s.type === 'ir_sensor')  return _read(s) ? 1 : 0
         if (s.type === 'gas_sensor') return (_read(s) > 512) ? 1 : 0    // DO threshold
@@ -395,6 +468,10 @@ class SimulationManager {
       const s = sensorMap[pin]
       if (!s) return 0
       const full = adcFull()
+      if (MODULE_SENSOR_TYPES.has(s.type)) {
+        const raw = _modAnalog10(s)
+        return Math.max(0, Math.min(full, Math.round(this._board === 'esp32' ? raw * (4095 / 1023) : raw)))
+      }
       const v = _read(s)
       if (s.type === 'ir_sensor') return v ? full : 0
       const scaled = this._board === 'esp32' ? v * (4095 / 1023) : v
@@ -670,7 +747,9 @@ class SimulationManager {
     try {
       this._sandbox = runSketchSandboxed({
         userJs: jsCode,
-        consts: `${this._board === 'esp32' ? ESP32_CONSTS : SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}`,
+        // The I²C bus is seeded up front: setup() runs before the first per-frame
+        // snapshot arrives, and bmp.begin() / mpu.begin() must see the boards.
+        consts: `${this._board === 'esp32' ? ESP32_CONSTS : SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}\nIN.i2c = ${JSON.stringify(this._i2cInput ? this._i2cInput() : [])};`,
         onOut: dispatch,
         onError: (msg) => onRuntimeError(msg),
         getInput: () => self._buildInput(sensorMap, pinMap, digitalRead, analogRead, pulseIn, libReaders),
@@ -830,9 +909,11 @@ class SimulationManager {
       if (!w?.powered || (w.pinA == null && w.pinB == null)) continue   // unpowered encoder: no pulses
       quad[id] = { a: w.pinA ?? -1, b: w.pinB ?? -1, count: quadCount(st.revs) }
     }
+    this._tickSensorLeds()
     return {
       quad, uno: this._board === 'arduino',
       aread, dread, pulse, lib, enc, touch,
+      i2c: this._i2cInput ? this._i2cInput() : [],
       imu: roboticsHardware.imu() ?? null,
       battery: roboticsHardware.battery() ?? null,
       hwActive: !!roboticsHardware.active,
@@ -916,6 +997,56 @@ class SimulationManager {
   }
 
   /** PCA9685 boards the sketch can't reach, or whose servos have no power. */
+  /** Light each module sensor's PWR / signal LED to match the simulation. */
+  _tickSensorLeds() {
+    if (!this._sensorPowered) return
+    for (const [id, powered] of this._sensorPowered) {
+      const o = this._objects.find(x => x.id === id)
+      if (!o) continue
+      const sig = powered && MODULE_SENSOR_TYPES.has(o.type) && moduleTriggered(o.type, this._modLevelOf?.(o) ?? null)
+      const key = `${powered ? 1 : 0}${sig ? 1 : 0}`
+      if (this._sensorLedState.get(id) === key) continue
+      this._sensorLedState.set(id, key)
+      objectManager.setModuleSensorLeds?.(id, { pwr: powered, sig })
+    }
+  }
+
+  /**
+   * "Why does my BMP280 / MPU6050 read nothing?" — the I²C wiring mistakes: no
+   * power, SDA/SCL not on the board's I²C pins, the two lines swapped, or two
+   * boards fighting over one address.
+   */
+  _reportI2cIssues() {
+    clearIssues('elec:i2c')
+    const NAME = { bmp280: 'BMP280', mpu6050: 'MPU6050' }
+    const seen = new Map()
+    for (const [id, w] of Object.entries(this._i2cWire ?? {})) {
+      const o = this._objects.find(x => x.id === id)
+      const name = o?.name || NAME[w.kind]
+      const pins = this._board === 'esp32' ? 'GPIO21 (SDA) / GPIO22 (SCL)' : this._board === 'subo' ? 'the IO pins you pass to Wire.begin(sda, scl)' : 'SDA (A4) / SCL (A5)'
+      if (w.swapped) reportIssue(makeIssue('electronics', `elec:i2c-swap:${id}`,
+        `${name}: SDA and SCL are swapped`,
+        'The data line went to the board’s clock pin (or the other way round), so nothing answers on the bus.',
+        `ELEC → Wiring: connect ${name} SDA → the board’s SDA and SCL → SCL.`))
+      else if (w.powered && !(w.sda && w.scl)) reportIssue(makeIssue('electronics', `elec:i2c-bus:${id}`,
+        `${name} is not on the I²C bus`,
+        `It is powered, but its ${!w.sda && !w.scl ? 'SDA and SCL lines are' : !w.sda ? 'SDA line is' : 'SCL line is'} not connected to the board’s I²C pins, so the sketch cannot reach it.`,
+        `ELEC → Wiring: ${name} SDA/SCL → ${pins}.`, 'warning'))
+      else if (!w.powered && w.sda && w.scl) reportIssue(makeIssue('electronics', `elec:i2c-pwr:${id}`,
+        `${name} has no power`,
+        'SDA and SCL are wired, but VCC/GND are not connected to the board, so the chip is off and never answers.',
+        `ELEC → Wiring: ${name} VCC → 5V (or 3V3) and GND → GND.`))
+      if (w.powered && w.sda && w.scl) {
+        const k = `${w.kind}@${w.addr}`
+        if (seen.has(k)) reportIssue(makeIssue('electronics', `elec:i2c-addr:${id}`,
+          `${name} and ${seen.get(k)} share address 0x${w.addr.toString(16)}`,
+          'Two boards of the same kind on one bus answer at the same address, so the sketch reads only one of them.',
+          w.kind === 'bmp280' ? 'Wire one board’s SDO to VCC to move it to 0x77.' : 'Wire one board’s AD0 to VCC to move it to 0x69.', 'warning'))
+        else seen.set(k, name)
+      }
+    }
+  }
+
   _reportPcaIssues(code) {
     clearIssues('elec:pca'); clearIssues('code:pca')
     if (!/PWMServoDriver/.test(code)) return
@@ -985,7 +1116,10 @@ class SimulationManager {
     for (const o of this._objects) {
       if (o.type === 'stepper') objectManager.setStepperAngle?.(o.id, 0)
       if (o.type === 'uln2003') objectManager.setUlnLeds?.(o.id, '0000')
+      if (MODULE_SENSOR_TYPES.has(o.type) || I2C_SENSOR_TYPES.has(o.type)) objectManager.setModuleSensorLeds?.(o.id, { pwr: false, sig: false })
     }
+    clearIssues('elec:i2c')
+    this._sensorPowered = null; this._i2cInput = null; this._modLevelOf = null
     this.stepperRotors = {}
     if (this._stopOsc) this._stopOsc()        // silence the buzzer
     for (const o of this._objects) if (o.type === 'oled') objectManager.setOledScreen(o.id, '')   // blank OLED screens

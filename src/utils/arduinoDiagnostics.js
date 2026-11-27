@@ -86,11 +86,13 @@ const SUBO_CONSTS = new Set([
 const isNoteConst = (s) => /^NOTE_[A-G]S?[0-8]$/.test(s) || s === 'REST'
 // Library classes that can be constructed as objects.
 const LIB_CLASSES = new Set(['Servo', 'Stepper', 'Adafruit_PWMServoDriver', 'LDR', 'DHT11', 'ColorSensor', 'RGB', 'Adafruit_SSD1306', 'String', 'IMU', 'Encoder', 'Battery',
+  'Adafruit_BMP280', 'MPU6050',   // I²C sensor libraries (BMP280 pressure · MPU6050_light)
   // ESP32 radios (simulated in Constructa, real in the Arduino-ESP32 core).
   'WiFiClient', 'WiFiServer', 'BluetoothSerial', 'BLESerial'])
 // Known #include libraries (base name, without .h).
 const KNOWN_LIBS = new Set(['Subo', 'Servo', 'Stepper', 'Adafruit_PWMServoDriver', 'LDR', 'DHT11', 'ColorSensor', 'Wire', 'SPI', 'Adafruit_SSD1306', 'Adafruit_GFX', 'pitches', 'MotorExpansion', 'IMU', 'Encoder', 'Battery', 'math', 'stdint', 'Arduino', 'string', 'stdlib', 'EEPROM',
-  'WiFi', 'WiFiClient', 'BluetoothSerial', 'BLESerial', 'BLEDevice', 'ESP32Servo', 'driver/ledc', 'esp_wifi'])
+  'WiFi', 'WiFiClient', 'BluetoothSerial', 'BLESerial', 'BLEDevice', 'ESP32Servo', 'driver/ledc', 'esp_wifi',
+  'Adafruit_BMP280', 'Adafruit_Sensor', 'MPU6050_light', 'MPU6050'])
 
 const C_TYPES = new Set(['void', 'int', 'float', 'double', 'bool', 'boolean', 'char', 'byte', 'long', 'short', 'unsigned', 'signed', 'String', 'auto', 'size_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int8_t', 'int16_t', 'int32_t', 'word'])
 const CONTROL_KW = new Set(['if', 'else', 'while', 'for', 'do', 'switch', 'case', 'default', 'return', 'break', 'continue', 'goto'])

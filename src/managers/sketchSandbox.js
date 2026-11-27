@@ -52,7 +52,7 @@ export function bootstrapHtml(userJs, consts) {
   // access to anything outside itself.
   const runtime = `
 'use strict';
-var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, imu:null, battery:null, hwActive:false,
+var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, i2c:[], imu:null, battery:null, hwActive:false,
            touch:{}, ctrl:{}, wifi:null, ble:null, net:null, serialIn:'' };
 var RUNNING = true;
 var send = function (f, a) { try { parent.postMessage({ t:'out', f:f, a:a }, '*') } catch (e) {} };
@@ -350,6 +350,124 @@ ColorSensor.prototype = {
   readRed: function () { var c = this._rgb(); return c ? c.r : 0 },
   readGreen: function () { var c = this._rgb(); return c ? c.g : 0 },
   readBlue: function () { var c = this._rgb(); return c ? c.b : 0 },
+};
+
+// ── I²C sensors: Adafruit_BMP280 · MPU6050 (MPU6050_light API) ───────────
+// IN.i2c lists every sensor answering on the bus: { kind, addr, ...reading }.
+// begin(addr) must hit the board's real address, as on hardware; with no
+// begin() at all (Blockly read blocks) the first board of that kind is used.
+var __i2c = function (kind, addr) {
+  var L = IN.i2c || [];
+  for (var i = 0; i < L.length; i++) if (L[i].kind === kind && (addr == null || L[i].addr === addr)) return L[i];
+  return null;
+};
+var __i2cSaid = {};
+var __i2cHint = function (kind, name, addr) {
+  if (__i2cSaid[kind + addr]) return;
+  __i2cSaid[kind + addr] = 1;
+  var other = __i2c(kind, null);
+  var hex = function (a) { return '0x' + Number(a).toString(16) };
+  send('serial', [other
+    ? '[sim] No ' + name + ' answers at ' + hex(addr) + ' - yours is at ' + hex(other.addr) + '. Use begin(' + hex(other.addr) + ').\\n'
+    : '[sim] No ' + name + ' on the I2C bus - wire SDA/SCL to the board and VCC/GND to power.\\n']);
+};
+function Adafruit_BMP280() { this._addr = null; this._ok = false; this._began = false }
+Adafruit_BMP280.prototype = {
+  begin: function (addr, chipid) {
+    this._began = true;
+    this._addr = addr == null ? 0x77 : Number(addr);           // the library default
+    this._ok = !!__i2c('bmp280', this._addr);
+    if (!this._ok) __i2cHint('bmp280', 'BMP280', this._addr);
+    return this._ok;
+  },
+  setSampling: function () {},
+  reset: function () {},
+  sensorID: function () { return this._r() ? 0x58 : 0 },
+  getStatus: function () { return 0 },
+  _r: function () {
+    if (!this._began) return __i2c('bmp280', null);
+    return this._ok ? __i2c('bmp280', this._addr) : null;
+  },
+  readTemperature: function () { var r = this._r(); return r ? r.temp : NaN },
+  readPressure: function () { var r = this._r(); return r ? r.pressure : NaN },
+  readAltitude: function (sea) {
+    var r = this._r(); if (!r) return NaN;
+    sea = Number(sea) || 1013.25;
+    return 44330 * (1 - Math.pow((r.pressure / 100) / sea, 0.1903));
+  },
+  seaLevelForAltitude: function (alt, p) { return (Number(p) || 0) / Math.pow(1 - (Number(alt) || 0) / 44330, 5.255) },
+};
+// MPU6050_light: values refresh on update(); angles are a complementary filter
+// of the gyro rate and the accelerometer tilt, exactly like the library.
+var __R2D = 180 / Math.PI;
+function MPU6050(wire) {
+  this._addr = 0x68; this._began = false; this._ok = false; this._auto = true;
+  this._coef = 0.98; this._t = 0;
+  this._a = { x: 0, y: 0, z: 1 }; this._g = { x: 0, y: 0, z: 0 }; this._temp = 0;
+  this._ao = { x: 0, y: 0, z: 0 }; this._go = { x: 0, y: 0, z: 0 };
+  this._ang = { x: 0, y: 0, z: 0 };
+}
+MPU6050.prototype = {
+  setAddress: function (a) { this._addr = Number(a) },
+  getAddress: function () { return this._addr },
+  begin: function () {
+    this._began = true;
+    this._ok = !!__i2c('mpu6050', this._addr);
+    if (!this._ok) { __i2cHint('mpu6050', 'MPU6050', this._addr); return 2 }   // 2 = NACK on address
+    this._fetch(); this._ang.x = this.getAccAngleX(); this._ang.y = this.getAccAngleY(); this._ang.z = 0;
+    this._t = performance.now();
+    return 0;
+  },
+  _src: function () { return this._began ? (this._ok ? __i2c('mpu6050', this._addr) : null) : __i2c('mpu6050', null) },
+  _fetch: function () {
+    var r = this._src();
+    if (!r) { this._a = { x: 0, y: 0, z: 0 }; this._g = { x: 0, y: 0, z: 0 }; this._temp = 0; return false }
+    this._a = { x: r.ax - this._ao.x, y: r.ay - this._ao.y, z: r.az - this._ao.z };
+    this._g = { x: r.gx - this._go.x, y: r.gy - this._go.y, z: r.gz - this._go.z };
+    this._temp = r.temp;
+    return true;
+  },
+  _step: function () {
+    var now = performance.now(), dt = this._t ? Math.min(0.5, (now - this._t) / 1000) : 0;
+    this._t = now;
+    this._fetch();
+    var wrap = function (a) { while (a > 180) a -= 360; while (a < -180) a += 360; return a };
+    var k = this._coef;
+    this._ang.x = wrap(k * (this._ang.x + this._g.x * dt) + (1 - k) * this.getAccAngleX());
+    this._ang.y = wrap(k * (this._ang.y + this._g.y * dt) + (1 - k) * this.getAccAngleY());
+    this._ang.z = this._ang.z + this._g.z * dt;
+  },
+  update: function () { this._auto = false; this._step() },
+  fetchData: function () { this._auto = false; this._fetch() },
+  _live: function () { if (this._auto) this._step() },
+  calcOffsets: function (gyro, acc) {
+    var r = this._src(); if (!r) return;
+    if (gyro !== false) this._go = { x: r.gx, y: r.gy, z: r.gz };
+    if (acc !== false) this._ao = { x: r.ax, y: r.ay, z: r.az - 1 };
+  },
+  calcGyroOffsets: function () { this.calcOffsets(true, false) },
+  calcAccOffsets: function () { this.calcOffsets(false, true) },
+  setGyroOffsets: function (x, y, z) { this._go = { x: +x || 0, y: +y || 0, z: +z || 0 } },
+  setAccOffsets: function (x, y, z) { this._ao = { x: +x || 0, y: +y || 0, z: +z || 0 } },
+  getGyroXoffset: function () { return this._go.x }, getGyroYoffset: function () { return this._go.y }, getGyroZoffset: function () { return this._go.z },
+  getAccXoffset: function () { return this._ao.x }, getAccYoffset: function () { return this._ao.y }, getAccZoffset: function () { return this._ao.z },
+  setFilterGyroCoef: function (c) { this._coef = Math.max(0, Math.min(1, Number(c))) },
+  setFilterAccCoef: function (c) { this._coef = 1 - Math.max(0, Math.min(1, Number(c))) },
+  getFilterGyroCoef: function () { return this._coef },
+  getFilterAccCoef: function () { return 1 - this._coef },
+  setGyroConfig: function () { return 0 }, setAccConfig: function () { return 0 },
+  getTemp: function () { this._live(); return this._temp },
+  getAccX: function () { this._live(); return this._a.x },
+  getAccY: function () { this._live(); return this._a.y },
+  getAccZ: function () { this._live(); return this._a.z },
+  getGyroX: function () { this._live(); return this._g.x },
+  getGyroY: function () { this._live(); return this._g.y },
+  getGyroZ: function () { this._live(); return this._g.z },
+  getAccAngleX: function () { var a = this._a; return Math.atan2(a.y, Math.sqrt(a.z * a.z + a.x * a.x)) * __R2D },
+  getAccAngleY: function () { var a = this._a; return -Math.atan2(a.x, Math.sqrt(a.z * a.z + a.y * a.y)) * __R2D },
+  getAngleX: function () { this._live(); return this._ang.x },
+  getAngleY: function () { this._live(); return this._ang.y },
+  getAngleZ: function () { this._live(); return this._ang.z },
 };
 
 // ── physics-backed hardware: read the snapshot ────────────────────────────

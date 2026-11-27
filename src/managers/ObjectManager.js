@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createMecanumParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup } from '../utils/electronicsFactory.js'
+import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup, createModuleSensorGroup, isModuleSensorType } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -118,7 +118,8 @@ function fillRoundGroup(g, obj, geos) {
   }
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
+const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper',
+  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos + steppers)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper'])
@@ -214,6 +215,8 @@ class ObjectManager {
       object3d = createPca9685Group()  // 16-channel servo driver (utils/pca9685.js)
     } else if (obj.type === 'uln2003') {
       object3d = createUln2003Group()  // its driver board
+    } else if (isModuleSensorType(obj.type)) {
+      object3d = createModuleSensorGroup(obj.type)  // PIR / flame / soil / rain / sound / touch / BMP280 / MPU6050 / Hall
     } else if (obj.type === 'gear') {
       const geo = createSpurGearGeometry({
         teeth: obj.teeth ?? 12, module: obj.module ?? 0.25, faceWidth: obj.faceWidth ?? 0.5,
@@ -766,6 +769,35 @@ class ObjectManager {
   // are ignored, like a real IR / ultrasonic beam. Aim the sensor with the blue (Z)
   // gizmo arrow. Only physical SHAPES count (electronics / arena / the sensor's own
   // bonded assembly are excluded). Returns null if nothing is in the beam.
+  // Like senseDistance, but along any local axis with any cone half-angle — the
+  // PIR's dome looks up (+Y) over a ~110° field.
+  senseAlong(sensorId, localAxis = [0, 1, 0], halfAngleDeg = 55, maxUnits = 140) {
+    const mesh = this.objects.get(sensorId)
+    if (!mesh || !this.scene) return null
+    mesh.updateMatrixWorld(true)
+    const origin = mesh.getWorldPosition(new THREE.Vector3())
+    const quat   = mesh.getWorldQuaternion(new THREE.Quaternion())
+    const fwd    = new THREE.Vector3(...localAxis).applyQuaternion(quat).normalize()
+    const coneCos = Math.cos(THREE.MathUtils.degToRad(halfAngleDeg))
+    const exclude = new Set(assemblyMembers(sensorId))
+    const box = new THREE.Box3(), center = new THREE.Vector3(), dir = new THREE.Vector3()
+    let best = Infinity
+    for (const [id, m] of this.objects) {
+      if (exclude.has(id) || m.userData?.isArena || m.userData?.isBattleProxy) continue
+      if (ELECTRONICS.has(m.userData?.type)) continue
+      box.setFromObject(m)
+      if (box.isEmpty()) continue
+      const d = box.distanceToPoint(origin)
+      if (d >= best) continue
+      if (d > 0.001) {
+        dir.copy(box.getCenter(center)).sub(origin).normalize()
+        if (dir.dot(fwd) < coneCos) continue
+      }
+      best = d
+    }
+    return (best === Infinity || best > maxUnits) ? null : best
+  }
+
   senseDistance(sensorId, maxUnits = 200) {
     const mesh = this.objects.get(sensorId)
     if (!mesh || !this.scene) return null
@@ -1004,6 +1036,18 @@ class ObjectManager {
       m.material.emissive.setHex(on ? 0xff2a1a : 0x000000)
       m.material.emissiveIntensity = on ? 2.4 : 0
     })
+  }
+
+  // Module sensors' on-board LEDs (electronicsFactory msLed): pwr = powered,
+  // sig = the comparator / output LED. Either may be absent on a module.
+  setModuleSensorLeds(id, { pwr = false, sig = false } = {}) {
+    const leds = this.objects.get(id)?.userData.moduleLeds
+    if (!leds) return
+    for (const [m, on] of [[leds.pwr, pwr], [leds.sig, sig]]) {
+      if (!m?.material) continue
+      m.material.emissive.setHex(on ? (m.userData.ledColor ?? 0xff2a1a) : 0x000000)
+      m.material.emissiveIntensity = on ? 2.2 : 0
+    }
   }
 
   /** Route Servo.write() to a physics engine: fn(id, deg) → true if it took it. */
