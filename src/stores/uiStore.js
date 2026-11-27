@@ -19,10 +19,10 @@ export const useUiStore = create((set, get) => ({
     set({ perf })
   },
 
-  activePanel: 'properties',
+  activePanel: 'library',   // open on the shape picker (Tinkercad); selecting shows the inspector
   sidebarCollapsed: false,
   statusMessage: 'Ready',
-  transformMode: 'translate',
+  transformMode: 'handles',   // Tinkercad handles; W/E/R switch to the move/rotate/scale gizmo
   showProjectDialog: false,
 
   // Snap-to-grid: 0 = free (off). Value is grid step in scene units; rotation in degrees.

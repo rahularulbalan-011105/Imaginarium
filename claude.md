@@ -64,6 +64,7 @@ toolsapp/
 ├── tools/
 │   ├── optimize-models.mjs         # assets-src/models → public/models (prune/1024² textures/webp/meshopt) — `npm run optimize:models`
 │   ├── check-bundle.mjs            # startup-JS / lazy-chunk / model-size budget — `npm run check:bundle` (after build)
+│   ├── thumbs/render-thumbs.cjs    # renders public/thumbs/<type>.webp + shape_<type>.webp (part/shape picker pictures) from the real models — needs `npm run dev`
 │   ├── models/                     # CODE-AUTHORED models: <name>.model.js (three.js source) → export-model.cjs (browser, needs `npm run dev`) → assets-src/models/<name>.glb
 │   │                               #   e.g. l298n: `node tools/models/export-model.cjs l298n` then `npm run optimize:models l298n`
 │   └── bench/ (startup.cjs · runtime.cjs)  # Playwright benchmarks (throttled startup; drag/idle/scale/churn)
@@ -102,7 +103,7 @@ toolsapp/
     │
     ├── components/                 # ── React UI ───────────────────────────────────────────────
     │   ├── Viewport.jsx            # Three.js canvas, raycasting, gizmo wiring, attachment sync; hosts toolbox + view cube
-    │   ├── ViewportToolbox.jsx     # FLOATING glass toolbox (top-left): transform / surface-extrude-slice / snap-grid-axes / print bed
+    │   ├── ViewportToolbox.jsx     # docked edit toolbar (top-left of the 3D view, one icon row): transform / attach-extrude-slice / snap-guides / grid-axes
     │   ├── ViewGizmo.jsx           # Interactive View Cube (top-right); fades under overlays
     │   ├── Header.jsx              # Top bar: project name, theme toggle, Help, Save, File menu, Drive/share/STL
     │   ├── StatusBar.jsx           # Bottom bar: object count + shortcut cheat-sheet
@@ -309,12 +310,22 @@ The app is **viewport-first**. `App.jsx` renders a vertical shell:
 └───────────────────────────────────────────────────────────────┘
 ```
 
-- **No permanent left sidebar** (old `Toolbar` unmounted). Tools live in the floating **ViewportToolbox** (top-left, glass): transform (W/E/R) · surface/extrude/slice · snap/grid/axes · print bed.
+- **No permanent left sidebar** (old `Toolbar` unmounted). Tools live in the docked **ViewportToolbox** (top-left, one row of icon buttons, names in tooltips): transform (W/E/R) · attach/extrude/slice · snap/turn-snap/guides · grid/axes.
+- **Primary journeys (UX structure):**
+  - *Start* — `WelcomeOverlay` is the start screen (first visit, and File → New project): Build my first robot (guided coach) · Empty project · starter projects with pictures (`utils/presets.js`, `public/thumbs/preset_*.webp` from `tools/thumbs/render-preset-thumbs.cjs`). Never auto-opens over `?project=` / `?share=` / `?mcp` links.
+  - *Run* — the header's **Simulate / Stop** (`managers/simControl.js` `useSimToggle`) is the one primary action, reachable from every section; Simulate → Run uses the same toggle. Save is secondary (autosave runs anyway). Coach/tour steps target `data-tour="simulate-header"`.
+  - *Edit a part* — selecting shows the floating `SelectionInspector` (rename · solid/hole · colour · duplicate · delete · More settings → Design → Edit); hidden while simulating, under overlays, or when the Edit tab is already open. The app opens on Design → Library (not Edit). The Edit tab leads with "Shape and position"; bonding ("Attach to other parts") comes after.
+  - *Add a part* — click-to-place (`managers/placement.js`): a library card (Shapes / Electronics / Mechanical / Models, via `placeCardProps`) picks the part up, an orange ring follows the mouse on the workplane (snapped to the move-snap step, else 0.5), a click places it (Shift = keep placing, Esc / Cancel puts it back, "Put in the middle" for keyboard users); dragging a card onto the 3D view does the same. A click that moved >5 px is an orbit, not a placement. Only x/z come from the click — the part keeps its default height. Keys 1–0 and the MCP `add_part` still add instantly.
+  - *Edit actions* — `managers/editActions.js` is the ONE implementation of copy/paste/duplicate (smart repeat)/delete/group (N parts, folded pairwise)/ungroup/align/mirror/lock/hide/show-all; the `EditBar` (second toolbar row), the inspector and the keyboard all call it. `ViewControls` (left edge): home · fit · zoom ± · flat view (`sceneManager.setFlatView` narrows the FOV to 4° and steps back — no second camera, since several managers hold the camera).
+  - *Multi-select* — `sceneStore` keeps `selectedId` (primary) + `secondaryId` for every one/two-part feature; parts beyond that live in `extraIds`, valid only while `extraFor === selectedId`. Read the whole selection with `selectedIdsOf(state)`; change it with `setSelectionList` / `toggleSelect`. A locked part (`obj.locked`) gets no gizmo/handles and can't be dragged.
+  - *Feedback* — tool-mode hints are ONE bottom-centre toast in `Viewport` (with Done/Cancel/Combine actions), never a top pill over the toolbar. Selecting two shapes no longer auto-switches to Combine; the toast offers it.
+  - *Navigation* — clicking the rail item you're in keeps the panel open (close with ×).
+- **Visual language (Tinkercad-inspired):** flat white panels, hairline borders, small radii, no glass/glow/gradients, no emoji in chrome. Orange marks only the one primary action (Save, Run) and "you are here" (active rail item, active tab underline, active tool). On/off settings use a grey "on". Pickers are picture grids (`public/thumbs/`), labels are plain words with the model number in the tooltip. Shared primitives in `globals.css`: `ui-btn(-primary/-quiet)`, `ui-tabs/ui-tab`, `ui-seg`, `ui-tool`, `ui-lib-card`. `globals.css` also carries a scoped **side-panel migration layer** (`.ui-context-panel …`): legacy ALL-CAPS 9–10 px labels render as sentence-case 11 px and legacy solid indigo/purple states render as the quiet tinted state — new UI should use the primitives instead of relying on it.
 - **View Cube** (`ViewGizmo`, top-right): clickable faces snap the camera; passive — fades out under any overlay.
 - **Right workspace** = full-height section panel + slim grouped **icon rail** (drag-resizable 224–560 px). One section at a time.
 
-**Right-panel sections** (rail groups → ids):
-Design: Properties · Objects · Library — Create: Electronics · Mechanical — Build: Wiring · Joints · Robot — Program: Blocks · Code — Run: Simulation · Physics — Setup: Settings.
+**Right-panel sections** (`shell/nav.js`; rail label → tabs → panel ids):
+Design → Library · Edit (`properties`) · Combine (`boolean`) · Objects — Build → Electronics · Mechanical (+ joints) · Wiring (Workbench / Pin list) — Code → Blocks · C++ — Simulate → Run (`sim`) · Robot · Physics — Settings. Internal ids (`cad`, `elec`, panel ids, `data-tour` anchors) are unchanged; only labels changed. Basic shapes get a fixed colour per type (`utils/shapeColors.js`) so they match their picture.
 The **⊕ Boolean** section is injected only when two boolean-capable objects are selected.
 
 ---
@@ -495,10 +506,12 @@ A Rapier-based, modular combat engine (distinct from the arcade Sumo). Launched 
 
 | Shortcut | Action |
 |---|---|
+| `Q` | **Tinkercad handles** (default): white squares resize (Shift = proportional), black cone lifts, curved arrows turn (22.5° snap, Shift = free) — `managers/HandlesManager.js` |
 | `W`/`E`/`R` | Gizmo Translate / Rotate / Scale (scale blocked for electronics) |
 | `Ctrl+Z`/`Ctrl+Y` | Undo / Redo |
 | `Ctrl+C`/`V` · `Ctrl+D` | Copy/Paste · Duplicate (smart repeat) |
-| `Ctrl+G`/`Ctrl+Shift+G` | Group (CSG) / Ungroup |
+| `Ctrl+G`/`Ctrl+Shift+G` | Group (CSG, 2+ parts) / Ungroup |
+| `Ctrl+L` · `Ctrl+Shift+H` | Lock / unlock · Hide (Show all in the edit bar) |
 | `Delete`/`Backspace` | Delete selected / patches |
 | `1`–`0` | Add primitive (1 cyl · 2 cone · 3 cube · 4 sphere · 5 tetra · 6 sq-pyr · 7 pent-pyr · 8 octa · 9 dodeca · 0 rect-prism) |
 | `G`/`A` · `F` · `Shift+S` | Grid/Axes · Frame selection · Snap rotation to axes |
@@ -506,7 +519,7 @@ A Rapier-based, modular combat engine (distinct from the arcade Sumo). Launched 
 | **Battle** | P1 WASD / P2 arrows (editor shortcuts blocked while active) |
 | **Arena** | **WASD** move · **LMB** primary · **RMB** secondary · **F1–F4** camera views |
 | `Space`/`Enter` | (legacy Arena fire keys) |
-| Mouse | Wheel zoom · Middle-drag orbit · Right-drag pan (edit mode) |
+| Mouse (Tinkercad) | Left-drag a part = slide it on the grid (all selected parts move) · left-drag empty space = box-select · Shift+click = add/remove · **right-drag = orbit** · middle-drag / Shift+right-drag = pan · wheel = zoom · Alt+left-drag = orbit (trackpads). `managers/directManipulation.js` |
 
 ---
 

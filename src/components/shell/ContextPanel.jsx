@@ -23,19 +23,11 @@ import SettingsPanel from '../SettingsPanel.jsx'
 const PhysicsPanel = lazy(() => import('../PhysicsPanel.jsx'))
 const PanelFallback = () => <div className="p-4 text-xs" style={{ color: 'rgb(var(--g-500))' }}>Loading…</div>
 
-const pill = (active) => active
-  ? { background: 'rgb(var(--a-600))', color: '#fff', borderColor: 'rgb(var(--a-600))' }
-  : { background: 'rgb(var(--g-800))', color: 'rgb(var(--g-300))', borderColor: 'transparent' }
-
 function SubToggle({ options, value, onChange, label }) {
   return (
-    <div role="tablist" aria-label={label} className="flex gap-1 p-1 rounded-xl" style={{ background: 'rgb(var(--g-800))' }}>
+    <div role="tablist" aria-label={label} className="ui-seg">
       {options.map((o) => (
-        <button key={o.id} role="tab" aria-selected={value === o.id} onClick={() => onChange(o.id)}
-          className="flex-1 py-1.5 text-[11px] font-semibold rounded-lg transition-colors"
-          style={value === o.id
-            ? { background: 'rgb(var(--g-900))', color: 'rgb(var(--a-600))', boxShadow: '0 1px 3px rgb(0 0 0 / 0.08)' }
-            : { color: 'rgb(var(--g-400))' }}>
+        <button key={o.id} role="tab" aria-selected={value === o.id} onClick={() => onChange(o.id)}>
           {o.label}
         </button>
       ))}
@@ -60,7 +52,7 @@ function Body({ panel }) {
     case 'boolean':
       return bothBoolean
         ? <BooleanPanel selectedId={selectedId} secondaryId={secondaryId} />
-        : <Placeholder icon="boolean" title="Boolean">Select one shape, then <b>Shift+click</b> a second shape to union, subtract or intersect them.</Placeholder>
+        : <Placeholder title="Combine two shapes">Click one shape, then <b>Shift+click</b> a second one. You can then join them, cut one out of the other, or keep only where they overlap.</Placeholder>
 
     case 'electronics': return <ElectronicsLibrary />
     case 'mechanical':
@@ -68,7 +60,7 @@ function Body({ panel }) {
       return (
         <>
           <MechanicalLibrary />
-          <div className="ui-section-title mx-3 mt-2" id="joints-section">Joints</div>
+          <div className="ui-section-title mx-3 mt-4 mb-1" id="joints-section">Joints</div>
           <JointPanel />
         </>
       )
@@ -78,14 +70,14 @@ function Body({ panel }) {
         <div className="flex flex-col min-h-0">
           <div className="px-3 pt-3">
             <SubToggle label="Wiring view" value={panel}
-              options={[{ id: 'workbench', label: 'Workbench' }, { id: 'wiring', label: 'Pick a Pin' }]}
+              options={[{ id: 'workbench', label: 'Workbench' }, { id: 'wiring', label: 'Pin list' }]}
               onChange={setActivePanel} />
           </div>
           {panel === 'wiring'
             ? <WiringPanel />
-            : <Placeholder icon="zap" title="Workbench">
-                Your board and parts are drawn as 2D components in the main workspace. Drag from one pin to another to wire them.
-                Every wire is the same wire shown in <b>Pick a Pin</b> and in 3D.
+            : <Placeholder title="Workbench">
+                Your board and parts are drawn flat in the main area. Drag from one pin to another to connect them.
+                The same wires show up in <b>Pin list</b>.
               </Placeholder>}
         </div>
       )
@@ -97,13 +89,13 @@ function Body({ panel }) {
 
     case 'simhome':
       return (
-        <Placeholder icon="play" title="Simulate"
-          actions={[
-            ['robot', 'Robot'], ['physics', 'Physics'], ['sim', 'Simulator'],
-          ].map(([id, l]) => (
-            <button key={id} onClick={() => setActivePanel(id)} className="ui-btn">{l}</button>
-          ))}>
-          Make sure all these robot and physics are right before you simulate your robot.
+        <Placeholder title="Simulate"
+          actions={<>
+            <button onClick={() => setActivePanel('sim')} className="ui-btn ui-btn-primary">Run simulation</button>
+            <button onClick={() => setActivePanel('robot')} className="ui-btn">Robot settings</button>
+            <button onClick={() => setActivePanel('physics')} className="ui-btn">Physics</button>
+          </>}>
+          Run your robot in a physics world. If it doesn't move the way you expect, check its robot and physics settings.
         </Placeholder>
       )
     case 'sim':     return <PanelErrorBoundary label="Simulation"><SimulationPanel /></PanelErrorBoundary>
@@ -120,13 +112,13 @@ function CodeSide({ kind }) {
   const codeLayout = useUiStore((s) => s.codeLayout)
   const setCodeLayout = useUiStore((s) => s.setCodeLayout)
   return (
-    <div className="p-3 flex flex-col gap-3">
+    <div className="flex flex-col gap-1 pb-3">
       {kind === 'code'
-        ? <Placeholder icon="code" title="C++ Coding">The Arduino editor is open in the main workspace. Block Coding writes into this same sketch.</Placeholder>
-        : <Placeholder icon="puzzle" title="Block Coding">Snap blocks together in the main workspace. They generate Arduino C++ — <b>Use in C++</b> puts it into C++ Coding, <b>Run Blocks</b> runs it.</Placeholder>}
-      <SubToggle label="Editor layout" value={codeLayout}
+        ? <Placeholder title="C++">The Arduino editor is open in the main area. Blocks write into this same sketch.</Placeholder>
+        : <Placeholder title="Blocks">Snap blocks together in the main area. <b>Run blocks</b> runs them; <b>Use in C++</b> copies the code they make into the C++ tab.</Placeholder>}
+      <div className="px-4"><SubToggle label="Editor layout" value={codeLayout}
         options={[{ id: 'full', label: 'Full editor' }, { id: 'split', label: 'Split with 3D' }]}
-        onChange={setCodeLayout} />
+        onChange={setCodeLayout} /></div>
     </div>
   )
 }
@@ -141,36 +133,30 @@ function ContextPanel({ width }) {
 
   return (
     <section data-tour="panel" aria-label={`${parent.label} panel`}
-      className="ui-context-panel shrink-0 min-h-0 flex flex-col my-2 ml-1 rounded-2xl overflow-hidden"
-      style={{ width, background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--g-700) / 0.55)', boxShadow: '0 6px 24px rgb(15 23 42 / 0.07)' }}>
-      <header className="shrink-0 px-3 pt-3 pb-2 flex flex-col gap-2.5" style={{ borderBottom: '1px solid rgb(var(--g-700) / 0.45)' }}>
-        <div className="flex items-center gap-2">
-          <span className="w-7 h-7 rounded-lg flex items-center justify-center"
-            style={{ background: 'rgb(var(--a-600) / 0.12)', color: 'rgb(var(--a-600))' }}>
-            <Icon name={parent.icon} size={15} />
-          </span>
-          <span className="text-[13px] font-bold tracking-wide" style={{ color: 'rgb(var(--g-100))' }}>{parent.label}</span>
-          {tab && showTabs && <span className="text-[11px]" style={{ color: 'rgb(var(--g-500))' }}>/ {tab.label}</span>}
+      className="ui-context-panel shrink-0 min-h-0 flex flex-col overflow-hidden"
+      style={{ width, background: 'rgb(var(--g-900))', borderLeft: '1px solid rgb(var(--g-700))' }}>
+      <header className="shrink-0">
+        <div className="flex items-center gap-2 h-11 pl-4 pr-2">
+          <span className="text-[14px] font-semibold" style={{ color: 'rgb(var(--g-50))' }}>{parent.label}</span>
           <button onClick={() => setPanelOpen(false)} title="Close panel" aria-label="Close panel"
-            className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center ui-icon-btn">
+            className="ml-auto w-7 h-7 flex items-center justify-center ui-icon-btn">
             <Icon name="close" size={14} />
           </button>
         </div>
-        {showTabs && (
-          <div role="tablist" aria-label={`${parent.label} sections`} className="flex flex-wrap gap-1">
+        {showTabs ? (
+          <div role="tablist" aria-label={`${parent.label} sections`} className="ui-tabs">
             {parent.tabs.map((t) => {
               const active = tab?.id === t.id
               return (
                 <button key={t.id} role="tab" aria-selected={active} data-tour={`tab-${t.panels[0]}`}
                   onClick={() => !active && setActivePanel(t.panels[0])}
-                  className="px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors"
-                  style={pill(active)}>
+                  className="ui-tab">
                   {t.label}
                 </button>
               )
             })}
           </div>
-        )}
+        ) : <div style={{ borderBottom: '1px solid rgb(var(--g-700))' }} />}
       </header>
       <div className="flex-1 min-h-0 overflow-y-auto">
         <PanelHint panelId={activePanel} />

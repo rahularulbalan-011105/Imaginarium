@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { SHAPE_COLORS } from '../utils/shapeColors.js'
 import { v4 as uuidv4 } from 'uuid'
 import { runBoolean, buildUnionMembers, unionWorldGeoJSONs } from '../utils/csg.js'
 import { trackEvent } from '../utils/utmTracking.js'
@@ -9,6 +10,19 @@ const PART_NAMES = { l298n: 'L298N', uln2003: 'ULN2003', esp32: 'ESP32', servo_c
 
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
 let paletteIdx = 0
+
+// ── Multi-selection ──────────────────────────────────────────────────────────
+// selectedId (primary) and secondaryId (2nd) stay the source of truth for every
+// existing one/two-object feature. Parts selected beyond those two live in
+// extraIds, which only count while the primary they were made with is still the
+// primary (extraFor) — so any code that simply sets selectedId (add, duplicate,
+// group…) drops the stale extras without having to know they exist.
+export function selectedIdsOf(s) {
+  const ids = [s.selectedId, s.secondaryId]
+  if (s.extraFor && s.extraFor === s.selectedId) ids.push(...(s.extraIds ?? []))
+  const live = new Set(s.objects.map((o) => o.id))
+  return [...new Set(ids.filter((id) => id && live.has(id)))]
+}
 
 export const useSceneStore = create((set, get) => ({
   objects: [],
@@ -70,7 +84,7 @@ export const useSceneStore = create((set, get) => ({
       : type === 'wheel'        ? WHEEL_RIM_COLOR   // yellow rim; the tyre has its own tyreColor
       : type === 'caster'       ? CASTER_BODY_COLOR // silver body; the ball stays steel
       : isMech                  ? '#9ca3af'
-      : PALETTE[paletteIdx++ % PALETTE.length]
+      : SHAPE_COLORS[type] ?? PALETTE[paletteIdx++ % PALETTE.length]
     const displayCount = count + 1
     const gearDefaults = type === 'gear' ? { teeth: 12, module: 0.25, faceWidth: 0.5, bore: 0 } : {}
     const textDefaults = type === 'text' ? { textContent: 'Text', textSize: 1, textHeight: 0.4 } : {}
@@ -128,8 +142,20 @@ export const useSceneStore = create((set, get) => ({
   // Secondary selection (for boolean ops)
   secondaryId: null,
 
-  selectObject: (id) => set({ selectedId: id, secondaryId: null }),
-  clearSelection: () => set({ selectedId: null, secondaryId: null }),
+  extraIds: [],
+  extraFor: null,
+  selectObject: (id) => set({ selectedId: id, secondaryId: null, extraIds: [], extraFor: null }),
+  clearSelection: () => set({ selectedId: null, secondaryId: null, extraIds: [], extraFor: null }),
+  /** Replace the whole selection (first id = primary). */
+  setSelectionList: (ids) => {
+    const list = [...new Set(ids.filter(Boolean))]
+    set({ selectedId: list[0] ?? null, secondaryId: list[1] ?? null, extraIds: list.slice(2), extraFor: list[0] ?? null })
+  },
+  /** Shift+click: add a part to the selection, or take it out if it is already in. */
+  toggleSelect: (id) => {
+    const cur = selectedIdsOf(get())
+    get().setSelectionList(cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id])
+  },
   setSecondaryId: (id) => set({ secondaryId: id }),
   clearSecondaryId: () => set({ secondaryId: null }),
 

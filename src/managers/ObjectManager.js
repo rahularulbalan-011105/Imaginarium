@@ -738,11 +738,17 @@ class ObjectManager {
     mesh.updateMatrixWorld(true)
     const worldPos = new THREE.Vector3(); mesh.getWorldPosition(worldPos)
     const worldQuat = new THREE.Quaternion(); mesh.getWorldQuaternion(worldQuat)
+    const worldScale = new THREE.Vector3(); mesh.getWorldScale(worldScale)
     const rotorQuat = new THREE.Quaternion(); rotorGroup.getWorldQuaternion(rotorQuat)
+    const rotorScale = new THREE.Vector3(); rotorGroup.getWorldScale(rotorScale)
     if (mesh.parent) mesh.parent.remove(mesh)
     rotorGroup.add(mesh)
     mesh.position.copy(rotorGroup.worldToLocal(worldPos.clone()))
     mesh.quaternion.copy(rotorQuat.invert().multiply(worldQuat))
+    // Keep the WORLD size too: a scaled servo (an SG90 is drawn at 0.6) would
+    // otherwise shrink whatever is attached to its horn by the same factor.
+    mesh.scale.set(worldScale.x / (rotorScale.x || 1), worldScale.y / (rotorScale.y || 1), worldScale.z / (rotorScale.z || 1))
+    mesh.updateMatrixWorld(true)
     this.attachedObjects.set(objectId, motorId)
     return true
   }
@@ -1153,9 +1159,10 @@ class ObjectManager {
 
   // ── Selection highlights ──────────────────────────────────────────────────
 
-  setSelectionHighlights(primaryId, secondaryId) {
+  setSelectionHighlights(primaryId, secondaryId, extraIds = []) {
+    const extras = new Set(extraIds)
     this.objects.forEach((o, id) => {
-      const emissive = id === primaryId
+      const emissive = id === primaryId || extras.has(id)
         ? new THREE.Color(0x1a2a66)
         : id === secondaryId
           ? new THREE.Color(0x662a00)
@@ -1169,7 +1176,10 @@ class ObjectManager {
 
       // Tinkercad-style edge outline: cyan on the primary selection, amber on the
       // secondary. Drawn over the shape's actual edges so it hugs the geometry.
-      const outline = id === primaryId ? 0x22d3ee : id === secondaryId ? 0xff8c1a : null
+      // With 3+ parts selected every one is a plain selection (cyan); the amber
+      // "2nd" only matters for two-part actions (Combine, Align with a reference).
+      const outline = id === primaryId || extras.has(id) ? 0x22d3ee
+        : id === secondaryId ? (extras.size ? 0x22d3ee : 0xff8c1a) : null
       this._setOutline(o, outline)
     })
   }

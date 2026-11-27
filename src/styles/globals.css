@@ -50,7 +50,7 @@
 
   /* page chrome */
   --page-bg: #121212;
-  --page-grad: radial-gradient(ellipse 120% 80% at 50% 0%, #1A1A1A 0%, #121212 60%);
+  --page-grad: none;
   --scroll-track: #1A1A1A;
   --scroll-thumb: #3A3A3A;
   --scroll-thumb-hover: #4A4A4A;
@@ -58,17 +58,17 @@
 
 [data-theme='light'] {
   /* neutral ramp — LIGHT */
-  --g-950: 247 247 247;  /* #F7F7F7 app background */
+  --g-950: 240 242 245;  /* #F0F2F5 app background */
   --g-900: 255 255 255;  /* #FFFFFF panels / header */
-  --g-800: 241 245 249;  /* #F1F5F9 cards / inputs */
-  --g-700: 226 232 240;  /* #E2E8F0 hover / subtle border */
-  --g-600: 203 213 225;  /* #CBD5E1 borders / disabled */
-  --g-500: 100 116 139;  /* #64748B muted text */
-  --g-400:  71 85 105;   /* #475569 secondary text */
-  --g-300:  51 65 85;    /* #334155 body text */
-  --g-200:  30 41 59;    /* #1E293B emphasis text */
-  --g-100:  30 41 59;
-  --g-50:   15 23 42;    /* #0F172A strongest text */
+  --g-800: 244 246 248;  /* #F4F6F8 cards / inputs */
+  --g-700: 226 229 234;  /* #E2E5EA hairlines / hover */
+  --g-600: 205 210 217;  /* #CDD2D9 borders / disabled */
+  --g-500: 107 114 128;  /* #6B7280 muted text */
+  --g-400:  75 85 99;    /* #4B5563 secondary text */
+  --g-300:  55 65 81;    /* #374151 body text */
+  --g-200:  31 41 55;    /* #1F2937 emphasis text */
+  --g-100:  31 41 55;
+  --g-50:   17 24 39;    /* #111827 strongest text */
 
   /* accent ramp — orange; text shades darkened for light bg readability */
   --a-50:  255 247 237;  /* light tint surface */
@@ -84,8 +84,8 @@
   --a-950:  66 20 4;
 
   /* page chrome */
-  --page-bg: #F7F7F7;
-  --page-grad: radial-gradient(ellipse 120% 80% at 50% 0%, #FFFFFF 0%, #F7F7F7 60%);
+  --page-bg: #F0F2F5;
+  --page-grad: none;
   --scroll-track: #EEF2F8;
   --scroll-thumb: #CBD5E1;
   --scroll-thumb-hover: #94A3B8;
@@ -98,6 +98,8 @@ body {
   padding: 0;
   overflow: hidden;
   font-family: 'Inter', system-ui, sans-serif;
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
   color: rgb(var(--g-200));
   background: var(--page-bg);
   background-image: var(--page-grad);
@@ -159,61 +161,94 @@ textarea.code-text::placeholder { color: #6b8f6b; }
               outline-color 200ms ease !important;
 }
 
-/* ── UI shell (nav rail · context panel · Quick Tools) ──────────────────────
-   Small shared primitives for the redesigned shell. Orange is reserved for
-   active / primary states; surfaces stay white/neutral. */
-.ui-nav-btn { transition: background-color 160ms ease, color 160ms ease, box-shadow 160ms ease; }
-.ui-nav-btn:not([aria-pressed='true']):hover { background: rgb(var(--a-600) / 0.10); color: rgb(var(--a-600)); }
-.ui-nav-btn:focus-visible, .ui-icon-btn:focus-visible, .ui-btn:focus-visible { outline: 2px solid rgb(var(--a-600)); outline-offset: 2px; }
+/* ── UI shell (nav rail · context panel · toolbar) ───────────────────────
+   Flat, quiet chrome in the spirit of Tinkercad: white panels, hairline
+   borders, small radii, no glows or gradients. Orange appears only on the
+   one primary action and on "you are here" markers. */
+.ui-nav-btn { transition: background-color 120ms ease, color 120ms ease; }
+.ui-nav-btn:not([aria-pressed='true']):hover { background: rgb(var(--g-800)); color: rgb(var(--g-100)); }
+.ui-nav-btn:focus-visible, .ui-icon-btn:focus-visible, .ui-btn:focus-visible, .ui-tool:focus-visible { outline: 2px solid rgb(var(--a-600)); outline-offset: 1px; }
 
-.ui-icon-btn { color: rgb(var(--g-400)); transition: background-color 150ms ease, color 150ms ease; }
-.ui-icon-btn:hover { background: rgb(var(--a-600) / 0.12); color: rgb(var(--a-600)); }
+.ui-icon-btn { color: rgb(var(--g-400)); border-radius: 6px; transition: background-color 120ms ease, color 120ms ease; }
+.ui-icon-btn:hover { background: rgb(var(--g-800)); color: rgb(var(--g-100)); }
 
 .ui-btn {
-  padding: 6px 12px; border-radius: 10px; font-size: 11px; font-weight: 600;
-  background: rgb(var(--g-800)); color: rgb(var(--g-200));
-  border: 1px solid rgb(var(--g-700) / 0.6);
-  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  height: 30px; padding: 0 12px; border-radius: 6px; font-size: 12px; font-weight: 500;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: rgb(var(--g-900)); color: rgb(var(--g-200));
+  border: 1px solid rgb(var(--g-600));
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
-.ui-btn:hover { background: rgb(var(--a-600) / 0.10); color: rgb(var(--a-600)); border-color: rgb(var(--a-600) / 0.45); }
-.ui-btn-primary { background: rgb(var(--a-600)); color: #fff; border-color: rgb(var(--a-600)); }
-.ui-btn-primary:hover { background: rgb(var(--a-500)); color: #fff; }
+.ui-btn:hover { background: rgb(var(--g-800)); border-color: rgb(var(--g-500) / 0.6); }
+.ui-btn-primary { background: rgb(var(--a-600)); color: #fff; border-color: rgb(var(--a-600)); font-weight: 600; }
+.ui-btn-primary:hover { background: rgb(var(--a-700)); border-color: rgb(var(--a-700)); color: #fff; }
+.ui-btn-quiet { border-color: transparent; background: transparent; }
+.ui-btn-quiet:hover { background: rgb(var(--g-800)); border-color: transparent; }
 
 .ui-section-title {
-  font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
-  color: rgb(var(--a-600));
+  font-size: 12px; font-weight: 600; letter-spacing: 0; text-transform: none;
+  color: rgb(var(--g-300));
 }
 .ui-card {
-  border-radius: 14px; background: rgb(var(--g-900));
-  border: 1px solid rgb(var(--g-700) / 0.55);
+  border-radius: 8px; background: rgb(var(--g-900));
+  border: 1px solid rgb(var(--g-700));
 }
 
-.ui-context-panel { animation: ui-panel-in 160ms ease-out; }
-@keyframes ui-panel-in { from { opacity: 0; transform: translateX(8px); } to { opacity: 1; transform: none; } }
+/* Underline tabs (panel sections). */
+.ui-tabs { display: flex; gap: 2px; border-bottom: 1px solid rgb(var(--g-700)); padding: 0 8px; }
+.ui-tab {
+  position: relative; padding: 9px 8px 8px; font-size: 12px; font-weight: 500;
+  color: rgb(var(--g-500)); transition: color 120ms ease;
+}
+.ui-tab:hover { color: rgb(var(--g-100)); }
+.ui-tab[aria-selected='true'] { color: rgb(var(--g-50)); font-weight: 600; }
+.ui-tab[aria-selected='true']::after {
+  content: ''; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px;
+  border-radius: 2px; background: rgb(var(--a-600));
+}
+
+/* Segmented control (two-way view switches). */
+.ui-seg { display: flex; padding: 2px; border-radius: 7px; background: rgb(var(--g-800)); border: 1px solid rgb(var(--g-700)); }
+.ui-seg > button { flex: 1; height: 26px; border-radius: 5px; font-size: 12px; font-weight: 500; color: rgb(var(--g-500)); }
+.ui-seg > button:hover { color: rgb(var(--g-100)); }
+.ui-seg > button[aria-selected='true'] { background: rgb(var(--g-900)); color: rgb(var(--g-50)); box-shadow: 0 1px 2px rgb(0 0 0 / 0.08); }
+
+/* Viewport toolbar buttons. */
+.ui-tool {
+  width: 34px; height: 34px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  position: relative; color: rgb(var(--g-300)); transition: background-color 120ms ease, color 120ms ease;
+}
+.ui-tool:hover { background: rgb(var(--g-800)); color: rgb(var(--g-50)); }
+.ui-tool[aria-pressed='true'] { background: rgb(var(--a-600) / 0.12); color: rgb(var(--a-700)); }
+.ui-tool-setting[aria-pressed='true'] { background: rgb(var(--g-800)); color: rgb(var(--g-50)); box-shadow: inset 0 0 0 1px rgb(var(--g-700)); }
+.ui-tool-sep { width: 1px; align-self: stretch; margin: 6px 4px; background: rgb(var(--g-700)); }
+
+.ui-context-panel { animation: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-context-panel { animation: none; }
-  .ui-nav-btn, .ui-icon-btn, .ui-btn { transition: none; }
+  .ui-nav-btn, .ui-icon-btn, .ui-btn, .ui-tool, .ui-tab { transition: none; }
 }
 .ui-btn-danger { color: #dc2626; }
-.ui-btn-danger:hover { background: rgb(220 38 38 / 0.08); color: #b91c1c; border-color: rgb(220 38 38 / 0.4); }
+.ui-btn-danger:hover { background: rgb(220 38 38 / 0.06); color: #b91c1c; border-color: rgb(220 38 38 / 0.4); }
 
-/* Library cards — light, rounded, cheap (inline SVG glyphs, no 3D previews). */
+/* Picker cards: a picture on top, the name underneath (Tinkercad shape panel). */
 .ui-lib-card {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  padding: 12px 4px 9px; border-radius: 14px;
-  background: rgb(var(--g-900)); border: 1px solid rgb(var(--g-700) / 0.55);
-  color: rgb(var(--g-300));
-  transition: border-color 150ms ease, box-shadow 150ms ease, color 150ms ease, transform 150ms ease;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 6px 2px 7px; border-radius: 6px; border: 1px solid transparent;
+  background: transparent; color: rgb(var(--g-300));
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
-.ui-lib-card:hover { border-color: rgb(var(--a-600) / 0.6); color: rgb(var(--a-600)); box-shadow: 0 4px 14px rgb(var(--a-600) / 0.12); transform: translateY(-1px); }
-.ui-lib-card:focus-visible { outline: 2px solid rgb(var(--a-600)); outline-offset: 2px; }
-.ui-lib-glyph { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgb(var(--g-800)); }
-.ui-lib-card:hover .ui-lib-glyph { background: rgb(var(--a-600) / 0.10); }
-.ui-lib-label { font-size: 10px; font-weight: 600; line-height: 1.1; color: rgb(var(--g-300)); text-align: center; }
-@media (prefers-reduced-motion: reduce) { .ui-lib-card { transition: none; } .ui-lib-card:hover { transform: none; } }
+.ui-lib-card:hover { background: rgb(var(--g-800)); border-color: rgb(var(--g-700)); }
+.ui-lib-card:focus-visible { outline: 2px solid rgb(var(--a-600)); outline-offset: 1px; }
+.ui-lib-card:disabled { opacity: 0.55; }
+.ui-lib-card[aria-pressed='true'] { background: rgb(var(--a-600) / 0.08); border-color: rgb(var(--a-600) / 0.6); }
+.ui-lib-glyph { width: 64px; height: 64px; display: flex; align-items: center; justify-content: center; color: rgb(var(--g-400)); }
+.ui-lib-glyph img { width: 64px; height: 64px; object-fit: contain; }
+.ui-lib-label { font-size: 11px; font-weight: 500; line-height: 1.2; color: rgb(var(--g-300)); text-align: center; padding: 0 2px; }
+.ui-lib-tile { width: 52px; height: 52px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: rgb(var(--g-800)); border: 1px solid rgb(var(--g-700)); font-size: 12px; font-weight: 600; color: rgb(var(--g-400)); }
+.ui-lib-head { font-size: 12px; font-weight: 600; color: rgb(var(--g-200)); padding: 0 4px; margin: 14px 0 4px; }
 
-/* ELEC → Elec part categories: each card sets --cat to its own colour. */
+/* Build → Electronics part categories: each card sets --cat to its own colour. */
 .elec-cat { border-left: 3px solid var(--cat); }
 .elec-cat-head { background: color-mix(in srgb, var(--cat) 9%, transparent); }
 .elec-cat-head:hover { background: color-mix(in srgb, var(--cat) 16%, transparent); }
@@ -221,3 +256,32 @@ textarea.code-text::placeholder { color: #6b8f6b; }
   border-color: color-mix(in srgb, var(--cat) 50%, transparent);
   background: color-mix(in srgb, var(--cat) 10%, transparent);
 }
+
+/* Blockly toolbox — readable, Tinkercad-Codeblocks-sized categories. */
+.blocklyToolboxDiv { background: rgb(var(--g-900)) !important; border-right: 1px solid rgb(var(--g-700)); padding-top: 6px !important; }
+.blocklyTreeRow { height: 30px !important; line-height: 30px !important; margin: 1px 6px !important; border-radius: 6px; padding-right: 10px !important; }
+.blocklyTreeRow:not(.blocklyTreeSelected):hover { background: rgb(var(--g-800)) !important; }
+.blocklyTreeLabel, .blocklyToolboxCategoryLabel { font-family: 'Inter', system-ui, sans-serif !important; font-size: 13px !important; font-weight: 500; color: rgb(var(--g-300)); }
+.blocklyTreeSelected .blocklyTreeLabel, .blocklyToolboxSelected .blocklyToolboxCategoryLabel { color: #fff; }
+
+/* ── Side-panel typography migration ─────────────────────────────────────────
+   Older panels label fields with ALL-CAPS 9–10 px micro text. Inside the side
+   panel that reads as noise and is hard to read, so render it as normal
+   sentence-case 11 px. (New UI should simply not use these classes.) */
+.ui-context-panel .uppercase { text-transform: none; letter-spacing: 0; }
+.ui-context-panel .text-\[8px\], .ui-context-panel .text-\[9px\], .ui-context-panel .text-\[10px\] { font-size: 11px; }
+.ui-context-panel .tracking-wider, .ui-context-panel .tracking-wide { letter-spacing: 0; }
+/* Old filled "selected / action" states (solid indigo = orange, purple) become
+   the quiet tinted state used everywhere else, so the side panel never shows a
+   wall of solid colour. The one primary action per screen uses .ui-btn-primary. */
+.ui-context-panel .bg-indigo-600,
+.ui-context-panel .bg-purple-700,
+.ui-context-panel [class*="bg-purple-700/"],
+.ui-context-panel [class*="bg-purple-800/"] {
+  background: rgb(var(--a-600) / 0.10) !important;
+  color: rgb(var(--a-700)) !important;
+  border-color: rgb(var(--a-600) / 0.45) !important;
+  box-shadow: inset 0 0 0 1px rgb(var(--a-600) / 0.35);
+}
+.ui-context-panel .bg-indigo-600:hover,
+.ui-context-panel .bg-purple-700:hover { background: rgb(var(--a-600) / 0.16) !important; }

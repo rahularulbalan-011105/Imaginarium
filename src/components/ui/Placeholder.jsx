@@ -1,19 +1,10 @@
-import Icon from './Icon.jsx'
-
-/** Centred, intentional empty state for a panel. */
-export default function Placeholder({ icon, title, children, actions }) {
+/** A quiet empty state for a panel: a short title, a line or two of help, optional actions. */
+export default function Placeholder({ title, children, actions }) {
   return (
-    <div className="h-full min-h-[260px] flex flex-col items-center justify-center text-center gap-3 px-6 py-10">
-      {icon && (
-        <div className="w-12 h-12 rounded-2xl flex items-center justify-center"
-          style={{ background: 'rgb(var(--a-600) / 0.1)', color: 'rgb(var(--a-600))' }}>
-          <Icon name={icon} size={22} />
-        </div>
-      )}
-      {title && <div className="text-sm font-semibold" style={{ color: 'rgb(var(--g-100))' }}>{title}</div>}
-      <div className="text-xs leading-relaxed max-w-[240px]" style={{ color: 'rgb(var(--g-400))' }}>{children}</div>
-      {actions && <div className="flex flex-wrap justify-center gap-2 mt-1">{actions}</div>}
+    <div className="flex flex-col gap-2 px-4 py-5">
+      {title && <div className="text-[13px] font-semibold" style={{ color: 'rgb(var(--g-100))' }}>{title}</div>}
+      <div className="text-[12px] leading-relaxed" style={{ color: 'rgb(var(--g-500))' }}>{children}</div>
+      {actions && <div className="flex flex-wrap gap-2 mt-2">{actions}</div>}
     </div>
   )
 }
-

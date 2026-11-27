@@ -85,7 +85,7 @@ export default function WiringPanel() {
     return (
       <div className="p-4 text-center py-10">
         <div className="text-3xl mb-2 opacity-30">⚡</div>
-        <div className="text-xs text-gray-500">No electronics in scene.<br />Add an Arduino, Motor, Servo, or LED from ELEC → Elec first.</div>
+        <div className="text-xs text-gray-500">No electronics in scene.<br />Add an Arduino, Motor, Servo, or LED from Build → Electronics first.</div>
       </div>
     )
   }

@@ -167,32 +167,32 @@ export default function DrivePanel() {
   const hasSubo   = objects.some(o => o.type === 'subo')
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/95 border-t border-yellow-700/40 shadow-2xl">
+    <div className="absolute bottom-0 left-0 right-0 z-20"
+      style={{ background: 'rgb(var(--g-900))', borderTop: '1px solid rgb(var(--g-700))', boxShadow: '0 -4px 16px rgb(0 0 0 / 0.06)' }}>
 
       {/* Title bar */}
-      <div className="flex items-center gap-3 px-4 py-1.5 bg-gray-900/80 border-b border-gray-700/40">
-        <span className="text-yellow-400 text-[11px] font-bold tracking-wider">
-          {isLeggedRobot ? '🕷 LEGGED SIMULATION' : '⚙ SIMULATION MODE'}
+      <div className="flex items-center gap-3 px-4 h-9" style={{ borderBottom: '1px solid rgb(var(--g-700))' }}>
+        <span className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: 'rgb(var(--g-50))' }}>
+          <span className="w-2 h-2 rounded-full bg-green-500" aria-hidden="true" />
+          {isLeggedRobot ? 'Simulating: walking robot' : 'Simulating'}
         </span>
         {running && !isLeggedRobot && (
-          <span className="flex items-center gap-1.5 text-[10px] text-green-400">
-            <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse inline-block" />
-            Code running
-          </span>
+          <span className="text-[12px]" style={{ color: 'rgb(var(--g-500))' }}>· code running</span>
         )}
         <SimModeBadge />
         <RealtimeBadge />
         <button
           data-tour="sim-exit"
           onClick={handleExit}
-          className="ml-auto text-[10px] text-gray-400 hover:text-red-300 transition-colors px-2.5 py-0.5 rounded border border-gray-600/50 hover:border-red-500/70"
+          className="ml-auto ui-btn"
+          style={{ height: 26 }}
         >
-          ✕ Exit Simulation
+          Stop simulation
         </button>
       </div>
 
       {/* Physics status bar */}
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 bg-gray-950/70 border-b border-gray-800/60 text-[10px]">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1 text-[11px]" style={{ borderBottom: '1px solid rgb(var(--g-700))' }}>
         <div className="flex items-center gap-1.5">
           <span className="text-gray-500">Environment</span>
           <select
@@ -342,14 +342,11 @@ export default function DrivePanel() {
               data-tour="sim-run-code"
               onClick={running ? handleStop : handleRun}
               disabled={!running && !hasConnections}
-              className={`px-3 py-1.5 rounded text-[10px] font-bold transition-colors ${
-                running
-                  ? 'bg-red-700 hover:bg-red-600 text-white'
-                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300 disabled:opacity-40 disabled:cursor-not-allowed'
-              }`}
-              title={hasConnections ? 'Run custom servo code' : 'No servo connections found'}
+              className={`${running ? 'ui-btn' : 'ui-btn ui-btn-primary'} disabled:opacity-40 disabled:cursor-not-allowed`}
+              style={running ? { color: '#b91c1c', borderColor: 'rgb(220 38 38 / 0.45)' } : undefined}
+              title={hasConnections ? 'Run your servo code' : 'Wire a servo to the board first'}
             >
-              {running ? '⏹ Stop Code' : '▶ Run Code'}
+              {running ? 'Stop code' : 'Run code'}
             </button>
             {error && <div className="text-red-400 text-[9px] max-w-[140px] break-all">{error}</div>}
           </div>
@@ -362,13 +359,10 @@ export default function DrivePanel() {
             data-tour="sim-run-code"
             onClick={running ? handleStop : handleRun}
             disabled={!running && !hasConnections && !hasMotors}
-            className={`shrink-0 px-5 py-2 rounded-lg text-sm font-bold transition-colors ${
-              running
-                ? 'bg-red-700 hover:bg-red-600 text-white'
-                : 'bg-green-700 hover:bg-green-600 text-white disabled:opacity-40 disabled:cursor-not-allowed'
-            }`}
+            className={`shrink-0 ${running ? 'ui-btn' : 'ui-btn ui-btn-primary'} disabled:opacity-40 disabled:cursor-not-allowed`}
+            style={{ height: 36, padding: '0 18px', ...(running ? { color: '#b91c1c', borderColor: 'rgb(220 38 38 / 0.45)' } : null) }}
           >
-            {running ? '⏹ Stop Code' : '▶ Run Code'}
+            {running ? 'Stop code' : 'Run code'}
           </button>
 
           <div className="flex-1 min-w-0">
@@ -385,7 +379,7 @@ export default function DrivePanel() {
               <div className="text-[10px] text-gray-500 space-y-0.5">
                 {!hasMotors && <div className="text-yellow-500/80">⚠ No motors — add motor_bo or motor_dc</div>}
                 {hasMotors && !hasConnections && <div className="text-yellow-500/80">⚠ Motors not wired to Arduino</div>}
-                {hasMotors && hasConnections && <div>Write Arduino code · click <span className="text-green-400">▶ Run Code</span></div>}
+                {hasMotors && hasConnections && <div>Write Arduino code · click <b>Run code</b></div>}
                 <div className="text-gray-600">Both motors forward → straight · one faster → turn</div>
               </div>
             )}

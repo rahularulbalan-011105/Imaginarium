@@ -1,24 +1,25 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useOnboardingStore } from '../onboarding/onboardingStore.js'
+import { useOverlay } from './ui/overlay.js'
+import { PRESETS, presetThumb, openPreset } from '../utils/presets.js'
+import { trackEvent } from '../utils/utmTracking.js'
+import Icon from './ui/Icon.jsx'
 
-// First-run welcome card. Offers three ways in: a guided product tour, a
-// hands-on mission tutorial, or just exploring. 100% presentational — driven by
-// the onboarding store; it never touches scene, electronics, physics or saves.
-
-const STEPS = [
-  { icon: '🧊', title: 'Add a shape',      text: 'Click a shape in the floating toolbox, top-left (or press 1–0). It drops into the scene.' },
-  { icon: '✛',  title: 'Move it',          text: 'Select an object, then drag the arrows. W = Move · E = Rotate · R = Scale.' },
-  { icon: '🟢', title: 'Add electronics',  text: 'From the “Elec” group add an Arduino, Motor, Servo, or LED.' },
-  { icon: '⚡', title: 'Connect parts',     text: 'In the Wiring tab, click two pins to run a wire between components.' },
-  { icon: '{ }', title: 'Program it',      text: 'Use the Code tab (Arduino C++) or Blocks tab (drag-and-drop).' },
-  { icon: '▶',  title: 'Run a simulation', text: 'Press Simulate (▶) to drive your robot with real physics.' },
-]
+// ─────────────────────────────────────────────────────────────────────────────
+// Start screen — what you see on a first visit and after File → New project
+// (Tinkercad's "create new design" moment). Three ways in, in order of how much
+// help they give: a guided first robot, a starter project to change, or an
+// empty workplane. Opening a starter project uses the normal project-load path.
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function WelcomeOverlay() {
   const open       = useOnboardingStore((s) => s.welcomeOpen)
   const close      = useOnboardingStore((s) => s.closeWelcome)
   const startTour  = useOnboardingStore((s) => s.startTour)
   const startCoach = useOnboardingStore((s) => s.startCoach)
+  const [busy, setBusy] = useState(null)
+  const [err, setErr] = useState(null)
+  useOverlay('start-screen', open)
 
   useEffect(() => {
     if (!open) return
@@ -29,73 +30,74 @@ export default function WelcomeOverlay() {
 
   if (!open) return null
 
+  const pick = async (p) => {
+    setBusy(p.file); setErr(null)
+    try { await openPreset(p); trackEvent('preset_opened', { preset: p.file, from: 'start' }); close() }
+    catch (e) { setErr(`Couldn’t open “${p.label}”: ${e.message}`) }
+    setBusy(null)
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={close} />
+      <div className="absolute inset-0 bg-black/40" onClick={close} />
 
-      <div className="relative w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden"
-        style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-500) / 0.3)' }}>
+      <div role="dialog" aria-modal="true" aria-label="Start a project"
+        className="relative w-full max-w-[920px] max-h-[90vh] flex flex-col rounded-xl overflow-hidden"
+        style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--g-700))', boxShadow: '0 24px 60px rgb(0 0 0 / 0.25)' }}>
 
-        {/* Header */}
-        <div className="px-6 pt-6 pb-4 text-center"
-          style={{ background: 'linear-gradient(180deg, rgb(var(--a-500) / 0.12), transparent)' }}>
-          <div className="text-3xl mb-2">🧊🤖</div>
-          <h1 className="text-lg font-bold"
-            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            Welcome to the Robotics Builder
-          </h1>
-          <p className="text-xs text-gray-400 mt-1.5 max-w-sm mx-auto leading-relaxed">
-            Design 3D objects, wire up electronics, program them, and watch them move —
-            all in your browser. Here's the whole idea in six steps.
-          </p>
+        <div className="flex items-center h-14 pl-6 pr-3 shrink-0" style={{ borderBottom: '1px solid rgb(var(--g-700))' }}>
+          <h1 className="text-[16px] font-semibold" style={{ color: 'rgb(var(--g-50))' }}>What do you want to build?</h1>
+          <button onClick={close} aria-label="Close" title="Close (Esc)" className="ml-auto w-8 h-8 flex items-center justify-center ui-icon-btn">
+            <Icon name="close" size={16} />
+          </button>
         </div>
 
-        {/* Steps */}
-        <div className="px-6 py-2 grid sm:grid-cols-2 gap-2.5">
-          {STEPS.map((s, i) => (
-            <div key={i} className="flex items-start gap-3 rounded-lg p-2.5"
-              style={{ background: 'rgb(var(--g-800) / 0.4)', border: '1px solid rgb(var(--a-500) / 0.10)' }}>
-              <div className="shrink-0 w-7 h-7 rounded-md flex items-center justify-center text-sm"
-                style={{ background: 'rgb(var(--a-500) / 0.12)' }}>
-                {s.icon}
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs font-semibold text-indigo-800">
-                  <span className="text-indigo-500/70 mr-1">{i + 1}.</span>{s.title}
-                </div>
-                <div className="text-[11px] text-gray-400 leading-snug mt-0.5">{s.text}</div>
-              </div>
+        <div className="flex-1 min-h-0 overflow-y-auto grid md:grid-cols-[260px_1fr]">
+          {/* Left: ways to start */}
+          <div className="p-5 flex flex-col gap-3" style={{ borderRight: '1px solid rgb(var(--g-700))' }}>
+            <button onClick={() => { close(); startCoach() }}
+              className="text-left rounded-lg p-4 transition-colors hover:brightness-105"
+              style={{ background: 'rgb(var(--a-600))', color: '#fff' }}>
+              <div className="text-[14px] font-semibold">Build my first robot</div>
+              <div className="text-[12px] mt-1 opacity-90 leading-snug">Step-by-step: make a robot car, wire it, code it and drive it.</div>
+            </button>
+            <button onClick={close}
+              className="text-left rounded-lg p-4 transition-colors"
+              style={{ border: '1px solid rgb(var(--g-600))' }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgb(var(--g-800))')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+              <div className="text-[14px] font-semibold" style={{ color: 'rgb(var(--g-50))' }}>Empty project</div>
+              <div className="text-[12px] mt-1 leading-snug" style={{ color: 'rgb(var(--g-500))' }}>Start from a blank workplane.</div>
+            </button>
+            <div className="mt-auto pt-3 text-[12px] leading-relaxed" style={{ color: 'rgb(var(--g-500))' }}>
+              New here?{' '}
+              <button onClick={() => { close(); startTour() }} className="underline hover:no-underline" style={{ color: 'rgb(var(--g-200))' }}>Take a 1-minute tour</button>
+              {' '}of the screen.
             </div>
-          ))}
-        </div>
+          </div>
 
-        {/* Choices */}
-        <div className="px-6 pt-3 pb-3 grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <button
-            onClick={startCoach}
-            className="px-3 py-2.5 rounded-lg text-sm font-semibold text-white transition-all hover:brightness-110 text-center"
-            style={{ background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', boxShadow: '0 0 10px rgb(var(--a-500) / 0.3)' }}
-          >
-            🤖 Build a robot<br /><span className="text-[10px] font-normal opacity-90">guided, hands-on</span>
-          </button>
-          <button
-            onClick={startTour}
-            className="px-3 py-2.5 rounded-lg text-sm font-semibold text-indigo-800 transition-colors hover:bg-indigo-500/10 text-center"
-            style={{ background: 'rgb(var(--a-500) / 0.06)', border: '1px solid rgb(var(--a-500) / 0.25)' }}
-          >
-            🧭 Tour<br /><span className="text-[10px] font-normal opacity-80">show me around</span>
-          </button>
-          <button
-            onClick={close}
-            className="px-3 py-2.5 rounded-lg text-sm font-medium text-gray-300 transition-colors hover:bg-gray-700/40 text-center"
-            style={{ background: 'rgb(var(--g-800) / 0.4)', border: '1px solid rgb(var(--g-600) / 0.4)' }}
-          >
-            🚀 Explore<br /><span className="text-[10px] font-normal opacity-70">on my own</span>
-          </button>
-        </div>
-
-        <div className="px-6 pb-4 text-center">
-          <span className="text-[10px] text-gray-600">You can reopen all of this anytime from the “?” in the top bar.</span>
+          {/* Right: starter projects */}
+          <div className="p-5">
+            <div className="text-[13px] font-semibold mb-3" style={{ color: 'rgb(var(--g-100))' }}>Or start from a ready-made project</div>
+            {err && <div className="mb-3 text-[12px]" style={{ color: '#dc2626' }}>{err}</div>}
+            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+              {PRESETS.map((p) => (
+                <button key={p.file} onClick={() => pick(p)} disabled={busy !== null}
+                  className="group text-left rounded-lg overflow-hidden transition-colors disabled:opacity-60"
+                  style={{ border: '1px solid rgb(var(--g-700))' }}
+                  onMouseEnter={(e) => (e.currentTarget.style.borderColor = 'rgb(var(--a-600))')}
+                  onMouseLeave={(e) => (e.currentTarget.style.borderColor = 'rgb(var(--g-700))')}>
+                  <div className="aspect-[16/10]" style={{ background: '#ffffff' }}>
+                    <img src={presetThumb(p.file)} alt="" className="w-full h-full object-cover" loading="lazy" draggable={false} />
+                  </div>
+                  <div className="px-3 py-2.5" style={{ borderTop: '1px solid rgb(var(--g-700))' }}>
+                    <div className="text-[13px] font-medium" style={{ color: 'rgb(var(--g-50))' }}>{busy === p.file ? 'Opening…' : p.label}</div>
+                    <div className="text-[11.5px] mt-0.5 leading-snug" style={{ color: 'rgb(var(--g-500))' }}>{p.blurb}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -14,7 +14,7 @@ import { ESP32_PINS } from '../utils/esp32Board.js'
 // one pin to another to wire them; wires attach to the actual pin positions.
 // Reads/writes the single electronicsStore.connections list — the same wires as
 // Pick a Pin and the 3D view. Right-click (or click) a wire → Edit / Delete.
-// Lives in the main workspace (CenterWorkspace) when ELEC → Wiring → Workbench.
+// Lives in the main workspace (CenterWorkspace) when Build → Wiring → Workbench.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ROLE_DOT = { power: ROLE_COLORS.power, gnd: ROLE_COLORS.gnd, signal: '#f97316' }
@@ -490,7 +490,7 @@ export default function WiringWorkbench({ onClose, embedded = false }) {
         <div style={{ width: extent.w, height: extent.h, position: 'relative' }}>
           {comps.length === 0 && (
             <div className="absolute inset-0 flex items-center justify-center text-sm pointer-events-none" style={{ color: 'rgb(var(--g-500))', width: '100%', minHeight: 300 }}>
-              Add electronics (Arduino, motors, sensors…) from ELEC → Elec to wire them here.
+              Add electronics (Arduino, motors, sensors…) from Build → Electronics to wire them here.
             </div>
           )}
 

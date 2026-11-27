@@ -15,6 +15,7 @@ import ProductTour from './components/onboarding/ProductTour.jsx'
 import GuidedCoach from './components/onboarding/GuidedCoach.jsx'
 import CloudSaveBar from './components/CloudSaveBar.jsx'
 import { initCloudSync } from './managers/CloudProjectManager.js'
+import { readMcpSetting } from './mcp/mcpFlag.js'
 import KeyboardShortcutsModal from './components/onboarding/KeyboardShortcutsModal.jsx'
 import BeginnerGuideModal from './components/onboarding/BeginnerGuideModal.jsx'
 import OverlayBridge from './components/OverlayBridge.jsx'
@@ -45,6 +46,7 @@ import { bootProgress } from './utils/bootProgress.js'
 import PerfOverlay from './components/PerfOverlay.jsx'
 import { trackEvent } from './utils/utmTracking.js'
 import { loadCSG } from './utils/csgLib.js'
+import * as edit from './managers/editActions.js'
 import { hasGearbox, gearSpeedFactor, ratioOf } from './utils/gearMotor.js'
 
 const SHAPE_KEYS = { '1': 'cylinder', '2': 'cone', '3': 'box', '4': 'sphere', '5': 'tetrahedron', '6': 'pyramid', '7': 'pentpyramid', '8': 'octahedron', '9': 'dodecahedron', '0': 'rectprism' }
@@ -86,7 +88,7 @@ function ResizeHandle({ onMouseDown }) {
   return (
     <div
       role="separator" aria-orientation="vertical" aria-label="Resize panel"
-      className="shrink-0 w-1.5 my-6 rounded-full cursor-col-resize transition-colors hover:bg-indigo-500/40 active:bg-indigo-500/60"
+      className="relative z-10 shrink-0 w-1 -mr-1 cursor-col-resize transition-colors hover:bg-indigo-500/40 active:bg-indigo-500/60"
       onMouseDown={onMouseDown}
     />
   )
@@ -151,15 +153,13 @@ function AppEditor() {
     return isBooleanCandidate(a) && isBooleanCandidate(b)
   })
 
-  // When a second object is selected, jump to the Boolean tab automatically —
-  // but keep all other tabs (Joints, Props, …) reachable so two-object actions
-  // aren't limited to booleans. When the pair is broken, leave the Boolean tab.
+  // Selecting a second shape no longer yanks the panel to Combine — the
+  // bottom toast in the 3D view offers a "Combine" button instead. When the
+  // pair is broken while Combine is open, go back to the Library.
   const prevBothBoolean = useRef(false)
   useEffect(() => {
-    if (bothBoolean && !prevBothBoolean.current) {
-      setActivePanel('boolean')
-    } else if (!bothBoolean && prevBothBoolean.current && activePanel === 'boolean') {
-      setActivePanel('properties')
+    if (!bothBoolean && prevBothBoolean.current && activePanel === 'boolean') {
+      setActivePanel('library')
     }
     prevBothBoolean.current = bothBoolean
   }, [bothBoolean, activePanel, setActivePanel])
@@ -315,6 +315,13 @@ function AppEditor() {
   // auto-saving. No-op otherwise (standalone editor behaves exactly as before).
   useEffect(() => { initCloudSync() }, [])
 
+  // Claude (MCP) bridge — opt-in per browser with ?mcp (src/mcp/mcpFlag.js). The
+  // bridge and its tools are a lazy chunk; nothing loads unless it is switched on.
+  useEffect(() => {
+    const { enabled, port } = readMcpSetting()
+    if (enabled) import('./mcp/mcpBridge.js').then((m) => m.startMcpBridge(port))
+  }, [])
+
   // First the "Start Session" banner is shown (StartSessionBanner). When the user
   // starts it, the banner is removed and it launches the puppy mission itself —
   // so there's no auto-launch here anymore.
@@ -335,46 +342,6 @@ function AppEditor() {
 
   // Keyboard shortcuts
   useEffect(() => {
-    // Tinkercad-style smart duplicate: the FIRST Ctrl+D offsets a copy; once you
-    // move/rotate/scale that copy, each subsequent Ctrl+D repeats the same delta,
-    // building a linear or radial array from a single demonstrated step.
-    const smartDuplicate = () => {
-      const st  = useSceneStore.getState()
-      const src = st.objects.find(o => o.id === st.selectedId)
-      if (!src) return
-      const chain = dupChain.current
-      if (chain && chain.newId === src.id) {
-        const p = chain.prev
-        const dPos = { x: src.position.x - p.position.x, y: src.position.y - p.position.y, z: src.position.z - p.position.z }
-        const dRot = { x: src.rotation.x - p.rotation.x, y: src.rotation.y - p.rotation.y, z: src.rotation.z - p.rotation.z }
-        const dScl = { x: src.scale.x / (p.scale.x || 1), y: src.scale.y / (p.scale.y || 1), z: src.scale.z / (p.scale.z || 1) }
-        const moved = Math.abs(dPos.x) + Math.abs(dPos.y) + Math.abs(dPos.z) +
-                      Math.abs(dRot.x) + Math.abs(dRot.y) + Math.abs(dRot.z) +
-                      Math.abs(dScl.x - 1) + Math.abs(dScl.y - 1) + Math.abs(dScl.z - 1) > 1e-6
-        if (moved) {
-          const clone = {
-            ...JSON.parse(JSON.stringify(src)),
-            id: crypto.randomUUID(),
-            name: src.name.replace(/_copy.*$/, '') + '_copy',
-            position: { x: src.position.x + dPos.x, y: src.position.y + dPos.y, z: src.position.z + dPos.z },
-            rotation: { x: src.rotation.x + dRot.x, y: src.rotation.y + dRot.y, z: src.rotation.z + dRot.z },
-            scale:    { x: src.scale.x * dScl.x,    y: src.scale.y * dScl.y,    z: src.scale.z * dScl.z },
-            metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-          }
-          insertObject(clone)
-          dupChain.current = { newId: clone.id, prev: { position: { ...src.position }, rotation: { ...src.rotation }, scale: { ...src.scale } } }
-          snapshot()
-          return
-        }
-      }
-      // First duplicate (or chain broken): plain offset copy, then start a new chain.
-      const dupe = duplicateObject(src.id)
-      if (dupe) {
-        dupChain.current = { newId: dupe.id, prev: { position: { ...src.position }, rotation: { ...src.rotation }, scale: { ...src.scale } } }
-        snapshot()
-      }
-    }
-
     const handleKeyDown = (e) => {
       const tag = e.target.tagName.toLowerCase()
       const isTyping = tag === 'input' || tag === 'textarea'
@@ -389,42 +356,17 @@ function AppEditor() {
       if (!ownUndo && (e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); undo(); return }
       if (!ownUndo && (e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) { e.preventDefault(); redo(); return }
 
-      // Ctrl+C — copy selected (non-electronics only)
-      if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-        const obj = useSceneStore.getState().objects.find(o => o.id === selectedId)
-        if (obj && !ELEC_TYPES.includes(obj.type)) {
-          clipboard.current = JSON.parse(JSON.stringify(obj))
-        }
-        return
-      }
-      // Ctrl+V — paste clipboard
-      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
-        if (clipboard.current) {
-          const src = clipboard.current
-          const pasted = {
-            ...JSON.parse(JSON.stringify(src)),
-            id: crypto.randomUUID(),
-            name: src.name + '_copy',
-            position: { x: src.position.x + 2, y: src.position.y, z: src.position.z + 2 },
-            metadata: { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
-          }
-          insertObject(pasted)
-          snapshot()
-        }
-        return
-      }
-
-      // Ctrl+G — group selected pair (CSG combine, holes subtract); Ctrl+Shift+G — ungroup
+      // Copy / paste / group / ungroup — the same actions as the edit toolbar
+      // (managers/editActions.js), so a button and its shortcut never differ.
+      if (!isTyping && (e.ctrlKey || e.metaKey) && e.key === 'c') { edit.copySelection(); return }
+      if (!isTyping && (e.ctrlKey || e.metaKey) && e.key === 'v') { edit.paste(); return }
       if ((e.ctrlKey || e.metaKey) && (e.key === 'g' || e.key === 'G')) {
         e.preventDefault()
-        const st = useSceneStore.getState()
-        // CSG engine loads on demand (normally already preloaded at idle).
-        loadCSG().then(() => {
-          if (e.shiftKey) { if (st.ungroupSelected()) snapshot() }
-          else            { if (st.groupSelected())   snapshot() }
-        })
+        if (e.shiftKey) edit.ungroupSelection(); else edit.groupSelection()
         return
       }
+      if (!isTyping && (e.ctrlKey || e.metaKey) && (e.key === 'l' || e.key === 'L')) { e.preventDefault(); edit.toggleLockSelection(); return }
+      if (!isTyping && (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'h' || e.key === 'H')) { e.preventDefault(); edit.hideSelection(); return }
 
       if (isTyping) return
       if (SHAPE_KEYS[e.key]) { addObject(SHAPE_KEYS[e.key]); snapshot(); return }
@@ -438,12 +380,12 @@ function AppEditor() {
             surfState.selectedIds.forEach(id => surfState.removePatch(id))
             snapshot()
           } else {
-            deleteSelected(); snapshot()
+            edit.deleteSelection()
           }
           break
         }
         case 'd': case 'D':
-          if (e.ctrlKey || e.metaKey) { e.preventDefault(); smartDuplicate(); }
+          if (e.ctrlKey || e.metaKey) { e.preventDefault(); edit.duplicateSelection() }
           break
         case 'ArrowUp': case 'ArrowDown': case 'ArrowLeft': case 'ArrowRight': {
           // Nudge the selected object by the snap step (or 1 unit). Shift = vertical (Y).
@@ -488,6 +430,7 @@ function AppEditor() {
             }
           }
           break
+        case 'q': case 'Q': setTransformMode('handles'); break
         case 'w': case 'W': setTransformMode('translate'); break
         case 'e': case 'E': setTransformMode('rotate'); break
         case 'r': case 'R': {

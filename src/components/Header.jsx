@@ -3,7 +3,7 @@ import { modelKeysFor, isModelLoaded, ensureModels } from '../utils/modelLoader.
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
-import { useElectronicsStore } from '../stores/electronicsStore.js'
+import { useElectronicsStore, DEFAULT_CODE } from '../stores/electronicsStore.js'
 import { buildShareUrl, readShareFromHash, clearShareHash } from '../utils/share.js'
 import { trackEvent } from '../utils/utmTracking.js'
 import { exportSTL, analyzePrintability } from '../utils/printExport.js'
@@ -16,6 +16,7 @@ import { clear as clearHistory } from '../managers/history/editorDispatch.js'
 import { saveJSONToFile, readJSONFile } from '../utils/export.js'
 import { buildProjectSnapshot } from '../utils/helpers.js'
 import HelpMenu from './onboarding/HelpMenu.jsx'
+import { useOnboardingStore } from '../onboarding/onboardingStore.js'
 import { getTheme, toggleTheme } from '../theme/theme.js'
 import Icon from './ui/Icon.jsx'
 import { useHistoryStore } from '../stores/historyStore.js'
@@ -40,7 +41,11 @@ function HistoryButton({ kind }) {
   )
 }
 import { useOverlay } from './ui/overlay.js'
+import { useSimToggle } from '../managers/simControl.js'
 import { v4 as uuidv4 } from 'uuid'
+
+// Reopen-last-project runs once per page load (not per Header mount).
+let restoreStarted = false
 
 export default function Header() {
   const projectName    = useSceneStore((s) => s.projectName)
@@ -121,10 +126,18 @@ export default function Header() {
     clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
   }, [setProjectName, setProjectId, setObjects, clearAttachments, setConnections, setCode, setAttachments, setPatches, setBonds, setJoints, setBlueprints])
 
-  // ── open a project shared via #share=… link (once, on mount) ──────────────
+  // ── on mount: open a #share=… link, else reopen the last autosaved project ──
   useEffect(() => {
-    readShareFromHash().then((data) => {
-      if (data) { applyProjectData(data); clearShareHash() }
+    readShareFromHash().then(async (data) => {
+      if (data) { applyProjectData(data); clearShareHash(); return }
+      // Cloud links (?project= / ?share=) are loaded by CloudProjectManager.
+      const q = new URLSearchParams(window.location.search)
+      if (q.has('project') || q.has('share')) return
+      if (restoreStarted) return          // StrictMode runs mount effects twice in dev
+      restoreStarted = true
+      const last = await storageManager.loadLastProject().catch(() => null)
+      // Don't clobber anything the user (or the MCP bridge) built meanwhile.
+      if (last && useSceneStore.getState().objects.length === 0) await applyProjectData(last)
     })
   }, [applyProjectData])
 
@@ -172,14 +185,23 @@ export default function Header() {
 
   // ── new project ───────────────────────────────────────────────────────────
   const handleNewProject = () => {
-    if (partCount() > 0 && !confirm('Start a new project? Unsaved changes will be lost.')) return
+    if (partCount() > 0 && !confirm('Start a new project? What is on screen now will be closed (it stays in File → Open if you saved it).')) return
     clearScene()
     clearAttachments()
+    // Everything else the old project owned, or it leaks into the new one
+    // (dangling wires to deleted parts, the old sketch, bonds/joints/patches).
+    setConnections([])
+    setCode(DEFAULT_CODE)
+    setPatches({})
+    setBonds({})
+    setJoints({})
+    setBlueprints({})
     usePhysicsStore.getState().loadPhysics({})       // new project → default world physics
     setProjectId(uuidv4())
     setProjectName('Untitled Project')
     clearHistory()   // discard undo history; adopt the loaded/new doc as baseline
     setShowMenu(false)
+    useOnboardingStore.getState().openWelcome()   // → start screen: guided / starter / empty
   }
 
   // ── open saved projects dialog ────────────────────────────────────────────
@@ -266,20 +288,19 @@ export default function Header() {
 
   return (
     <>
-      <header data-tour="header" className="flex items-center gap-3 px-4 h-12 shrink-0 relative z-40"
-        style={{ background: 'rgb(var(--g-900))', borderBottom: '1px solid rgb(var(--g-700) / 0.55)' }}>
+      <header data-tour="header" className="flex items-center gap-2 pl-4 pr-3 h-12 shrink-0 relative z-40"
+        style={{ background: 'rgb(var(--g-900))', borderBottom: '1px solid rgb(var(--g-700))' }}>
         {/* Logo */}
-        <div className="flex items-center gap-2 mr-2">
-          <span className="text-[15px] font-black tracking-tight" style={{ color: 'rgb(var(--a-600))' }}>Constructa</span>
-        </div>
+        <span className="text-[15px] font-extrabold tracking-tight mr-3" style={{ color: 'rgb(var(--a-600))' }}>Constructa</span>
 
-        {/* Project name */}
+        {/* Project name — looks like text until you hover or click it */}
         <input
           type="text"
           value={projectName}
           onChange={(e) => setProjectName(e.target.value)}
-          className="bg-transparent text-sm text-gray-200 px-1 py-0.5 focus:outline-none w-40 min-w-0"
-          style={{ borderBottom: '1px solid rgb(var(--a-600) / 0.35)' }}
+          aria-label="Project name"
+          title="Rename project"
+          className="bg-transparent text-[13px] font-medium px-2 h-8 rounded-md w-48 min-w-0 border border-transparent hover:border-gray-600 focus:border-gray-500 focus:outline-none"
         />
 
         {/* Global undo / redo — the one editor history (editorDispatch). Ctrl/Cmd+Z,
@@ -291,77 +312,75 @@ export default function Header() {
 
         <div className="flex-1" />
 
-        {/* Theme toggle — light / dark palette switch */}
-        <button
-          onClick={handleToggleTheme}
-          title={theme === 'dark' ? 'Switch to Light mode' : 'Switch to Dark mode'}
-          aria-label="Toggle colour theme"
-          className="px-3 py-1 text-xs text-gray-300 hover:text-gray-50 rounded transition-colors"
-          style={{ background: 'rgb(var(--a-600) / 0.1)', border: '1px solid rgb(var(--a-600) / 0.25)' }}
-        >
-          {theme === 'dark' ? '☀️ Light' : '🌙 Dark'}
-        </button>
+        {/* Autosave status — reflects the 30s IndexedDB autosave + manual saves */}
+        {autosave && (
+          <span
+            title="Your project saves itself in this browser about every 30 seconds"
+            className="text-[12px] whitespace-nowrap mr-1"
+            style={{ color: autosave.state === 'error' ? '#dc2626' : 'rgb(var(--g-500))' }}
+          >
+            {autosave.state === 'saving'
+              ? 'Saving…'
+              : autosave.state === 'error'
+                ? 'Couldn’t save'
+                : 'Saved ' + relAgo(autosave.at)}
+          </span>
+        )}
 
         {/* Help menu — tutorials, product tour, shortcuts, beginner guide */}
         <HelpMenu />
 
-        {/* Autosave status — reflects the 30s IndexedDB autosave + manual saves */}
-        {autosave && (
-          <span
-            title="Your project autosaves to this browser (IndexedDB) about every 30s"
-            className={autosave.state === 'error' ? 'text-red-400' : autosave.state === 'saving' ? 'text-amber-400' : 'text-emerald-400'}
-            style={{ fontSize: 11, whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 4 }}
-          >
-            {autosave.state === 'saving'
-              ? '● Saving…'
-              : autosave.state === 'error'
-                ? '⚠ Save failed'
-                : '✓ Saved ' + relAgo(autosave.at)}
-          </span>
-        )}
-
-        {/* Save */}
+        {/* Theme toggle — light / dark palette switch */}
         <button
-          onClick={handleSave}
-          disabled={saving}
-          className={`px-3 py-1 text-xs font-semibold rounded transition-all disabled:opacity-50 ${
-            saveFlash
-              ? 'text-white'
-              : 'text-white hover:brightness-110'
-          }`}
-          style={saveFlash
-            ? { background: 'linear-gradient(90deg,#16a34a,#15803d)', boxShadow: '0 0 8px rgba(63,185,80,0.4)' }
-            : { background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', boxShadow: '0 0 8px rgb(var(--a-600) / 0.3)' }}
+          onClick={handleToggleTheme}
+          title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+          aria-label="Toggle colour theme"
+          className="w-8 h-8 flex items-center justify-center ui-icon-btn"
         >
-          {saving ? 'Saving…' : saveFlash ? '✓ Saved' : '💾 Save'}
+          <Icon name={theme === 'dark' ? 'sun' : 'moon'} size={16} />
         </button>
 
         {/* File menu */}
         <div className="relative">
           <button
             onClick={() => setShowMenu((v) => !v)}
-            className="px-3 py-1 text-xs text-gray-300 hover:text-gray-50 rounded transition-colors"
-            style={{ background: 'rgb(var(--a-600) / 0.1)', border: '1px solid rgb(var(--a-600) / 0.25)' }}
+            aria-expanded={showMenu}
+            className="ui-btn ui-btn-quiet"
           >
-            ☰ File
+            File <Icon name="chevronDown" size={13} />
           </button>
           {showMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-full mt-1 w-48 rounded shadow-2xl z-20 py-1"
-                style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-600) / 0.25)' }}>
-                <MenuItem onClick={handleNewProject}  icon="📄" label="New Project" />
-                <MenuItem onClick={handleOpenDialog}  icon="📂" label="Open Saved…" />
-                <div className="my-1" style={{ borderTop: '1px solid rgb(var(--a-600) / 0.15)' }} />
-                <MenuItem onClick={handleExportJSON}  icon="⬇" label="Export JSON" />
-                <MenuItem onClick={handleImportClick} icon="⬆" label="Import JSON" />
-                <div className="my-1" style={{ borderTop: '1px solid rgba(99,102,241,0.15)' }} />
-                <MenuItem onClick={handleShareLink}   icon="🔗" label="Copy Share Link" />
-                <MenuItem onClick={handleExportSTL}   icon="🖨" label="Export STL (3D print)" />
+              <div className="absolute right-0 top-full mt-1 w-52 rounded-lg z-20 py-1"
+                style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--g-700))', boxShadow: '0 8px 24px rgb(0 0 0 / 0.12)' }}>
+                <MenuItem onClick={handleNewProject}  label="New project" />
+                <MenuItem onClick={handleOpenDialog}  label="Open…" />
+                <div className="my-1" style={{ borderTop: '1px solid rgb(var(--g-700))' }} />
+                <MenuItem onClick={handleImportClick} label="Import project file…" />
+                <MenuItem onClick={handleExportJSON}  label="Download project file" />
+                <MenuItem onClick={handleExportSTL}   label="Download STL for 3D printing" />
+                <div className="my-1" style={{ borderTop: '1px solid rgb(var(--g-700))' }} />
+                <MenuItem onClick={handleShareLink}   label="Copy share link" />
               </div>
             </>
           )}
         </div>
+
+        {/* Save — secondary: the project also saves itself every ~30 s */}
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="ui-btn disabled:opacity-60"
+          style={{ minWidth: 60 }}
+        >
+          {saving ? 'Saving…' : saveFlash ? 'Saved' : 'Save'}
+        </button>
+
+        <span className="w-px h-6 mx-1" style={{ background: 'rgb(var(--g-700))' }} aria-hidden="true" />
+
+        {/* Simulate — THE primary action: always one click away, from any section */}
+        <SimulateButton />
 
         <input
           ref={importRef}
@@ -374,9 +393,9 @@ export default function Header() {
 
       {/* Share-link confirmation toast */}
       {shareMsg && (
-        <div className="fixed top-14 right-4 z-50 max-w-xs px-4 py-2.5 rounded-lg shadow-xl text-xs text-white"
-          style={{ background: 'linear-gradient(90deg,#4f46e5,#6366f1)' }}>
-          🔗 {shareMsg}
+        <div className="fixed top-14 right-4 z-50 max-w-xs px-4 py-2.5 rounded-lg text-xs text-white"
+          style={{ background: '#1f2937', boxShadow: '0 8px 24px rgb(0 0 0 / 0.2)' }}>
+          {shareMsg}
         </div>
       )}
 
@@ -389,11 +408,11 @@ export default function Header() {
           />
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
             <div className="rounded-xl shadow-2xl w-full max-w-md pointer-events-auto"
-              style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--a-600) / 0.25)' }}>
+              style={{ background: 'rgb(var(--g-900))', border: '1px solid rgb(var(--g-700))' }}>
 
               {/* Dialog header */}
               <div className="flex items-center justify-between px-5 py-3.5"
-                style={{ borderBottom: '1px solid rgb(var(--a-600) / 0.15)' }}>
+                style={{ borderBottom: '1px solid rgb(var(--g-700))' }}>
                 <h2 className="text-sm font-semibold text-gray-50">Open Saved Project</h2>
                 <button
                   onClick={() => setShowOpenDlg(false)}
@@ -407,9 +426,8 @@ export default function Header() {
               <div className="max-h-96 overflow-y-auto">
                 {savedProjects.length === 0 ? (
                   <div className="flex flex-col items-center gap-2 py-12 text-gray-500">
-                    <span className="text-3xl">📭</span>
                     <span className="text-sm">No saved projects yet</span>
-                    <span className="text-xs text-gray-600">Click 💾 Save to store your work</span>
+                    <span className="text-xs text-gray-600">Press Save to keep your work here.</span>
                   </div>
                 ) : (
                   savedProjects.map((proj) => (
@@ -417,13 +435,12 @@ export default function Header() {
                       key={proj.projectId}
                       onClick={() => handleLoadProject(proj.projectId)}
                       className="flex items-center gap-3 px-5 py-3.5 cursor-pointer last:border-0 group transition-colors"
-                      style={{ borderBottom: '1px solid rgb(var(--a-600) / 0.1)' }}
-                      onMouseEnter={e => e.currentTarget.style.background='rgb(var(--a-600) / 0.07)'}
+                      style={{ borderBottom: '1px solid rgb(var(--g-700))' }}
+                      onMouseEnter={e => e.currentTarget.style.background='rgb(var(--g-800))'}
                       onMouseLeave={e => e.currentTarget.style.background='transparent'}
                     >
-                      <span className="text-2xl shrink-0">📁</span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-50 truncate group-hover:text-indigo-300 transition-colors">
+                        <div className="text-sm font-medium text-gray-50 truncate  transition-colors">
                           {proj.name || 'Untitled Project'}
                         </div>
                         <div className="text-xs text-gray-500 mt-0.5">
@@ -435,7 +452,7 @@ export default function Header() {
                         className="shrink-0 opacity-0 group-hover:opacity-100 text-gray-500 hover:text-red-400 text-sm px-2 py-1 rounded hover:bg-red-900/20 transition-all"
                         title="Delete project"
                       >
-                        🗑
+                        <Icon name="trash" size={14} />
                       </button>
                     </div>
                   ))
@@ -456,17 +473,30 @@ export default function Header() {
   )
 }
 
-function MenuItem({ onClick, icon, label }) {
+function SimulateButton() {
+  const { simActive, preparing, toggle } = useSimToggle()
+  return (
+    <button
+      data-tour="simulate-header"
+      onClick={toggle}
+      disabled={preparing}
+      title={simActive ? 'Stop the simulation and go back to editing' : 'Run your robot with real physics'}
+      className={simActive ? 'ui-btn' : 'ui-btn ui-btn-primary'}
+      style={{ minWidth: 118, ...(simActive ? { color: '#b91c1c', borderColor: 'rgb(220 38 38 / 0.45)' } : null) }}
+    >
+      <Icon name={simActive ? 'stop' : 'play'} size={13} />
+      {preparing ? 'Starting…' : simActive ? 'Stop' : 'Simulate'}
+    </button>
+  )
+}
+
+function MenuItem({ onClick, label }) {
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-gray-300 hover:text-gray-50 transition-colors"
-      style={{ background: 'transparent' }}
-      onMouseEnter={e => e.currentTarget.style.background = 'rgb(var(--a-600) / 0.1)'}
-      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+      className="w-full text-left px-3 py-1.5 text-[13px] text-gray-300 hover:bg-gray-800 hover:text-gray-50 transition-colors"
     >
-      <span>{icon}</span>
-      <span>{label}</span>
+      {label}
     </button>
   )
 }
