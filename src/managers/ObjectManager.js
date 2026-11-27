@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createMecanumParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup, createModuleSensorGroup, isModuleSensorType } from '../utils/electronicsFactory.js'
+import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup, createModuleSensorGroup, isModuleSensorType, createGearMotorGroup, isGearMotorModel } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -169,7 +169,10 @@ class ObjectManager {
   createMesh(obj) {
     let object3d
 
-    if (obj.type === 'arduino') {
+    if (isGearMotorModel(obj)) {
+      // N20 / metal gear motors: a motor_bo / motor_enc variant with its own model.
+      object3d = createGearMotorGroup(obj.variant)
+    } else if (obj.type === 'arduino') {
       object3d = createArduinoGroup()
     } else if (obj.type === 'subo') {
       object3d = createSuboGroup()

@@ -44,6 +44,53 @@ export const COMPONENT_VARIANTS = {
     scale: 1.0,                                    // standard size, 40 × 20 × 40.5 mm
     physics: { mass: 0.060, servo: { preset: 'ds3218' } }, // 60 g, 21 kg·cm stall @ 6.8 V
   },
+
+  // ── Gear motors ────────────────────────────────────────────────────────────
+  // Plain gear motors are a `motor_bo` (two terminals, selectable gearbox, drive
+  // model); encoder gear motors are a `motor_enc` (M1 GND A B VCC M2 header,
+  // quadrature pulses). `fields` are extra object fields stamped at creation
+  // (the gearbox ratio, still editable in Properties). The N20 and metal ones
+  // have their own models (electronicsFactory createGearMotorGroup, keyed by
+  // the variant); the TT ones are the TT model itself (motor_bo.glb), shown at
+  // its real 70 mm length (the generic BO card draws it at 50 mm).
+  n20: {
+    base:  'motor_bo',
+    name:  'N20',
+    physics: { mass: 0.010 },                      // 10 g
+    fields: { gearRatio: 220 },                    // slow, strong micro gearbox (~1:210)
+  },
+  tt: {
+    base:  'motor_bo',
+    name:  'TT_Motor',
+    scale: 1.4,                                    // 70 × 22.5 mm TT gearbox motor
+    physics: { mass: 0.029 },                      // 29 g
+    fields: { gearRatio: 48 },                     // the standard 1:48
+  },
+  metal_gear: {
+    base:  'motor_bo',
+    name:  'MetalGear',
+    physics: { mass: 0.090 },                      // JGA25-370, 90 g
+    fields: { gearRatio: 120 },
+  },
+  n20_enc: {
+    base:  'motor_enc',
+    name:  'N20_Enc',
+    physics: { mass: 0.012 },
+    fields: { gearRatio: 220 },
+  },
+  tt_enc: {
+    base:  'motor_enc',
+    name:  'TT_Enc',
+    scale: 1.4,
+    physics: { mass: 0.032 },
+    fields: { gearRatio: 48 },
+  },
+  metal_gear_enc: {
+    base:  'motor_enc',
+    name:  'MetalGear_Enc',
+    physics: { mass: 0.105 },                      // JGA25-370 + encoder
+    fields: { gearRatio: 120 },
+  },
 }
 
 /**
@@ -63,5 +110,6 @@ export function variantOverrides(key, objects = []) {
     // structuredClone: each object gets its OWN physics config, so editing one
     // SG90 in the Physics panel can never change the shared table (or another SG90).
     physics: structuredClone(v.physics ?? {}),
+    ...structuredClone(v.fields ?? {}),
   }
 }

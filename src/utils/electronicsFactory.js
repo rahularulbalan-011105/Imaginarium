@@ -2174,3 +2174,173 @@ export function createModuleSensorGroup(type) {
   }
   return MODULE_SENSOR_BUILDERS[type]()
 }
+
+// ─── Gear motors: N20 micro and JGA25-370 metal (± Hall encoder) ─────────────
+// Variants of the existing motor types (utils/componentVariants.js): a plain
+// gear motor is a `motor_bo` (TERM_A / TERM_B), an encoder gear motor is a
+// `motor_enc` (the same 6-pin M1 GND A B VCC M2 header as the TT encoder
+// motor). So wiring, driving, gearbox, encoder pulses and code all work as for
+// those types; only the model differs. Unlike the TT, these have the output
+// shaft IN LINE with the motor: it runs along +X (rotorAxis 'x', like the
+// procedural motor), and wheels / props attach at its tip. Real sizes, 1 unit = 1 cm.
+// The pins sit on the parts' real terminals and connector contacts, so they are
+// per-object (userData.dynamicPins, as the GLB boards use).
+const GM_STEEL  = () => mat(0xc9ccd1, { roughness: 0.35, metalness: 0.45 })
+const GM_BRASS  = () => mat(0xc8a24a, { roughness: 0.4, metalness: 0.5 })
+const GM_COPPER = () => mat(0xc77b42, { roughness: 0.4, metalness: 0.5 })
+const GM_BLACK  = () => mat(0x161618, { roughness: 0.6 })
+
+function gmMesh(root, geo, material, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(geo, material)
+  m.position.set(x, y, z)
+  root.add(m)
+  return m
+}
+// A solid of revolution along X from x0 to x1 (cylinder turned onto the X axis).
+function gmCyl(root, r, x0, x1, material, segs = 32, y = 0, z = 0) {
+  const g = new THREE.CylinderGeometry(r, r, x1 - x0, segs)
+  g.rotateZ(Math.PI / 2)
+  return gmMesh(root, g, material, (x0 + x1) / 2, y, z)
+}
+// Extrude a 2D profile (in the YZ plane: shape x → −z, shape y → y) along X.
+function gmExtrudeX(shape, x0, x1) {
+  const g = new THREE.ExtrudeGeometry(shape, { depth: x1 - x0, bevelEnabled: false, curveSegments: 24 })
+  g.rotateY(Math.PI / 2)
+  g.translate(x0, 0, 0)
+  return g
+}
+// Round profile with two flats at |y| = h/2 (the N20's flattened can).
+function gmFlatRound(r, h) {
+  const t = Math.asin(Math.min(1, h / 2 / r))
+  const s = new THREE.Shape()
+  s.absarc(0, 0, r, -t, t, false)
+  s.absarc(0, 0, r, Math.PI - t, Math.PI + t, false)
+  s.closePath()
+  return s
+}
+// D-profile output shaft (diameter d, one flat) from x0 to x1 — spins about X.
+function gmDShaft(root, d, x0, x1) {
+  const r = d / 2, flat = r * 0.6, t = Math.acos(flat / r)
+  const s = new THREE.Shape()
+  s.absarc(0, 0, r, t, 2 * Math.PI - t, false)   // the round part …
+  s.closePath()                                  // … closed by the flat at x = flat
+  const shaft = gmMesh(root, gmExtrudeX(s, x0, x1), GM_STEEL())
+  shaft.name = 'shaft'
+  return shaft
+}
+// The two brush terminals at the rear: copper tabs with a solder hole.
+function gmTerminals(root, x, zs, { y = 0, len = 0.3, w = 0.16 } = {}) {
+  for (const z of zs) {
+    gmMesh(root, new THREE.BoxGeometry(len, 0.03, w), GM_COPPER(), x - len / 2, y, z)
+    gmMesh(root, new THREE.CylinderGeometry(w * 0.22, w * 0.22, 0.035, 12), GM_BLACK(), x - len * 0.62, y, z)
+  }
+}
+// Encoder at the rear end (x = rear face): magnet disc, PCB in the YZ plane,
+// two Hall sensors and a 6-way 2.0 mm connector whose contacts face −X.
+// Returns the connector contact positions (pin order M1 GND A B VCC M2).
+function gmEncoder(root, x, { pcbW, pcbH, round = false, magnetR, connY, pcbColor = 0x1f7a3a }) {
+  gmCyl(root, magnetR, x - 0.06, x, mat(0x2b2b30, { roughness: 0.5, metalness: 0.3 }), 28)
+  const pcbMat = mat(pcbColor, { roughness: 0.7 })
+  const px0 = x - 0.2, px1 = x - 0.08
+  const pcb = round ? gmCyl(root, pcbW / 2, px0, px1, pcbMat, 40)
+    : gmMesh(root, new THREE.BoxGeometry(px1 - px0, pcbH, pcbW), pcbMat, (px0 + px1) / 2)
+  pcb.name = 'encoder_pcb'
+  for (const z of [-0.18, 0.18])                                               // Hall A / B (SOT-23) on the inner face
+    gmMesh(root, new THREE.BoxGeometry(0.06, 0.13, 0.1), GM_BLACK(), x - 0.05, magnetR + 0.1, z)
+  for (const [dy, dz] of [[-0.25, 0.3], [-0.25, -0.3]])                       // pull-up resistors on the outer face
+    gmMesh(root, new THREE.BoxGeometry(0.04, 0.05, 0.1), GM_BLACK(), px0 - 0.02, dy, dz)
+  // White 6-way connector housing on the outer face, gold contacts pointing −X.
+  const n = 6, pitch = 0.2, span = n * pitch
+  gmMesh(root, new THREE.BoxGeometry(0.45, 0.45, span + 0.1), mat(0xf1efe8, { roughness: 0.6 }), px0 - 0.225, connY, 0)
+  const pins = []
+  for (let i = 0; i < n; i++) {
+    const z = -((n - 1) * pitch) / 2 + i * pitch
+    gmMesh(root, new THREE.BoxGeometry(0.5, 0.05, 0.05), MS_GOLD(), px0 - 0.25, connY, z)
+    pins.push({ x: px0 - 0.5, y: connY, z })
+  }
+  return pins
+}
+const GM_ENC_PINS = [['TERM_A', 'M1', 0xff2222, 'power'], ['GND', 'GND', 0x333333, 'gnd'], ['ENC_A', 'A', 0x22c55e, 'digital'],
+  ['ENC_B', 'B', 0x3b82f6, 'digital'], ['VCC', 'VCC', 0xff6666, 'power'], ['TERM_B', 'M2', 0x111111, 'gnd']]
+const gmEncPinDefs = (pts) => Object.fromEntries(GM_ENC_PINS.map(([name, label, color, type], i) =>
+  [name, { ...pts[i], r: 0.07, color, type, label, ldy: i % 2 ? 0.28 : 0 }]))
+const gmTermPinDefs = (x, y, zs) => ({
+  TERM_A: { x, y, z: zs[0], r: 0.09, color: 0xff2222, type: 'power', label: '+' },
+  TERM_B: { x, y, z: zs[1], r: 0.09, color: 0x111111, type: 'gnd',   label: '−' },
+})
+function gmFinish(root, shaft, pins, encoder) {
+  setupRotorGroup(root, shaft, 'x')
+  root.userData.motorMeshNames = [shaft.name]
+  root.userData.dynamicPins = pins
+  root.userData.labelScale = encoder ? 0.42 : 0.5
+  root.userData.labelOffset = encoder ? { dx: -0.3, dy: 0.32, dz: 0 } : { dx: -0.45, dy: 0.2, dz: 0 }
+  if (encoder) root.userData.hasEncoder = true
+  root.traverse(c => {
+    if (!c.isMesh) return
+    c.castShadow = true; c.receiveShadow = true
+    if (c.name !== 'body') c.userData.noOutline = true
+  })
+  return root
+}
+
+// N20 micro gear motor: 12 × 10 mm flattened can (15 mm) + 9 mm metal gearbox,
+// Ø3 mm D-shaft (10 mm). The encoder version adds a magnet disc, a 12 mm
+// square PCB with two Hall sensors and the 6-way connector.
+function buildN20(encoder) {
+  const root = new THREE.Group()
+  const prof = gmFlatRound(0.6, 1.0)
+  const can = gmMesh(root, gmExtrudeX(prof, -1.15, 0.38), GM_STEEL())
+  can.name = 'body'
+  gmMesh(root, gmExtrudeX(gmFlatRound(0.58, 0.96), -1.35, -1.15), mat(0x1d1d20, { roughness: 0.55 }))      // brush end cap
+  // Gearbox: two plates on four posts, the gear stack visible between them.
+  gmMesh(root, new THREE.BoxGeometry(0.1, 1.0, 1.2), GM_STEEL(), 0.43)
+  gmMesh(root, new THREE.BoxGeometry(0.1, 1.0, 1.2), GM_STEEL(), 1.25)
+  for (const [y, z] of [[0.4, 0.5], [-0.4, 0.5], [0.4, -0.5], [-0.4, -0.5]])
+    gmCyl(root, 0.05, 0.48, 1.2, GM_STEEL(), 10, y, z)
+  for (const [x, r, y, z] of [[0.6, 0.42, 0.05, 0.05], [0.78, 0.3, -0.12, -0.15], [0.94, 0.4, 0.1, -0.05], [1.1, 0.33, -0.05, 0.12]])
+    gmCyl(root, r, x - 0.05, x + 0.05, GM_BRASS(), 18, y, z)
+  gmCyl(root, 0.2, 1.3, 1.42, GM_BRASS(), 20)                                  // shaft bushing
+  const shaft = gmDShaft(root, 0.3, 1.42, 2.42)
+  if (encoder) {
+    gmTerminals(root, -1.35, [0.35, -0.35], { len: 0.12 })
+    const pts = gmEncoder(root, -1.38, { pcbW: 1.2, pcbH: 1.05, magnetR: 0.42, connY: -0.2 })
+    return gmFinish(root, shaft, gmEncPinDefs(pts), true)
+  }
+  gmTerminals(root, -1.35, [0.35, -0.35])
+  return gmFinish(root, shaft, gmTermPinDefs(-1.62, 0, [0.35, -0.35]), false)
+}
+
+// JGA25-370 metal gear motor: Ø25 mm steel gearbox (21 mm) on a Ø24.4 mm
+// 370 can (31 mm), Ø4 mm D-shaft (12 mm), two M3 mounting holes in the front.
+// The encoder version: magnet ring + round Ø25 mm Hall encoder board and the
+// 6-way connector (M1 GND C1 C2 VCC M2).
+function buildMetalGear(encoder) {
+  const root = new THREE.Group()
+  const can = gmCyl(root, 1.22, -2.75, 0.3, mat(0xb7bbc2, { roughness: 0.3, metalness: 0.45 }), 40)
+  can.name = 'body'
+  for (const x of [-2.2, -0.2]) gmCyl(root, 1.235, x, x + 0.08, mat(0x8d9299, { roughness: 0.35, metalness: 0.45 }), 40)   // crimp rings
+  gmCyl(root, 1.0, -2.95, -2.75, mat(0x2a2a2e, { roughness: 0.5 }), 36)       // brush holder
+  gmCyl(root, 1.27, 0.3, 2.4, mat(0xd7d9dc, { roughness: 0.45, metalness: 0.4 }), 44)   // gearbox
+  for (const x of [0.9, 1.5]) gmCyl(root, 1.28, x, x + 0.04, mat(0x9ea3a9, { roughness: 0.4, metalness: 0.45 }), 44)     // stage seams
+  for (const z of [-0.85, 0.85]) {                                            // M3 holes on the front face
+    gmCyl(root, 0.17, 2.39, 2.42, mat(0x0b0b0c), 16, 0, z)
+  }
+  gmCyl(root, 0.35, 2.4, 2.55, GM_BRASS(), 24)                                 // bearing boss
+  const shaft = gmDShaft(root, 0.4, 2.55, 3.75)
+  if (encoder) {
+    gmTerminals(root, -2.95, [0.55, -0.55], { y: 0.2, len: 0.14, w: 0.2 })
+    const pts = gmEncoder(root, -3.02, { pcbW: 2.5, round: true, magnetR: 0.62, connY: 0.75, pcbColor: 0x1d4fb0 })
+    return gmFinish(root, shaft, gmEncPinDefs(pts), true)
+  }
+  gmTerminals(root, -2.95, [0.55, -0.55], { y: 0.2, w: 0.2 })
+  return gmFinish(root, shaft, gmTermPinDefs(-3.25, 0.2, [0.55, -0.55]), false)
+}
+
+const GEAR_MOTOR_BUILDERS = {
+  n20: () => buildN20(false), n20_enc: () => buildN20(true),
+  metal_gear: () => buildMetalGear(false), metal_gear_enc: () => buildMetalGear(true),
+}
+/** True when a scene object is a gear-motor variant with its own model. */
+export const isGearMotorModel = (obj) => !!obj?.variant && obj.variant in GEAR_MOTOR_BUILDERS
+  && (obj.type === 'motor_bo' || obj.type === 'motor_enc')
+export function createGearMotorGroup(variant) { return GEAR_MOTOR_BUILDERS[variant]() }
