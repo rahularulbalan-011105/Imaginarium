@@ -16,23 +16,16 @@
 // The latch is evaluated before every 100 µs sub-step from the solved pin
 // voltages (sim.transient), so RC timing comes out of the capacitor maths.
 import { definePart } from '../../definePart.js'
-import { resistor, sw, vsource } from '../../../circuit/mna.js'
 import { dipPins } from '../../model.js'
-import { dipBuild, dipDims, stampStage, stageCurrent } from '../logic/cmos.js'
+import { dipBuild, dipDims } from '../logic/cmos.js'
 import { benchCap } from './bench.js'
+import { timerCircuit, timerBeforeStep, timerSolved, timerReadout, TIMER_ROLES } from './timer555Core.js'
 
-const STAGE = { ronHi: 2.5, dropHi: 1.45, ronLo: 10 }
+// The model itself lives in timer555Core.js (shared with the 556 dual timer).
 const NAMES = ['GND', 'TRIG', 'OUT', 'RESET', 'CTRL', 'THR', 'DIS', 'VCC']
 const KINDS = { GND: 'gnd', VCC: 'power', TRIG: 'analog', OUT: 'digital', RESET: 'digital', CTRL: 'analog', THR: 'analog', DIS: 'analog' }
-
-/** Output stage element whose level q (1 / 0 / null) is set by the latch. */
-function outStage(out, vcc, gnd) {
-  return {
-    kind: '555OUT', nodes: [out, vcc, gnd], q: null,
-    stamp(sys, ctx, el) { stampStage(sys, out, vcc, gnd, el.q, STAGE) },
-    currentOf(ctx, el) { return stageCurrent(ctx.v, out, vcc, gnd, el.q, STAGE) },
-  }
-}
+const MAP = Object.fromEntries(TIMER_ROLES.map(r => [r, r]))
+const LIM = { pn: 'NE555', vmax: 16, vabs: 18, pins: 'pin 8 to 5V and pin 1 to GND', resetPin: 'pin 4' }
 
 export default definePart({
   type: 'timer_555',
@@ -56,63 +49,10 @@ export default definePart({
   sim: {
     transient: true,
     maxDt: 1e-4,
-    circuit(api) {
-      const P = Object.fromEntries(NAMES.map(n => [n, api.pin(n)]))
-      const n3 = api.node()                                      // the VCC/3 tap of the divider
-      api.add(resistor(P.VCC, P.CTRL, 5000))
-      api.add(resistor(P.CTRL, n3, 5000))
-      api.add(resistor(n3, P.GND, 5000))
-      api.add(resistor(P.VCC, P.GND, 1900))                      // rest of ICC: 5 V / 1.9 kΩ + 0.33 mA divider ≈ 3 mA
-      api.add(vsource(P.RESET, P.GND, 1.4, 12000))               // RESET input bias (pin reads ≈1.4 V when left open)
-      const dis = api.add(sw(P.DIS, P.GND, { Ron: 10, Roff: 1e9 }))
-      const out = api.add(outStage(P.OUT, P.VCC, P.GND))
-      return { P, n3, dis, out, q: 0, edges: [] }
-    },
-    beforeStep(h, api) {
-      const g = api.vpin('GND')
-      const vcc = api.vpin('VCC') - g
-      let q = h.q
-      if (vcc < 3) q = null                                       // not running
-      else if (api.vpin('RESET') - g < 0.7) q = 0
-      else {
-        const vc = api.vpin('CTRL') - g
-        if (api.vpin('TRIG') - g < vc / 2) q = 1                  // trigger comparator (dominant)
-        else if (api.vpin('THR') - g > vc) q = 0                  // threshold comparator
-        else if (q == null) q = 0
-      }
-      if (q !== h.q) {
-        if (q === 1 || h.q === 1) { h.edges.push({ t: api.t, q }); if (h.edges.length > 12) h.edges.shift() }
-        h.q = q
-      }
-      h.out.q = q
-      h.dis.closed = q === 0
-    },
-    solved(h, api) {
-      const g = api.vpin('GND'), vcc = api.vpin('VCC') - g
-      const name = api.obj.name || '555'
-      if (vcc > 16) api.issue('overvoltage', vcc > 18 ? 'error' : 'warning', `${name} has ${vcc.toFixed(1)} V on VCC`, 'The NE555 is rated 4.5–16 V (18 V absolute maximum).')
-      else api.clearIssue('overvoltage')
-      const anyWired = NAMES.some(n => n !== 'VCC' && n !== 'GND' && api.connected(n))
-      if (anyWired && vcc < 4.5) api.issue('unpowered', 'warning', `${name} is not powered`, `VCC−GND is ${vcc.toFixed(2)} V. Wire pin 8 to 5V and pin 1 to GND (the NE555 needs 4.5–16 V).`)
-      else api.clearIssue('unpowered')
-      if (anyWired && !api.connected('RESET')) api.issue('reset', 'warning', `${name}: RESET (pin 4) is not connected`, 'Tie RESET to VCC. Left open it may pick up noise and reset the timer.')
-      else api.clearIssue('reset')
-      const iout = api.cur(h.out)
-      if (Math.abs(iout) > 0.2) api.issue('overcurrent', 'error', `${name} output carries ${(Math.abs(iout) * 1000).toFixed(0)} mA`, 'The 555 output is rated ±200 mA. Use a resistor or a transistor for the load.')
-      else api.clearIssue('overcurrent')
-      // Measure the waveform like a scope: last rising edges and the high time after them.
-      const rises = h.edges.filter(e => e.q === 1).map(e => e.t)
-      let period = null, highTime = null
-      if (rises.length >= 2) period = rises[rises.length - 1] - rises[rises.length - 2]
-      for (let i = h.edges.length - 1; i > 0; i--) {
-        if (h.edges[i].q !== 1 && h.edges[i - 1].q === 1) { highTime = h.edges[i].t - h.edges[i - 1].t; break }
-      }
-      return {
-        running: h.q != null, out: h.q, vout: api.vpin('OUT') - g, vcc, iout,
-        period, freq: period ? 1 / period : null, highTime, duty: period && highTime != null ? highTime / period : null,
-      }
-    },
-    readout: ({ solved }) => (!solved ? '' : !solved.running ? 'off' : solved.freq ? `${solved.freq.toFixed(2)} Hz · ${(solved.duty * 100).toFixed(0)} %` : `OUT ${solved.out ? 'HIGH' : 'LOW'}`),
+    circuit(api) { return timerCircuit(api, MAP) },
+    beforeStep(h, api) { timerBeforeStep(h, api) },
+    solved(h, api) { return timerSolved(h, api, { who: api.obj.name || '555', lim: LIM }) },
+    readout: ({ solved }) => timerReadout(solved),
   },
   tests: [
     {
