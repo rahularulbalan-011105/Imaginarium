@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { GRIP, fingerRoot } from './gripper.js'
 import { cloneModel, findRotorNode, detectRotorAxis, findEmissiveMeshes } from './modelLoader.js'
 import { ESP32_PINS } from './esp32Board.js'
+import { TFT28_PINS_TABLE, TFT28_GH } from './tft28.js'
 
 // ─── shared material helper ───────────────────────────────────────────────────
 const mat = (color, opts = {}) =>
@@ -229,7 +230,19 @@ export const GRIPPER_PINS = {
   SIGNAL: { x: -0.196, y: 1.55, z: -2.95, r: 0.09, color: 0xff8800, type: 'pwm',   label: 'SIG' },
 }
 
+// Waveshare 2.8" capacitive touch LCD (tools/models/tft28.model.js, utils/tft28.js):
+// the 13 pins sit in the mouth of the GH1.25 connector on the rear, which faces
+// the thick-bezel (+z) edge. 1.25 mm pitch, so the labels stagger over 3 rows and
+// sit just past the glass edge where the module does not hide them.
+const TFT_ROLE_COLOR = { power: 0xff2222, gnd: 0x333333, pwm: 0xff8800 }
+const TFT_SIG_COLOR = { MISO: 0x64748b, MOSI: 0x3b82f6, SCLK: 0x06b6d4, LCD_CS: 0xa855f7, LCD_DC: 0xec4899, LCD_RST: 0xeab308, TP_SDA: 0x22c55e, TP_SCL: 0x14b8a6, TP_INT: 0xf97316, TP_RST: 0xfacc15 }
+export const TFT28_PINS = Object.fromEntries(TFT28_PINS_TABLE.map(({ name, role }, i) => [name, {
+  x: (TFT28_GH.x0 - i * TFT28_GH.pitch) / 10, y: TFT28_GH.mouthY / 10, z: TFT28_GH.mouthZ / 10 + 0.04, r: 0.05,
+  color: TFT_ROLE_COLOR[role] ?? TFT_SIG_COLOR[name] ?? 0x66aaff, type: role, label: name, ldy: (i % 3) * 0.11,
+}]))
+
 export const PIN_DEFS = {
+  tft28:    TFT28_PINS,
   gripper:  GRIPPER_PINS,
   pca9685:  PCA9685_PINS,
   l298n:    L298N_PINS,
@@ -1272,6 +1285,43 @@ export function createOLEDGroup() {
   r.userData.isOled = true
   attachOledScreen(r)
   return r
+}
+
+// ─── Waveshare 2.8" capacitive touch LCD (240×320, ST7789 + CST328) ─────────
+// GLB first: public/models/tft28.glb (tools/models/tft28.model.js), authored in
+// scene units in the same frame as TFT28_PINS — screen up, resting on its four
+// standoffs at y = 0. The powered-off active area is the mesh 'lcd_active_area'.
+export function createTft28Group() {
+  const root = new THREE.Group()
+  root.userData.labelScale = 0.36
+  root.userData.labelOffset = { dx: 0, dy: 0.02, dz: 0.75 }
+  root.userData.isTft = true
+  const glb = cloneModel('tft28')
+  if (glb) {
+    root.add(glb)
+    root.traverse(c => {
+      if (!c.isMesh) return
+      c.castShadow = true; c.receiveShadow = true
+      // Outline only the big shells, not every resistor and solder joint.
+      if (c.name !== 'pcb' && c.name !== 'touch_glass') c.userData.noOutline = true
+    })
+  } else {
+    // Procedural stand-in with the real stack: glass 0.7 mm · LCD 2.9 · PCB 1.6 · rear parts 4.
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(5.054, 0.07, 7.306), mat(0x0b0c0e, { roughness: 0.06 }))
+    glass.position.set(0, 0.965, 0); root.add(glass)
+    const lcd = new THREE.Mesh(new THREE.BoxGeometry(4.94, 0.29, 6.98), mat(0x26272b))
+    lcd.position.set(0, 0.785, -0.04); root.add(lcd)
+    const pcb = new THREE.Mesh(new THREE.BoxGeometry(4.99, 0.16, 6.9), mat(0x2457ac, { roughness: 0.65 }))
+    pcb.position.set(0, 0.48, 0); root.add(pcb)
+    const gh = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.39, 0.44), mat(0xece6d6))
+    gh.position.set(0.095, 0.205, 2.8); root.add(gh)
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const so = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.4, 16), mat(0xd3d6db, { metalness: 0.8, roughness: 0.3 }))
+      so.position.set(sx * 2.045, 0.2, sz * 3.0); root.add(so)
+    }
+    root.traverse(c => { if (c.isMesh) { c.castShadow = true; c.receiveShadow = true } })
+  }
+  return root
 }
 
 // ─── New sensors (GLB when present, tailored procedural fallback otherwise) ────

@@ -86,6 +86,7 @@ registerComponent({ type: 'gripper', category: 'output', label: 'Servo Gripper',
 registerComponent({ type: 'led',    category: 'output', label: 'LED',    icon: '💡', role: 'output', capabilities: { output: 'light' } })
 registerComponent({ type: 'buzzer', category: 'output', label: 'Buzzer', icon: '🔊', role: 'output', capabilities: { output: 'audio' } })
 registerComponent({ type: 'oled',   category: 'output', label: 'OLED',   icon: '🖵', role: 'output', capabilities: { output: 'display' } })
+registerComponent({ type: 'tft28',  category: 'output', label: '2.8" Touch LCD', icon: '🖥', role: 'output', capabilities: { output: 'display', input: 'touch', bus: 'spi' } })
 
 // Sensors
 registerComponent({ type: 'ultrasonic', category: 'sensor', label: 'Ultrasonic', icon: '📡', role: 'range', physicsModules: ['RangeSensorSim'], capabilities: { sensor: 'range' } })
@@ -109,6 +110,7 @@ const DRAW_mA = {
   uln2003: 5,
   pca9685: 10, // chip only; the servos' draw is counted on the servos
   led: 20, buzzer: 30, oled: 20,
+  tft28: 80,   // mostly the backlight at full brightness (rough; Waveshare gives no figure)
   ultrasonic: 15, ir_sensor: 25, ir: 25, gas_sensor: 150, gas: 150, imu: 10,
 }
 for (const [type, mA] of Object.entries(DRAW_mA)) {

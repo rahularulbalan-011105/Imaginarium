@@ -17,7 +17,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:bundle": "node tools/check-bundle.mjs",
-    "optimize:models": "node tools/optimize-models.mjs"
+    "optimize:models": "node tools/optimize-models.mjs",
+    "mcp": "node tools/mcp/constructa-mcp.mjs",
+    "test:mcp": "node tools/mcp/selftest.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",
@@ -34,6 +36,7 @@
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
@@ -46,7 +49,9 @@
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.14",
     "vite": "^5.4.8",
-    "vitest": "^2.1.9"
+    "vitest": "^2.1.9",
+    "ws": "^8.23.0",
+    "zod": "^4.6.7"
   },
   "build": {
     "appId": "com.imaginarium.editor",

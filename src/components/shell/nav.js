@@ -7,27 +7,27 @@
 // call, tutorial step and data-tour anchor keeps working.
 
 export const NAV = [
-  { id: 'cad', label: 'CAD', icon: 'cube', tabs: [
+  { id: 'cad', label: 'Design', icon: 'cube', tabs: [
     { id: 'library',    label: 'Library',  panels: ['library'] },
-    { id: 'properties', label: 'Design',   panels: ['properties'] },
-    { id: 'boolean',    label: 'Boolean',  panels: ['boolean'] },
-    { id: 'objects',    label: 'Overview', panels: ['objects'] },
+    { id: 'properties', label: 'Edit',     panels: ['properties'] },
+    { id: 'boolean',    label: 'Combine',  panels: ['boolean'] },
+    { id: 'objects',    label: 'Objects',  panels: ['objects'] },
   ] },
-  { id: 'elec', label: 'ELEC', icon: 'cpu', tabs: [
-    { id: 'electronics', label: 'Elec',   panels: ['electronics'] },
-    { id: 'mechanical',  label: 'Mech',   panels: ['mechanical', 'joints'] },
+  { id: 'elec', label: 'Build', icon: 'cpu', tabs: [
+    { id: 'electronics', label: 'Electronics', panels: ['electronics'] },
+    { id: 'mechanical',  label: 'Mechanical',  panels: ['mechanical', 'joints'] },
     { id: 'wiring',      label: 'Wiring', panels: ['wiring', 'workbench'] },
   ] },
-  { id: 'code', label: 'CODE', icon: 'code', tabs: [
-    { id: 'blocks', label: 'Block Coding', panels: ['blocks'] },
-    { id: 'code',   label: 'C++ Coding',   panels: ['code'] },
+  { id: 'code', label: 'Code', icon: 'code', tabs: [
+    { id: 'blocks', label: 'Blocks', panels: ['blocks'] },
+    { id: 'code',   label: 'C++',    panels: ['code'] },
   ] },
-  { id: 'simulate', label: 'SIMULATE', icon: 'play', home: 'simhome', tabs: [
-    { id: 'sim',     label: 'Simulator', panels: ['sim'] },
+  { id: 'simulate', label: 'Simulate', icon: 'play', home: 'simhome', tabs: [
+    { id: 'sim',     label: 'Run',       panels: ['sim'] },
     { id: 'robot',   label: 'Robot',     panels: ['robot'] },
     { id: 'physics', label: 'Physics',   panels: ['physics'] },
   ] },
-  { id: 'settings', label: 'SETTINGS', icon: 'gear', tabs: [
+  { id: 'settings', label: 'Settings', icon: 'gear', tabs: [
     { id: 'settings', label: 'Settings', panels: ['settings'] },
   ] },
 ]

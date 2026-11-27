@@ -10,7 +10,7 @@ import { wireStyle } from '../utils/wiring.js'
 const PIN_COLOR_HOVER   = 0xffffff
 const HANDLE_RADIUS     = 0.14
 const PREVIEW_COLOR     = 0x44ddff
-// Wires are made and shown only in ELEC → Wiring (Workbench / Pick a Pin). The
+// Wires are made and shown only in Build → Wiring (Workbench / Pick a Pin). The
 // 3D view shows the parts without wire tubes and doesn't do drag-to-connect.
 // Connections still live in electronicsStore.connections and drive the sim.
 const SHOW_3D_WIRES = false

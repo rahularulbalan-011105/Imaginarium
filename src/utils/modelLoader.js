@@ -91,6 +91,7 @@ const MODEL_PATHS = {
   stepper:      `${BASE}models/stepper.glb`, // tools/models/stepper.model.js (28BYJ-48)
   uln2003:      `${BASE}models/uln2003.glb`, // tools/models/uln2003.model.js
   pca9685:      `${BASE}models/pca9685.glb`, // tools/models/pca9685.model.js
+  tft28:        `${BASE}models/tft28.glb`,   // tools/models/tft28.model.js (Waveshare 2.8" touch LCD, scene units)
 }
 
 // module-level cache: name → THREE.Group (scaled & centered) | null (not found)

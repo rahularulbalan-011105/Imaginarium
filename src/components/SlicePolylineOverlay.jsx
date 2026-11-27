@@ -86,17 +86,18 @@ export default function SlicePolylineOverlay({ containerRef }) {
         ))}
       </svg>
 
-      {/* Controls */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-gray-900/90 border border-red-500/60 text-red-200 text-xs font-medium px-3 py-2 rounded-full shadow-lg">
-        <span className="text-base">🔪</span>
-        <span>Click to draw the cut line · drag a dot to bend · double-click a dot to delete</span>
-        <button onClick={apply}   className="ml-1 px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-white">✂ Slice</button>
-        <button onClick={clearAll} className="px-2 py-1 rounded bg-gray-700 hover:bg-gray-600 text-gray-200">Clear</button>
-        <button onClick={exit}    className="px-2 py-1 rounded text-red-300 hover:text-white">✕ Exit</button>
+      {/* Controls — same bottom-centre toast as the other tool modes */}
+      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-lg text-[12px] text-white"
+        style={{ background: 'rgba(31,41,55,0.94)', boxShadow: '0 6px 20px rgba(0,0,0,0.18)' }}>
+        <span>Click to draw the cut line. Drag a dot to bend it; double-click a dot to remove it.</span>
+        <button onClick={apply}    className="h-7 px-3 rounded-md font-semibold bg-orange-500 hover:bg-orange-600 text-white">Slice</button>
+        <button onClick={clearAll} className="h-7 px-3 rounded-md font-semibold bg-white/10 hover:bg-white/20">Clear</button>
+        <button onClick={exit}     className="h-7 px-3 rounded-md font-semibold bg-white/10 hover:bg-white/20">Done</button>
       </div>
 
       {err && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 bg-red-900/90 border border-red-500 text-red-100 text-xs px-3 py-1.5 rounded-lg shadow pointer-events-none">
+        <div className="absolute bottom-[88px] left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-lg text-[12px] text-white pointer-events-none"
+          style={{ background: '#b91c1c' }}>
           {err}
         </div>
       )}

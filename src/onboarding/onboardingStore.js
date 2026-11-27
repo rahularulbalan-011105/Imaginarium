@@ -17,15 +17,21 @@ const LS = {
 const safeGet = (k) => { try { return localStorage.getItem(k) } catch { return null } }
 const safeSet = (k, v) => { try { localStorage.setItem(k, v) } catch { /* ignore */ } }
 
+// The start screen opens by itself once, on a first visit to the plain editor —
+// never over a shared/cloud project link or the Claude (MCP) bridge.
+const firstVisit = () => {
+  if (typeof window === 'undefined' || safeGet(LS.welcome)) return false
+  const q = window.location.search + window.location.hash
+  return !/[?&#](project|share|mcp)\b/.test(q)
+}
+
 const loadHints = () => {
   try { return JSON.parse(safeGet(LS.hints) || '{}') } catch { return {} }
 }
 
 export const useOnboardingStore = create((set) => ({
-  // First-run welcome card. No longer auto-opens — first-time visitors are dropped
-  // straight into the "repair the puppy" mission (see App.jsx). Still reachable
-  // programmatically via openWelcome().
-  welcomeOpen: false,
+  // Start screen (WelcomeOverlay): opens on a first visit and from File → New project.
+  welcomeOpen: firstVisit(),
 
   // Product tour
   tourActive: false,

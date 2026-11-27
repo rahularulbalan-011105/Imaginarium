@@ -13,6 +13,7 @@ const ELEC_MASS = {
   servo: 0.021, led: 0.003,
   ultrasonic: 0.0085, ir_sensor: 0.003, gas_sensor: 0.010, color_sensor: 0.005,
   ldr_sensor: 0.003, dht11: 0.004, oled: 0.006, buzzer: 0.003,
+  tft28: 0.042,   // Waveshare 2.8" touch LCD (42 g, product page)
   l298n: 0.030,   // L298N module incl. heatsink
   motor_enc: 0.032, // TT motor + encoder board
   servo_cr: 0.011, // FS90R continuous servo

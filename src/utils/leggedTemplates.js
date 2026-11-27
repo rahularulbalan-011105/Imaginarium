@@ -1,4 +1,4 @@
-// Code templates for legged robots (CODE → C++ Coding → Templates).
+// Code templates for legged robots (Code → C++ → Templates).
 //
 // They steer the body with walk()/turn()/stopWalking(); the built-in gait
 // engine moves the legs. Sign convention = the sim D-pad:
@@ -51,7 +51,7 @@ export const LEGGED_TEMPLATES = [
 // duck): it physically cannot turn, so this sketch never asks it to.
 // walk(speed): -100..100 (%). The built-in gait moves the legs — don't also
 // Servo.write() the leg servos in this sketch.
-// Tip: if "Forward" walks it backward, set SIMULATE → Physics → Robot →
+// Tip: if "Forward" walks it backward, set Simulate → Physics → Robot →
 // Forward axis to the way the robot faces.
 
 const int SPEED     = 70;    // walking speed, % (1..100)
@@ -88,7 +88,7 @@ void loop() {
 // one can't turn: the sim ignores turn() and says so on the Serial monitor —
 // use the "2 legs: forward / back" template for that robot instead.
 // walk(+) forward · walk(-) backward · turn(+) left · turn(-) right (-100..100 %).
-// Tip: if "Forward" walks it backward, set SIMULATE → Physics → Robot →
+// Tip: if "Forward" walks it backward, set Simulate → Physics → Robot →
 // Forward axis to the way the robot faces.
 
 ${MOVES}`,
@@ -101,7 +101,7 @@ ${MOVES}`,
 // twist servo. The built-in trot gait moves the legs — don't also
 // Servo.write() the leg servos in this sketch.
 // walk(+) forward · walk(-) backward · turn(+) left · turn(-) right (-100..100 %).
-// Tip: if "Forward" walks it backward, set SIMULATE → Physics → Robot →
+// Tip: if "Forward" walks it backward, set Simulate → Physics → Robot →
 // Forward axis to the way the robot faces.
 
 ${MOVES}`,

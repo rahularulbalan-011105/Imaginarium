@@ -13,7 +13,9 @@ const GROUPS = [
   {
     title: 'Transform',
     rows: [
-      ['W', 'Move (translate)'], ['E', 'Rotate'], ['R', 'Scale'],
+      ['Q', 'Handles: squares resize, cone lifts, arrows turn'],
+      ['W', 'Move arrows'], ['E', 'Rotate rings'], ['R', 'Scale handles'],
+      ['Arrow keys', 'Nudge (Shift = up/down)'],
       ['Shift + S', 'Snap rotation to nearest axis'],
     ],
   },
@@ -22,20 +24,24 @@ const GROUPS = [
     rows: [
       ['Ctrl + Z', 'Undo'], ['Ctrl + Y', 'Redo'],
       ['Ctrl + C', 'Copy selected'], ['Ctrl + V', 'Paste'],
-      ['Ctrl + D', 'Duplicate selected'], ['Delete', 'Delete selected'],
+      ['Ctrl + D', 'Duplicate (repeat to copy the last step)'], ['Delete', 'Delete selected'],
+      ['Ctrl + G', 'Group'], ['Ctrl + Shift + G', 'Ungroup'],
+      ['Ctrl + L', 'Lock / unlock'], ['Ctrl + Shift + H', 'Hide'],
     ],
   },
   {
     title: 'View & selection',
     rows: [
       ['G', 'Toggle grid'], ['A', 'Toggle axes'], ['F', 'Frame / fit selection'],
-      ['Shift + Click', 'Select a 2nd object (Boolean / joints)'], ['Esc', 'Deselect / cancel'],
+      ['Shift + Click', 'Add to / remove from selection'], ['Drag on empty space', 'Box-select'],
+      ['Esc', 'Deselect / cancel'],
     ],
   },
   {
     title: 'Camera (mouse)',
     rows: [
-      ['Scroll', 'Zoom'], ['Middle-drag', 'Orbit'], ['Right-drag', 'Pan'],
+      ['Drag a part', 'Move it on the grid'], ['Right-drag', 'Orbit'],
+      ['Middle-drag / Shift + right-drag', 'Pan'], ['Scroll', 'Zoom'], ['Alt + drag', 'Orbit (trackpad)'],
     ],
   },
 ]
