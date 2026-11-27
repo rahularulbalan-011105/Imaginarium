@@ -106,7 +106,7 @@ class SceneManager {
     this.scene.add(fill)
 
     // Grid
-    this.grid = new THREE.GridHelper(60, 60, 0x4caf50, 0xa5d6a7)
+    this.grid = new THREE.GridHelper(60, 60, 0x7aa0d4, 0xc9d7ea)
     this.grid.position.y = 0
     this.scene.add(this.grid)
 
@@ -327,8 +327,61 @@ class SceneManager {
     this.scene.add(group)
   }
 
+  /** Zoom toward / away from the orbit target. factor < 1 = closer. */
+  zoomBy(factor) {
+    if (!this.camera || !this.orbitControls) return
+    const t = this.orbitControls.target
+    const off = this.camera.position.clone().sub(t)
+    const d = THREE.MathUtils.clamp(off.length() * factor, this.orbitControls.minDistance, this.orbitControls.maxDistance)
+    this.camera.position.copy(t).add(off.setLength(d))
+    this.orbitControls.update()
+    this.requestRender(400, true)
+  }
+
+  /** Frame every visible part (or the given meshes), keeping the viewing direction. */
+  fitAll(meshes = null) {
+    if (!this.camera || !this.orbitControls) return
+    const list = meshes ?? objectManager.getAllMeshes().filter((m) => m.visible && !m.userData.isWire)
+    const box = new THREE.Box3()
+    for (const m of list) box.expandByObject(m)
+    if (box.isEmpty()) { this.resetCamera(); return }
+    const center = box.getCenter(new THREE.Vector3())
+    const r = Math.max(box.getBoundingSphere(new THREE.Sphere()).radius, 1)
+    const dir = this.camera.position.clone().sub(this.orbitControls.target).normalize()
+    const dist = r / Math.sin(THREE.MathUtils.degToRad(this.camera.fov / 2)) * 1.1
+    this.orbitControls.target.copy(center)
+    this.camera.position.copy(center).addScaledVector(dir, dist)
+    this.orbitControls.update()
+    this.requestRender(400, true)
+  }
+
+  /**
+   * Flat ("orthographic-style") view. Instead of swapping in a second camera
+   * (several managers hold a reference to this one), the same camera narrows
+   * its field of view and steps back by the same ratio: what is framed stays
+   * framed, and perspective all but disappears — distances read true.
+   */
+  setFlatView(flat) {
+    if (!this.camera || !this.orbitControls || !!this._flat === !!flat) return
+    const t = this.orbitControls.target
+    const fromFov = this.camera.fov, toFov = flat ? 4 : 60
+    const ratio = Math.tan(THREE.MathUtils.degToRad(fromFov / 2)) / Math.tan(THREE.MathUtils.degToRad(toFov / 2))
+    const off = this.camera.position.clone().sub(t).multiplyScalar(ratio)
+    this.orbitControls.maxDistance = flat ? 8000 : 500
+    this.orbitControls.minDistance = flat ? 5 : 0.5
+    this.camera.fov = toFov
+    this.camera.far = flat ? 100000 : 10000
+    this.camera.position.copy(t).add(off)
+    this.camera.updateProjectionMatrix()
+    this.orbitControls.update()
+    this._flat = !!flat
+    this.requestRender(400, true)
+  }
+  get isFlatView() { return !!this._flat }
+
   resetCamera() {
-    this.camera.position.set(12, 10, 12)
+    const d = this._flat ? Math.tan(THREE.MathUtils.degToRad(30)) / Math.tan(THREE.MathUtils.degToRad(2)) : 1
+    this.camera.position.set(12 * d, 10 * d, 12 * d)
     this.orbitControls.target.set(0, 0, 0)
     this.orbitControls.update()
   }

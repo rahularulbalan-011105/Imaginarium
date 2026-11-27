@@ -862,13 +862,13 @@ class SimulationManager {
         reportIssue(makeIssue('electronics', `elec:l298n-gnd:${o.id}`,
           `${name}: GND is not connected to the board`,
           'The driver and the board must share a ground. Without it the IN/EN signals have no reference, so the motors will not move.',
-          `ELEC → Wiring: connect ${name} GND → the board's GND.`))
+          `Build → Wiring: connect ${name} GND → the board's GND.`))
       }
       if (drivesMotors && !controlled.has(o.id)) {
         reportIssue(makeIssue('electronics', `elec:l298n-in:${o.id}`,
           `${name}: no control wires from the board`,
           'Motors are wired to its OUT pins, but none of IN1–IN4 is connected to a board pin, so nothing tells it which way to turn them.',
-          `ELEC → Wiring: connect ${name} IN1/IN2 (motor A) and IN3/IN4 (motor B) to board pins, e.g. D7/D8 and D9/D10.`))
+          `Build → Wiring: connect ${name} IN1/IN2 (motor A) and IN3/IN4 (motor B) to board pins, e.g. D7/D8 and D9/D10.`))
       }
     }
   }
@@ -890,15 +890,15 @@ class SimulationManager {
       if (!ulns[o.id].grounded) reportIssue(makeIssue('electronics', `elec:uln2003-gnd:${o.id}`,
         `${name}: GND (−) is not connected to the board`,
         'The driver and the board must share a ground, or the IN signals have no reference and no coil switches on.',
-        `ELEC → Wiring: connect ${name} GND → the board's GND.`))
+        `Build → Wiring: connect ${name} GND → the board's GND.`))
       if (!ulns[o.id].powered) reportIssue(makeIssue('electronics', `elec:uln2003-vcc:${o.id}`,
         `${name}: VCC (+) has no supply`,
         'The motor coils are powered through the driver’s + pin. With nothing on it, no current flows.',
-        `ELEC → Wiring: connect ${name} VCC → the board's 5V.`))
+        `Build → Wiring: connect ${name} VCC → the board's 5V.`))
       if (!controlled.has(o.id)) reportIssue(makeIssue('electronics', `elec:uln2003-in:${o.id}`,
         `${name}: no control wires from the board`,
         'None of IN1–IN4 is connected to a board pin, so nothing switches the coils.',
-        `ELEC → Wiring: connect ${name} IN1–IN4 to board pins, e.g. D8, D9, D10, D11.`))
+        `Build → Wiring: connect ${name} IN1–IN4 to board pins, e.g. D8, D9, D10, D11.`))
     }
     for (const o of this._objects) {
       if (o.type !== 'stepper') continue
@@ -911,7 +911,7 @@ class SimulationManager {
       else if (!stepWire.common.has(o.id)) reportIssue(makeIssue('electronics', `elec:stepper-com:${o.id}`,
         `${name}: the red common wire is not connected`,
         'Every coil returns through the red wire. Without it no coil current flows, so the motor cannot move.',
-        `ELEC → Wiring: connect ${name} RED → the ULN2003's COM pin.`))
+        `Build → Wiring: connect ${name} RED → the ULN2003's COM pin.`))
     }
   }
 
@@ -933,20 +933,20 @@ class SimulationManager {
       if (w.swapped) reportIssue(makeIssue('electronics', `elec:pca-swap:${o.id}`,
         `${name}: SDA and SCL are swapped`,
         'SDA is the data line and SCL the clock. Crossed over, the chip never sees a valid start condition, so it ignores every command.',
-        `ELEC → Wiring: ${bus}.`))
+        `Build → Wiring: ${bus}.`))
       else if (!(w.sda && w.scl)) reportIssue(makeIssue('electronics', `elec:pca-i2c:${o.id}`,
         `${name} is not on the I2C bus`,
         `The board gets its commands over two wires, SDA and SCL. ${!w.sda && !w.scl ? 'Neither is' : (!w.sda ? 'SDA is' : 'SCL is')} wired to the board's I2C pins, so no command reaches it.`,
-        `ELEC → Wiring: ${bus}.`))
+        `Build → Wiring: ${bus}.`))
       if (!w.logic) reportIssue(makeIssue('electronics', `elec:pca-vcc:${o.id}`,
         `${name}: the chip has no power`,
         'VCC (3–5 V) runs the PCA9685 chip itself. Without VCC and GND it cannot answer on the bus.',
-        `ELEC → Wiring: connect ${name} VCC → 5V and GND → GND.`))
+        `Build → Wiring: connect ${name} VCC → 5V and GND → GND.`))
       const used = Object.keys(w.channels).length
       if (used && !w.rail) reportIssue(makeIssue('electronics', `elec:pca-vplus:${o.id}`,
         `${name}: the servo headers have no power (V+)`,
         'V+ feeds only the servo headers, separately from the chip’s VCC. Without it the pulses arrive but the servos have no power to move.',
-        `ELEC → Wiring: connect ${name} V+ → 5V (fine for a few small servos; a robot with many servos uses a separate 5–6 V supply on the screw terminal).`))
+        `Build → Wiring: connect ${name} V+ → 5V (fine for a few small servos; a robot with many servos uses a separate 5–6 V supply on the screw terminal).`))
       if (!used) reportIssue(makeIssue('electronics', `elec:pca-empty:${o.id}`,
         `${name}: no servo is plugged into a channel`,
         'The chip makes pulses on its 16 channels, but no servo SIGNAL is connected to any PWM pin.',
@@ -965,11 +965,11 @@ class SimulationManager {
       if (wiredOut && !w.powered) reportIssue(makeIssue('electronics', `elec:enc-power:${o.id}`,
         `${name}: the encoder has no power`,
         'The Hall sensors need their own supply. Without VCC and GND the A/B outputs never change, so the count stays at 0 even while the motor turns.',
-        `ELEC → Wiring: connect ${name} VCC → 5V and GND → GND.`))
+        `Build → Wiring: connect ${name} VCC → 5V and GND → GND.`))
       if (usesEncoder && !wiredOut) reportIssue(makeIssue('electronics', `elec:enc-pins:${o.id}`,
         `${name}: encoder A/B are not wired to the board`,
         'The sketch reads an encoder, but this motor’s ENC_A / ENC_B outputs go nowhere.',
-        `ELEC → Wiring: connect ${name} ENC_A → pin 2 and ENC_B → pin 4 (as in the template).`, 'warning'))
+        `Build → Wiring: connect ${name} ENC_A → pin 2 and ENC_B → pin 4 (as in the template).`, 'warning'))
     }
   }
 

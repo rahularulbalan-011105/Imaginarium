@@ -21,6 +21,13 @@ import SlicePolylineOverlay from './SlicePolylineOverlay.jsx'
 import SurfaceAttachPrompt from './SurfaceAttachPrompt.jsx'
 import ExtrudePanel from './ExtrudePanel.jsx'
 import ViewGizmo from './ViewGizmo.jsx'
+import SelectionInspector from './SelectionInspector.jsx'
+import EditBar from './EditBar.jsx'
+import { handlesManager, useHandleDrag } from '../managers/HandlesManager.js'
+import * as edit from '../managers/editActions.js'
+import { applyMouseMapping, beginSlide, updateSlide, endSlide, isSliding, boxSelect, DRAG_THRESHOLD_PX } from '../managers/directManipulation.js'
+import ViewControls from './ViewControls.jsx'
+import { usePlacement, placeAt, groundPointFromEvent, showMarkerAt, hideMarker, cancelPlacement, viewCenterPoint } from '../managers/placement.js'
 import ViewportToolbox from './ViewportToolbox.jsx'
 import { WORKSPACE_PANELS } from './shell/nav.js'
 import DrivePanel from './DrivePanel.jsx'
@@ -48,6 +55,9 @@ export default function Viewport() {
   const objects = useSceneStore((s) => s.objects)
   const selectedId = useSceneStore((s) => s.selectedId)
   const secondaryId = useSceneStore((s) => s.secondaryId)
+  const extraIds = useSceneStore((s) => s.extraIds)
+  const extraFor = useSceneStore((s) => s.extraFor)
+  const primaryLocked = useSceneStore((s) => !!s.objects.find((o) => o.id === s.selectedId)?.locked)
   const gridVisible = useSceneStore((s) => s.gridVisible)
   const axesVisible = useSceneStore((s) => s.axesVisible)
   const updateObject = useSceneStore((s) => s.updateObject)
@@ -84,6 +94,12 @@ export default function Viewport() {
   const { snapshot } = useHistory()
 
   const [pickMode, setPickMode] = useState(null)         // objectId being picked, or null
+  const pickModeRef = useRef(null)
+  pickModeRef.current = pickMode
+  // Left-button gesture on the canvas: { kind: 'part'|'empty', id?, x, y, shift, active }
+  const gesture = useRef(null)
+  const suppressClick = useRef(false)   // a drag/box just ended → the click that follows is not a selection
+  const [marquee, setMarquee] = useState(null)   // { x0, y0, x1, y1 } in container px
   const patchDrawingRef = useRef(false)                   // true while drawing a new patch
   const patchDownRef    = useRef(null)                    // screen point where a surface press began
 
@@ -158,6 +174,8 @@ export default function Viewport() {
     patchManager.init(sceneManager.scene, sceneManager.camera, objectManager)
     driveManager.init(sceneManager.scene, objectManager)
     alignmentManager.init(sceneManager.scene, sceneManager.camera, sceneManager.renderer)
+    handlesManager.init()
+    handlesRef.current = (e, bounds) => handlesManager.pointerDown(e, bounds)
     initialized.current = true
 
     sceneManager.onTransformChange = () => {
@@ -267,7 +285,7 @@ export default function Viewport() {
       // a bare objects-array was pushed and undoing a drag wiped the whole scene.
       recordSnapshot('transform')
 
-      // Attaching to a motor shaft is an intentional action now (CAD → Design →
+      // Attaching to a motor shaft is an intentional action now (Design → Edit →
       // Attach); a drag no longer pops up an attach / keep-separate prompt.
     }
 
@@ -282,6 +300,11 @@ export default function Viewport() {
     // By firing first (capture=true) and disabling orbit before OrbitControls
     // sees the event, we prevent the camera from spinning during wire drags.
     const canvas = canvasRef.current
+    // Tinkercad mouse buttons. OrbitControls reads them on pointerdown (which
+    // fires before mousedown), so map them in a capture-phase pointerdown.
+    applyMouseMapping({ altKey: false, shiftKey: false })
+    const mapButtons = (e) => applyMouseMapping(e)
+    canvas.addEventListener('pointerdown', mapButtons, { capture: true })
     const captureDown = (e) => {
       if (!initialized.current) return
       const bounds = canvas.getBoundingClientRect()
@@ -300,9 +323,11 @@ export default function Viewport() {
 
     return () => {
       ro.disconnect()
+      canvas.removeEventListener('pointerdown', mapButtons, { capture: true })
       canvas.removeEventListener('mousedown', captureDown, { capture: true })
       canvas.removeEventListener('mousemove', captureMove, { capture: true })
       alignmentManager.dispose()
+      handlesManager.dispose()
       sceneManager.dispose()
       initialized.current = false
       dragging.current = false
@@ -413,17 +438,24 @@ export default function Viewport() {
     // Disable transform gizmo during simulation — objects are grouped under rootGroup
     if (simActive) {
       sceneManager.detachTransform()
+      handlesManager.setTarget(null)
+      objectManager.setSelectionHighlights(null, null)   // no selection outlines on a running robot
       return
     }
-    // Don't attach transform gizmo to objects riding a motor rotor
-    if (selectedId && !attachments[selectedId]) {
+    // The arrows go on ONE part: not on parts riding a motor rotor, not on a
+    // locked part, not while several parts are selected (drag those on the grid)
+    // and not in Tinkercad-handles mode (the handles replace them).
+    const extras = extraFor && extraFor === selectedId ? extraIds : []
+    if (selectedId && !attachments[selectedId] && !primaryLocked && !secondaryId && transformMode !== 'handles') {
       const mesh = objectManager.getMesh(selectedId)
       sceneManager.attachTransformTo(mesh || null)
     } else {
       sceneManager.detachTransform()
     }
-    objectManager.setSelectionHighlights(selectedId, secondaryId)
-  }, [selectedId, secondaryId, attachments, simActive])
+    objectManager.setSelectionHighlights(selectedId, secondaryId, extras)
+    const showHandles = selectedId && !secondaryId && !attachments[selectedId] && !primaryLocked && transformMode === 'handles'
+    handlesManager.setTarget(showHandles ? selectedId : null)
+  }, [selectedId, secondaryId, extraIds, extraFor, attachments, simActive, transformMode, primaryLocked])
 
   // Sync grid/axes visibility
   useEffect(() => {
@@ -442,15 +474,23 @@ export default function Viewport() {
     const mode = (selObj && ELEC.includes(selObj.type) && transformMode === 'scale')
       ? 'translate'
       : transformMode
-    sceneManager.setTransformMode(mode)
+    if (mode !== 'handles') sceneManager.setTransformMode(mode)   // handles mode has no gizmo
   }, [transformMode, selectedId, objects])
 
 
   const [wireDragging, setWireDragging] = useState(false)
+  const rightDown = useRef(null)        // where a right-press started (orbit vs. right-click)
+  const handlesRef = useRef(null)       // (e, bounds) → true when a Tinkercad handle took the press
+  const placing = usePlacement((s) => s.pending)
+  const handleLabel = useHandleDrag((s) => s.label)
+  const downAt = useRef(null)   // mouse-down position: a click that moved is an orbit, not a placement
 
   const handleMouseDown = useCallback((e) => {
     if (!initialized.current) return
     const bounds = canvasRef.current.getBoundingClientRect()
+    downAt.current = { x: e.clientX, y: e.clientY }
+    if (e.button === 2) rightDown.current = { x: e.clientX, y: e.clientY }
+    if (usePlacement.getState().pending) return   // placing: orbit still works, nothing else starts
 
     if (surfaceToolRef.current) {
       // Surface mode: pick existing patch/handle to move/resize, or start drawing a new one
@@ -473,12 +513,43 @@ export default function Viewport() {
     }
 
     const consumed = wireManager.onMouseDown(e, bounds)
-    if (consumed) setWireDragging(true)
+    if (consumed) { setWireDragging(true); return }
+
+    // ── Tinkercad direct manipulation: left-drag a part slides it on the grid,
+    //    left-drag on empty space draws a selection box. Not in tool modes, not
+    //    while simulating, and not when the press lands on the gizmo / a handle.
+    const ui = useUiStore.getState()
+    if (e.button !== 0 || e.altKey || ui.simActive || extrudeToolRef.current || ui.sliceToolActive || jointPickRef.current || pickModeRef.current) return
+    if (sceneManager.transformControls?.axis) return          // pressing the move/rotate/scale gizmo
+    if (handlesRef.current?.(e, bounds)) return                // pressing a Tinkercad handle
+    const hit = sceneManager.pickObject(e, bounds)
+    gesture.current = { kind: hit ? 'part' : 'empty', id: hit?.userData.id, x: e.clientX, y: e.clientY, shift: e.shiftKey, active: false }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMouseMove = useCallback((e) => {
     if (!initialized.current) return
     const bounds = canvasRef.current.getBoundingClientRect()
+
+    // Placing a part: the marker follows the mouse over the workplane.
+    if (usePlacement.getState().pending) { showMarkerAt(groundPointFromEvent(e, bounds)); return }
+
+    // Tinkercad handles: an active handle drag owns the mouse; otherwise hover-highlight.
+    if (handlesManager.active) { handlesManager.pointerMove(e, bounds); return }
+    if (!gesture.current) handlesManager.pointerMove(e, bounds)
+
+    const g = gesture.current
+    if (g) {
+      if (!g.active && Math.hypot(e.clientX - g.x, e.clientY - g.y) > DRAG_THRESHOLD_PX) {
+        g.active = g.kind === 'part' ? beginSlide({ clientX: g.x, clientY: g.y }, bounds, g.id) : true
+        if (!g.active) { gesture.current = null; suppressClick.current = true }   // e.g. a locked part: no move, and no stray re-select on release
+      }
+      if (g.active && g.kind === 'part') { updateSlide(e, bounds); return }
+      if (g.active && g.kind === 'empty') {
+        const c = containerRef.current.getBoundingClientRect()
+        setMarquee({ x0: Math.min(g.x, e.clientX) - c.left, y0: Math.min(g.y, e.clientY) - c.top, x1: Math.max(g.x, e.clientX) - c.left, y1: Math.max(g.y, e.clientY) - c.top })
+        return
+      }
+    }
 
     if (surfaceToolRef.current) {
       if (patchManager.isDrawing) patchManager.updateDraw(e, bounds)
@@ -529,12 +600,31 @@ export default function Viewport() {
       return
     }
 
+    if (handlesManager.pointerUp()) { suppressClick.current = true; gesture.current = null; return }
+
+    const g = gesture.current
+    gesture.current = null
+    if (g?.active) {
+      suppressClick.current = true
+      if (g.kind === 'part') endSlide()
+      else {
+        const r = { x0: Math.min(g.x, e.clientX), y0: Math.min(g.y, e.clientY), x1: Math.max(g.x, e.clientX), y1: Math.max(g.y, e.clientY) }
+        boxSelect(r, bounds, g.shift)
+        setMarquee(null)
+      }
+      return
+    }
+
     wireManager.onMouseUp(e, bounds)
     if (sceneManager.orbitControls) sceneManager.orbitControls.enabled = true
     setWireDragging(false)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMouseLeave = useCallback(() => {
+    hideMarker()
+    if (gesture.current?.active) { if (isSliding()) endSlide(); setMarquee(null) }
+    handlesManager.pointerUp()
+    gesture.current = null
     if (wireManager.isDragging) {
       wireManager.cancelDrag()
       if (sceneManager.orbitControls) sceneManager.orbitControls.enabled = true
@@ -544,6 +634,7 @@ export default function Viewport() {
 
   const handleContextMenu = useCallback((e) => {
     if (!initialized.current) return
+    if (rightDown.current && Math.hypot(e.clientX - rightDown.current.x, e.clientY - rightDown.current.y) > DRAG_THRESHOLD_PX) { e.preventDefault(); return }
     const bounds = canvasRef.current.getBoundingClientRect()
     wireManager.onContextMenu(e, bounds)
   }, [])
@@ -554,6 +645,11 @@ export default function Viewport() {
   const handleViewportDrop = useCallback(async (e) => {
     e.preventDefault()
     setDropHighlight(false)
+    // A library card dragged onto the view: drop the part where it was released.
+    if (usePlacement.getState().pending && !e.dataTransfer.files?.length) {
+      placeAt(groundPointFromEvent(e, canvasRef.current.getBoundingClientRect()))
+      return
+    }
     const files = Array.from(e.dataTransfer.files)
     for (const file of files) {
       const ext  = file.name.split('.').pop().toLowerCase()
@@ -583,9 +679,19 @@ export default function Viewport() {
 
   const handleClick = useCallback(
     (e) => {
+      if (suppressClick.current) { suppressClick.current = false; return }
       if (!initialized.current || dragging.current) return
       if (wireManager.isDragging) return
       const bounds = canvasRef.current.getBoundingClientRect()
+
+      // ── Placing a part: a click on the grid puts it there (Shift = keep placing) ──
+      if (usePlacement.getState().pending) {
+        const d = downAt.current
+        if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return   // that was an orbit drag
+        placeAt(groundPointFromEvent(e, bounds), e.shiftKey)
+        hideMarker()
+        return
+      }
 
       // ── Joint feature-pick mode: pick a corner/edge/face on each object ───
       if (jointPickRef.current) {
@@ -694,11 +800,9 @@ export default function Viewport() {
 
       const hit = sceneManager.pickObject(e, bounds)
 
+      // Shift+click adds a part to the selection (or takes it out again).
       if (e.shiftKey) {
-        if (hit) {
-          const id = hit.userData.id
-          if (id !== selectedId) setSecondaryId(id)
-        }
+        if (hit) useSceneStore.getState().toggleSelect(hit.userData.id)
         return
       }
 
@@ -725,8 +829,12 @@ export default function Viewport() {
       ref={containerRef}
       data-tour="viewport"
       className="relative flex-1 overflow-hidden bg-white"
-      onDragOver={(e) => { e.preventDefault(); setDropHighlight(true) }}
-      onDragLeave={() => setDropHighlight(false)}
+      onDragOver={(e) => {
+        e.preventDefault()
+        if (usePlacement.getState().pending) { showMarkerAt(groundPointFromEvent(e, canvasRef.current.getBoundingClientRect())); return }
+        setDropHighlight(true)
+      }}
+      onDragLeave={() => { setDropHighlight(false); hideMarker() }}
       onDrop={handleViewportDrop}
     >
       {glError && (
@@ -752,7 +860,7 @@ export default function Viewport() {
       <canvas
         ref={canvasRef}
         className={`block w-full h-full ${
-          surfaceToolActive || extrudeToolActive || jointPick ? 'cursor-crosshair' : pickMode ? 'cursor-cell' : 'cursor-default'
+          placing || surfaceToolActive || extrudeToolActive || jointPick ? 'cursor-crosshair' : pickMode ? 'cursor-cell' : 'cursor-default'
         }`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
@@ -765,112 +873,53 @@ export default function Viewport() {
       {/* Slice tool — editable cut-line overlay */}
       {sliceToolActive && <SlicePolylineOverlay containerRef={containerRef} />}
 
-      {/* Face attach mode overlay */}
-      {surfaceToolActive && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="flex items-center gap-2 bg-cyan-900/90 border border-cyan-500/70 text-cyan-200 text-xs font-medium px-4 py-2 rounded-full shadow-lg">
-            <span className="text-base">⊞</span>
-            Click a face on Object 1, then click a face on Object 2 — or hold &amp; drag to draw a custom patch
-            <button
-              className="pointer-events-auto ml-2 text-cyan-400 hover:text-slate-900 transition-colors"
-              onClick={() => useUiStore.getState().setSurfaceTool(false)}
-            >
-              ✕ Exit
-            </button>
+      {marquee && (
+        <div className="absolute z-20 pointer-events-none rounded-sm"
+          style={{ left: marquee.x0, top: marquee.y0, width: marquee.x1 - marquee.x0, height: marquee.y1 - marquee.y0,
+            border: '1px solid rgb(var(--a-600))', background: 'rgb(var(--a-600) / 0.08)' }} />
+      )}
+
+      {/* Mode hints — one quiet toast at the bottom centre, so they never sit
+          on top of the toolbar or the view cube. At most one shows at a time,
+          in priority order; tool modes carry their own Done / Cancel. */}
+      {(() => {
+        const ui = useUiStore.getState()
+        const hint =
+            handleLabel ? { text: handleLabel }
+          : placing ? { text: `Click the grid to place the ${placing.label}. Hold Shift to place more.`,
+                        actions: [
+                          { label: 'Put in the middle', onClick: () => placeAt(viewCenterPoint()) },
+                          { label: 'Cancel', onClick: cancelPlacement },
+                        ] }
+          : surfaceToolActive ? { text: 'Attach: click a face on the first part, then a face on the second. Hold and drag to draw your own patch.', action: 'Done', onAction: () => ui.setSurfaceTool(false) }
+          : jointPick         ? { text: jointPick.picks.length === 0 ? 'Click a corner, edge or face on the first part.' : 'Now click a corner, edge or face on the second part.', action: 'Cancel', onAction: () => setJointPick(null) }
+          : pickMode          ? { text: 'Click the exact spot where the motor shaft should connect.', action: 'Cancel', onAction: () => setPickMode(null) }
+          : extrudeToolActive && !extrudeState ? { text: 'Extrude: click a face to pull it outward.', action: 'Done', onAction: () => ui.setExtrudeTool(false) }
+          : wireDragging      ? { text: 'Drop on a pin to connect. Esc cancels.' }
+          : hasBothSelected && bothBooleanReady  ? { text: 'Group joins the selected shapes into one. Set a shape to Hole first to cut it out instead.', action: 'Group', onAction: () => edit.groupSelection() }
+          : null
+        if (!hint) return null
+        return (
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 pointer-events-none select-none max-w-[min(560px,90%)]">
+            <div className="flex items-center gap-3 pl-4 pr-1.5 py-1.5 rounded-lg text-[12px] text-white"
+              style={{ background: 'rgba(31,41,55,0.94)', boxShadow: '0 6px 20px rgba(0,0,0,0.18)', minHeight: 36 }}>
+              <span className="leading-snug">{hint.text}</span>
+              {(hint.actions ?? (hint.action ? [{ label: hint.action, onClick: hint.onAction }] : [])).map((a) => (
+                <button key={a.label} className="pointer-events-auto shrink-0 h-7 px-3 rounded-md text-[12px] font-semibold bg-white/10 hover:bg-white/20" onClick={a.onClick}>{a.label}</button>
+              ))}
+              {!hint.actions && !hint.action && <span className="w-2" />}
+            </div>
           </div>
-        </div>
-      )}
-
-      {/* Joint feature-pick mode overlay */}
-      {jointPick && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="flex items-center gap-2 bg-teal-900/90 border border-teal-500/70 text-teal-100 text-xs font-medium px-4 py-2 rounded-full shadow-lg">
-            <span className="text-base">🎯</span>
-            {jointPick.picks.length === 0
-              ? 'Click a corner, edge, or face on the FIRST object'
-              : 'Now click a corner, edge, or face on the SECOND object'}
-            <button
-              className="pointer-events-auto ml-2 text-teal-400 hover:text-slate-900 transition-colors"
-              onClick={() => setJointPick(null)}
-            >
-              ✕ Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Attachment-point pick mode overlay */}
-      {pickMode && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="flex items-center gap-2 bg-orange-900/90 border border-orange-500/70 text-orange-200 text-xs font-medium px-4 py-2 rounded-full shadow-lg">
-            <span className="text-base">◎</span>
-            Click the exact spot on the prop where the shaft should connect
-            <button
-              className="pointer-events-auto ml-2 text-orange-400 hover:text-slate-900 transition-colors"
-              onClick={() => setPickMode(null)}
-            >
-              ✕ Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Wire dragging hint */}
-      {wireDragging && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-cyan-700/90 border border-cyan-500 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
-          Drag to a pin to connect · Esc to cancel
-        </div>
-      )}
-
-      {/* Shift+click hint when one object is selected */}
-      {selectedId && !secondaryId && !wireDragging && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-indigo-600/90 border border-indigo-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
-          Shift+click another object to enable Boolean operations
-        </div>
-      )}
-
-      {/* Boolean ops active indicator */}
-      {hasBothSelected && bothBooleanReady && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-purple-700/90 border border-purple-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
-          2 objects selected — use the Boolean panel on the right
-        </div>
-      )}
-      {/* Two selected, but one can't be booleaned (wheel / sensor / model helper) */}
-      {hasBothSelected && !bothBooleanReady && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-amber-600/90 border border-amber-400 text-white text-xs px-3 py-1.5 rounded-full pointer-events-none select-none shadow-md">
-          These two can't be combined — Boolean needs two solid shapes
-        </div>
-      )}
-
-      {/* Extrude mode hint */}
-      {extrudeToolActive && !extrudeState && (
-        <div className="absolute top-3 left-1/2 -translate-x-1/2 pointer-events-none">
-          <div className="flex items-center gap-2 bg-purple-900/90 border border-purple-500/70 text-purple-200 text-xs font-medium px-4 py-2 rounded-full shadow-lg">
-            <span className="text-base">⬆</span>
-            Click any face to extrude it outward
-            <button
-              className="pointer-events-auto ml-2 text-purple-400 hover:text-slate-900 transition-colors"
-              onClick={() => useUiStore.getState().setExtrudeTool(false)}
-            >
-              ✕ Exit
-            </button>
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* Empty-scene guidance — purely visual, never blocks canvas input */}
-      {objects.length === 0 && !simActive && !surfaceToolActive && !extrudeToolActive && (
+      {objects.length === 0 && !simActive && !placing && !surfaceToolActive && !extrudeToolActive && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none">
-          <div className="flex flex-col items-center text-center max-w-xs px-6">
-            {/* Drawn on the always-white 3D canvas → fixed colours (not the
-                theme ramp) so they stay readable in both light and dark mode. */}
-            <div className="text-5xl mb-3 opacity-70">🧊</div>
-            <div className="text-base font-semibold text-[#1E293B]">Your scene is empty</div>
-            <div className="text-sm text-[#64748B] mt-1.5 leading-relaxed">
-              Pick a shape from <span className="text-indigo-600 font-medium">CAD → Library</span> (right) to begin —
-              or press keys <span className="font-mono text-[#475569]">1</span>–<span className="font-mono text-[#475569]">0</span>.
-            </div>
-            <div className="text-xs text-[#94A3B8] mt-2">Need a hand? Open Learn in the top bar.</div>
+          {/* Drawn on the always-white 3D canvas → fixed colours (not the
+              theme ramp) so they stay readable in both light and dark mode. */}
+          <div className="text-center text-[13px] leading-relaxed text-[#6B7280] max-w-xs px-6">
+            Add a shape or a part from the panel on the right to start building.
           </div>
         </div>
       )}
@@ -879,9 +928,14 @@ export default function Viewport() {
           Always mounted so the Simulate/Stop control (and its tutorial anchor)
           stays reachable during simulation. */}
       <ViewportToolbox />
+      {!WORKSPACE_PANELS.has(activePanel) && <EditBar />}
+      {!WORKSPACE_PANELS.has(activePanel) && <ViewControls />}
 
       {/* Interactive view cube + quick-view switcher (top-right corner) */}
       {!simActive && !WORKSPACE_PANELS.has(activePanel) && <ViewGizmo />}
+
+      {/* Selection inspector (Tinkercad-style shape card) under the view cube */}
+      {!WORKSPACE_PANELS.has(activePanel) && <SelectionInspector />}
 
       <DimensionOverlay />
       <SurfaceAttachPrompt />
@@ -890,8 +944,8 @@ export default function Viewport() {
       {simActive && <DrivePanel />}
 
       {!simActive && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-xs text-[#64748B] pointer-events-none select-none bg-white/60 px-2 py-0.5 rounded-full">
-          Click to select · Shift+click 2nd object for booleans · Scroll to zoom · Middle-drag to orbit
+        <div className="absolute bottom-2 left-3 text-[11px] text-[#9CA3AF] pointer-events-none select-none">
+          Drag a part to move it · Drag empty space to select · Right-drag to orbit · Middle-drag to pan · Scroll to zoom
         </div>
       )}
     </div>

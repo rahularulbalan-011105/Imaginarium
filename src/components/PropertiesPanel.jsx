@@ -157,13 +157,10 @@ function SurfacePatchPanel({ patches, canAttach, onAttach, onRemove, onUpdatePat
 }
 
 // A titled block of the Design panel (ATTACH above EDIT, same panel — no tree).
-function DesignSection({ title, icon, children }) {
+function DesignSection({ title, children }) {
   return (
-    <section className="rounded-2xl p-3" style={{ background: 'rgb(var(--g-950) / 0.6)', border: '1px solid rgb(var(--g-700) / 0.45)' }}>
-      <div className="flex items-center gap-1.5 mb-2.5">
-        <span style={{ color: 'rgb(var(--a-600))' }}><Icon name={icon} size={13} /></span>
-        <span className="ui-section-title">{title}</span>
-      </div>
+    <section className="px-4 py-4" style={{ borderBottom: '1px solid rgb(var(--g-700))' }}>
+      <h3 className="text-[13px] font-semibold mb-3" style={{ color: 'rgb(var(--g-50))' }}>{title}</h3>
       {children}
     </section>
   )
@@ -213,14 +210,38 @@ function RoundPartControls({ obj, objects, attachedTo, update, snapshot }) {
     const d = obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter
     const w = obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth
     const factor = wheelSpeedFactor(wheelWorldRadius(obj))
+    const mec = obj.wheelStyle === 'mecanum', hand = obj.rollerHand ?? 'A'
     return (
       <div className="mb-3 p-2 bg-gray-800/40 rounded border border-orange-700/30">
         <div className="text-[10px] text-orange-400 uppercase tracking-wider mb-2 font-semibold">Wheel</div>
         <SizeRow label="Diameter" value={d} min={1} max={10} step={0.1} onChange={(v) => update({ wheelDiameter: v })} onCommit={snapshot} />
         <SizeRow label="Width"    value={w} min={0.3} max={4} step={0.1} onChange={(v) => update({ wheelWidth: v })} onCommit={snapshot} />
+        {/* Plain tyre or mecanum rollers (utils/mecanum.js); a mecanum wheel comes in two hands. */}
+        <div className="flex items-center gap-1 mb-1.5">
+          <span className="text-[9px] text-gray-400 w-14 shrink-0">Type</span>
+          {[['plain', 'Plain'], ['mecanum', 'Mecanum']].map(([v, label]) => (
+            <button key={v} onClick={() => { if ((obj.wheelStyle ?? 'plain') !== v) { update(v === 'mecanum' ? { wheelStyle: 'mecanum', rollerHand: obj.rollerHand ?? 'A' } : { wheelStyle: undefined }); snapshot() } }}
+              className={`flex-1 py-0.5 rounded text-[10px] font-semibold ${(obj.wheelStyle ?? 'plain') === v ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>{label}</button>
+          ))}
+        </div>
+        {mec && (
+          <>
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-[9px] text-gray-400 w-14 shrink-0">Rollers</span>
+              {['A', 'B'].map((h) => (
+                <button key={h} onClick={() => { if (hand !== h) { update({ rollerHand: h }); snapshot() } }}
+                  className={`flex-1 py-0.5 rounded text-[10px] font-semibold ${hand === h ? 'bg-indigo-600 text-white' : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}>{h}</button>
+              ))}
+            </div>
+            <div className="text-[9px] text-gray-400 mb-1.5">
+              A mecanum robot needs two of each, in an X: <span className="text-gray-100 font-semibold">A</span> on front-left + rear-right,
+              <span className="text-gray-100 font-semibold"> B</span> on front-right + rear-left. Mixed up, it can't drive sideways.
+            </div>
+          </>
+        )}
         {/* The rim uses the normal Colour picker; the tyre has its own. */}
         <div className="flex items-center gap-2 mb-1.5">
-          <span className="text-[9px] text-gray-400 w-14 shrink-0">Tyre</span>
+          <span className="text-[9px] text-gray-400 w-14 shrink-0">{mec ? 'Rollers' : 'Tyre'}</span>
           <input type="color" value={obj.tyreColor ?? WHEEL_TYRE_COLOR}
             onChange={(e) => update({ tyreColor: e.target.value })} onBlur={snapshot}
             className="w-8 h-5 rounded border border-gray-700 bg-transparent cursor-pointer" title="Tyre colour (the rim uses the main Colour)" />
@@ -815,7 +836,7 @@ export default function PropertiesPanel() {
   // ── Surface patch panel (shown whenever patches are selected, regardless of object) ──
   if (!obj && selectedPatches.length === 0) {
     return (
-      <Placeholder icon="sliders" title="Design">Select an object to modify or attach operations.</Placeholder>
+      <Placeholder title="Nothing selected">Click a shape or part in the scene to change its size, colour and position here.</Placeholder>
     )
   }
 
@@ -832,391 +853,9 @@ export default function PropertiesPanel() {
   }
 
   return (
-    <div className="flex flex-col gap-3 p-3">
-      {/* ════════ ATTACH ════════ */}
-      <DesignSection title="Attach" icon="link">
-        <div className="mb-3 flex flex-col gap-1.5">
-          <button
-            onClick={() => { const ui = useUiStore.getState(); if (!ui.surfaceToolActive) { ui.setExtrudeTool(false); ui.setSliceTool(false) } ui.setSurfaceTool(!ui.surfaceToolActive) }}
-            className={`ui-btn w-full ${surfaceToolActive ? 'ui-btn-primary' : ''}`}
-            title="Surface attach — click a face on each of two objects, then Align & Bond">
-            {surfaceToolActive ? '✓ Surface attach on — click a face on each object' : '⊕ Surface attach'}
-          </button>
-        </div>
-      {/* Surface patch panel — shown when patches are selected */}
-      {selectedPatches.length > 0 && (
-        <div className="mb-2 border border-cyan-700/40 rounded overflow-hidden">
-          <SurfacePatchPanel
-            patches={selectedPatches}
-            canAttach={canRigidAttach}
-            onAttach={handleRigidAttach}
-            onRemove={handleRemovePatch}
-            onUpdatePatch={updatePatch}
-            objects={objects}
-          />
-        </div>
-      )}
-
-      {/* Attachment badge — shown when this object is riding a motor's rotor */}
-      {attachedMotor && (
-        <div className="mb-3 p-2.5 rounded-xl ui-card">
-          <RelationCard kind={shaftLabel(attachedMotor)} parent={attachedMotor.name} child={obj.name} self="child" />
-
-          {/* Shaft position — quick snap presets */}
-          <div className="mb-2">
-            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Snap to shaft</div>
-            <div className="flex gap-1">
-              {[['Tip', 3.0], ['Mid', 2.2], ['Base', 1.5]].map(([label, x]) => (
-                <button
-                  key={label}
-                  onClick={() => handleShaftSnap(x)}
-                  className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
-                    Math.abs(shaftPos.x - x) < 0.01 && shaftPos.y === 0 && shaftPos.z === 0
-                      ? 'bg-green-700/50 border-green-500/60 text-green-700'
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Fine-tune position along shaft and radial axes */}
-          <div className="mb-2">
-            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Fine position</div>
-            <div className="grid grid-cols-3 gap-1">
-              {[['X', 'x'], ['Y', 'y'], ['Z', 'z']].map(([label, axis]) => (
-                <div key={axis} className="relative" data-tour={axis === 'y' ? 'shaft-pos-y' : undefined}>
-                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">
-                    {label}
-                  </span>
-                  <input
-                    type="number"
-                    value={shaftPos[axis]}
-                    step={0.1}
-                    onChange={(e) => {
-                      const v = parseFloat(e.target.value)
-                      if (!isNaN(v)) handleShaftPosChange(axis, v)
-                    }}
-                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="text-[9px] text-gray-600 mt-1">X = along shaft · Y/Z = radial</div>
-          </div>
-
-          {/* Attachment alignment — corrects an awkward mount without detaching.
-              Rotation is about the part's OWN mount frame, so it stays correct
-              when the servo turns. */}
-          <div className="mb-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Alignment</span>
-              <button
-                onClick={handleResetAlign}
-                title="Return this part to the mount it was given when attached"
-                className="text-[9px] px-1.5 py-0.5 rounded border border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
-              >
-                Reset
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-1">
-              {[['X', 'x'], ['Y', 'y'], ['Z', 'z']].map(([label, axis]) => (
-                <div key={axis} className="relative">
-                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">
-                    {label}
-                  </span>
-                  <input
-                    type="number"
-                    value={attachRot[axis]}
-                    step={5}
-                    title={`Rotate about the part's local ${label} axis`}
-                    onChange={(e) => handleAttachRotChange(axis, parseFloat(e.target.value))}
-                    onBlur={snapshot}
-                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
-                  />
-                </div>
-              ))}
-            </div>
-            <div className="flex gap-1 mt-1">
-              {[['+90°', 90], ['180°', 180], ['−90°', -90]].map(([label, deg]) => (
-                <button
-                  key={label}
-                  onClick={() => handleAttachRotPreset(rotorSpinAxis, deg)}
-                  title={`Turn the part ${label} in its mounting plane`}
-                  className="flex-1 py-1 text-[9px] rounded border bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
-                >
-                  {label}
-                </button>
-              ))}
-              <button
-                onClick={() => handleAttachRotPreset(rotorSpinAxis === 'x' ? 'z' : 'x', 180)}
-                title="Flip the part over on its mount"
-                className="flex-1 py-1 text-[9px] rounded border bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
-              >
-                Flip
-              </button>
-            </div>
-            <div className="text-[9px] text-gray-600 mt-1">Degrees, about the part’s own mount — survives the servo turning</div>
-          </div>
-
-          <button
-            onClick={handleDetach}
-            className="ui-btn ui-btn-danger w-full"
-          >
-            Detach from {shaftLabel(attachedMotor)}
-          </button>
-        </div>
-      )}
-
-      {/* Rigid bond badges */}
-      {myBonds.map(bond => {
-        const otherId  = bond.parentId === obj.id ? bond.childId : bond.parentId
-        const otherObj = objects.find(o => o.id === otherId)
-        const role     = bond.parentId === obj.id ? 'parent' : 'child'
-        const canRotate = !!(bond.contactLocalNormal && bond.contactLocalCenter)
-        return (
-          <div key={bond.id} className="mb-3 p-2.5 rounded-xl ui-card">
-            <RelationCard kind="Surface bond"
-              parent={role === 'parent' ? obj.name : (otherObj?.name ?? '(deleted)')}
-              child={role === 'child' ? obj.name : (otherObj?.name ?? '(deleted)')}
-              self={role} />
-
-            {/* Fine position — X/Y/Z world-space inputs for the bond child */}
-            {role === 'child' && (
-              <div className="mb-2">
-                <div className="text-[9px] text-gray-400 mb-1">Position (world)</div>
-                <div className="grid grid-cols-3 gap-1">
-                  {['x','y','z'].map(axis => {
-                    const childObj = objects.find(o => o.id === bond.childId)
-                    return (
-                      <div key={axis} className="relative">
-                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">{axis}</span>
-                        <input
-                          type="number"
-                          step={0.1}
-                          value={r3(childObj?.position?.[axis] ?? 0)}
-                          onBlur={snapshot}
-                          onChange={e => {
-                            const v = parseFloat(e.target.value)
-                            if (!isNaN(v)) update({ position: { ...childObj?.position, [axis]: v } })
-                          }}
-                          className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-cyan-500"
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Rotate on surface */}
-            {canRotate && (
-              <div className="mb-2">
-                <div className="text-[9px] text-gray-400 mb-1">Rotate on attached surface</div>
-                <div className="flex gap-1">
-                  {[
-                    { label: '↻ +90°', deg:  90 },
-                    { label: '↺ −90°', deg: -90 },
-                    { label: '180°',   deg: 180 },
-                  ].map(({ label, deg }) => (
-                    <button
-                      key={deg}
-                      onClick={() => handleRotate90OnSurface(bond, deg)}
-                      className="ui-btn flex-1 !px-1"
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={() => { removeBond(bond.id); snapshot() }}
-              className="ui-btn ui-btn-danger w-full"
-            >
-              Detach Bond
-            </button>
-          </div>
-        )
-      })}
-
-      {/* Attachment Point — pick a specific spot on the prop surface */}
-      {isAttachable && !attachedMotor && (
-        <div className="mb-3 ui-card p-2.5">
-          <div className="text-[10px] text-orange-400 uppercase tracking-wider font-semibold mb-1">
-            ◎ Attachment Point
-          </div>
-          {obj.attachmentOffset ? (
-            <>
-              <div className="text-[9px] text-gray-400 mb-1.5">
-                Point set — orange dot shows where the shaft connects.
-              </div>
-              <button
-                onClick={() => {
-                  updateObject(selectedId, { attachmentOffset: null })
-                  objectManager.clearAttachmentMarker(selectedId)
-                }}
-                className="w-full py-1.5 text-[10px] text-orange-700 bg-orange-900/30 hover:bg-orange-700/40 border border-orange-700/40 rounded transition-colors"
-              >
-                ✕ Clear Attachment Point
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="text-[9px] text-gray-500 mb-1.5">
-                Click "Pick" then click the exact spot on the prop that should touch the motor shaft.
-              </div>
-              <button
-                data-tour="pick-attach"
-                onClick={() => attachPointEvents.dispatchEvent(new CustomEvent('startPick', { detail: { id: selectedId } }))}
-                className="ui-btn ui-btn-primary w-full"
-              >
-                ◎ Pick Attachment Point
-              </button>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Direct attach: prop selected + shift-click on a motor/servo → one-click attach */}
-      {isAttachable && secondaryShaft && (
-        <div className="mb-3 p-2.5 rounded bg-indigo-900/20 border border-indigo-700/50">
-          <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold mb-1">
-            ⚙ Attach to {shaftLabel(secondaryShaft)}
-          </div>
-          <div className="text-[9px] text-gray-400 mb-2">
-            Attach <span className="text-gray-100 font-medium">{obj.name}</span> to{' '}
-            <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' || secondaryShaft.type === 'servo_cr' ? 'horn' : 'shaft'}.
-          </div>
-          <button
-            onClick={() => handleAttachToMotor(secondaryShaft.id)}
-            className="ui-btn ui-btn-primary w-full"
-          >
-            ✓ Attach to {secondaryShaft.name}
-          </button>
-          <div className="text-[9px] text-gray-600 mt-1">Shift-click a different motor or servo to change target</div>
-        </div>
-      )}
-
-      {/* Attach to Motor/Servo — shown for any non-electronics object that isn't already attached */}
-      {canAttach && (
-        <div className="mb-3">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Shaft Attachment</div>
-          {/* Snap position picker */}
-          <div className="mb-2">
-            <div className="text-[9px] text-gray-500 mb-1">Snap to shaft/horn position:</div>
-            <div className="flex gap-1">
-              {[['Tip', 'tip'], ['Mid', 'mid'], ['Base', 'base']].map(([label, key]) => (
-                <button
-                  key={key}
-                  onClick={() => setAttachPreset(key)}
-                  className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
-                    attachPreset === key
-                      ? 'bg-indigo-700/60 border-indigo-500 text-white'
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Alignment: which part of the object lands at the snap point */}
-          <div className="mb-2">
-            <div className="text-[9px] text-gray-500 mb-1">Align at snap point:</div>
-            <div className="flex gap-1">
-              {[
-                { key: 'center', label: 'Center',   hint: 'Object center at snap' },
-                { key: 'front',  label: '→ Tip',    hint: 'Pointed/front end at snap (e.g. cone tip)' },
-                { key: 'back',   label: 'Base ←',   hint: 'Flat/back end at snap' },
-              ].map(({ key, label, hint }) => (
-                <button
-                  key={key}
-                  title={hint}
-                  onClick={() => setAlignX(key)}
-                  className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
-                    alignX === key
-                      ? 'bg-orange-700/60 border-orange-500 text-white'
-                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="text-[9px] text-gray-600 mt-0.5">
-              {alignX === 'front' ? 'Pointed/+X end at snap · body hangs back'
-               : alignX === 'back' ? 'Flat/-X end at snap · body extends forward'
-               : 'Object center placed at snap position'}
-            </div>
-          </div>
-          {shaftTargets.length === 1 ? (
-            <button
-              onClick={() => handleAttachToMotor(shaftTargets[0].id)}
-              data-tour="attach-motor"
-              className="ui-btn ui-btn-primary w-full"
-            >
-              ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
-            </button>
-          ) : (
-            <div className="flex flex-col gap-1" data-tour="attach-motor">
-              {shaftTargets.map(m => (
-                <button
-                  key={m.id}
-                  onClick={() => handleAttachToMotor(m.id)}
-                  className="ui-btn ui-btn-primary w-full"
-                >
-                  ⚙ Attach to {m.name} ({shaftLabel(m)})
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Rotating Part picker — only for motor objects */}
-      {isMotor && (
-        <div className="mb-3 border border-gray-700/40 rounded p-2">
-          <div className="text-[10px] text-green-500 uppercase tracking-wider font-semibold mb-1">
-            ↻ Rotating Part
-          </div>
-          <div className="text-[9px] text-gray-500 mb-2">
-            Click a part to set it as the spinning shaft when the simulation runs.
-          </div>
-          <div className="max-h-40 overflow-y-auto space-y-0.5">
-            {objectManager.getMotorMeshNames(selectedId).map(name => (
-              <button
-                key={name}
-                onClick={() => handleSetShaft(name)}
-                className={`w-full text-left px-2 py-1 text-[10px] font-mono rounded transition-colors ${
-                  currentShaftName === name
-                    ? 'bg-green-700/60 text-green-700 border border-green-600/50'
-                    : 'text-gray-400 hover:bg-gray-700/60 hover:text-slate-900'
-                }`}
-              >
-                {currentShaftName === name ? '▶ ' : '   '}{name}
-              </button>
-            ))}
-          </div>
-          {currentShaftName && (
-            <div className="text-[9px] text-green-500 mt-1.5">
-              Shaft: <span className="font-mono">{currentShaftName}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-        {isElectronics && !attachedMotor && myBonds.length === 0 && (
-          <div className="text-[10px] text-gray-500 mb-2">Bond this part to a body with Surface attach. Shaft attachment is for props (wheels, arms) on a motor or servo.</div>
-        )}
-      </DesignSection>
-
+    <div className="flex flex-col">
       {/* ════════ EDIT ════════ */}
-      <DesignSection title="Edit" icon="sliders">
+      <DesignSection title="Shape and position">
       {/* Name */}
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Name</div>
@@ -1258,10 +897,9 @@ export default function PropertiesPanel() {
                 snapshot()
               }}
               title="Round each rotation axis to the nearest 0°/90°/180°/270° so the shape is perfectly grid-aligned"
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-xs bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+              className="ui-btn w-full"
             >
-              <span>⊹</span>
-              <span>Snap to Axes</span>
+              Straighten rotation
             </button>
           </div>
           {/* Electronics don't get the free XYZ scale gizmo (it would skew pins),
@@ -1732,18 +1370,11 @@ export default function PropertiesPanel() {
       {/* ── Hole / Solid + Group / Ungroup ────────────────────────────────────── */}
       {!isElectronics && (
         <div className="mb-2 flex items-center justify-between">
-          <div className="text-[10px] text-gray-400 uppercase tracking-wider">Type</div>
-          <button
-            onClick={() => { toggleHole(obj.id); snapshot() }}
-            title="Holes carve out solids when grouped (Tinkercad-style)"
-            className={`px-3 py-1 rounded text-xs transition-colors border ${
-              obj.isHole
-                ? 'bg-sky-800/40 text-sky-700 border-sky-700/50'
-                : 'bg-gray-700 text-gray-300 border-gray-600/50'
-            }`}
-          >
-            {obj.isHole ? '◌ Hole' : '◼ Solid'}
-          </button>
+          <div className="text-[11px] text-gray-400">Type</div>
+          <div className="ui-seg w-40" role="tablist" aria-label="Solid or hole" title="A hole cuts itself out of the shapes you group it with">
+            <button role="tab" aria-selected={!obj.isHole} onClick={() => { if (obj.isHole) { toggleHole(obj.id); snapshot() } }}>Solid</button>
+            <button role="tab" aria-selected={!!obj.isHole} onClick={() => { if (!obj.isHole) { toggleHole(obj.id); snapshot() } }}>Hole</button>
+          </div>
         </div>
       )}
       {!isElectronics && secondaryObj && (
@@ -1834,6 +1465,388 @@ export default function PropertiesPanel() {
         </button>
       </div>
       {!isElectronics && <SaveAssetButton obj={obj} />}
+      </DesignSection>
+
+      {/* ════════ ATTACH ════════ */}
+      <DesignSection title="Attach to other parts">
+        <div className="mb-3 flex flex-col gap-1.5">
+          <button
+            onClick={() => { const ui = useUiStore.getState(); if (!ui.surfaceToolActive) { ui.setExtrudeTool(false); ui.setSliceTool(false) } ui.setSurfaceTool(!ui.surfaceToolActive) }}
+            className={`ui-btn w-full ${surfaceToolActive ? 'ui-btn-primary' : ''}`}
+            title="Surface attach — click a face on each of two objects, then Align & Bond">
+            {surfaceToolActive ? '✓ Surface attach on — click a face on each object' : '⊕ Surface attach'}
+          </button>
+        </div>
+      {/* Surface patch panel — shown when patches are selected */}
+      {selectedPatches.length > 0 && (
+        <div className="mb-2 border border-cyan-700/40 rounded overflow-hidden">
+          <SurfacePatchPanel
+            patches={selectedPatches}
+            canAttach={canRigidAttach}
+            onAttach={handleRigidAttach}
+            onRemove={handleRemovePatch}
+            onUpdatePatch={updatePatch}
+            objects={objects}
+          />
+        </div>
+      )}
+
+      {/* Attachment badge — shown when this object is riding a motor's rotor */}
+      {attachedMotor && (
+        <div className="mb-3 p-2.5 rounded-xl ui-card">
+          <RelationCard kind={shaftLabel(attachedMotor)} parent={attachedMotor.name} child={obj.name} self="child" />
+
+          {/* Shaft position — quick snap presets */}
+          <div className="mb-2">
+            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Snap to shaft</div>
+            <div className="flex gap-1">
+              {[['Tip', 3.0], ['Mid', 2.2], ['Base', 1.5]].map(([label, x]) => (
+                <button
+                  key={label}
+                  onClick={() => handleShaftSnap(x)}
+                  className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
+                    Math.abs(shaftPos.x - x) < 0.01 && shaftPos.y === 0 && shaftPos.z === 0
+                      ? 'bg-green-700/50 border-green-500/60 text-green-700'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Fine-tune position along shaft and radial axes */}
+          <div className="mb-2">
+            <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Fine position</div>
+            <div className="grid grid-cols-3 gap-1">
+              {[['X', 'x'], ['Y', 'y'], ['Z', 'z']].map(([label, axis]) => (
+                <div key={axis} className="relative" data-tour={axis === 'y' ? 'shaft-pos-y' : undefined}>
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">
+                    {label}
+                  </span>
+                  <input
+                    type="number"
+                    value={shaftPos[axis]}
+                    step={0.1}
+                    onChange={(e) => {
+                      const v = parseFloat(e.target.value)
+                      if (!isNaN(v)) handleShaftPosChange(axis, v)
+                    }}
+                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">X = along shaft · Y/Z = radial</div>
+          </div>
+
+          {/* Attachment alignment — corrects an awkward mount without detaching.
+              Rotation is about the part's OWN mount frame, so it stays correct
+              when the servo turns. */}
+          <div className="mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-400 uppercase tracking-wider">Alignment</span>
+              <button
+                onClick={handleResetAlign}
+                title="Return this part to the mount it was given when attached"
+                className="text-[9px] px-1.5 py-0.5 rounded border border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
+              >
+                Reset
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {[['X', 'x'], ['Y', 'y'], ['Z', 'z']].map(([label, axis]) => (
+                <div key={axis} className="relative">
+                  <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">
+                    {label}
+                  </span>
+                  <input
+                    type="number"
+                    value={attachRot[axis]}
+                    step={5}
+                    title={`Rotate about the part's local ${label} axis`}
+                    onChange={(e) => handleAttachRotChange(axis, parseFloat(e.target.value))}
+                    onBlur={snapshot}
+                    className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-green-500"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-1 mt-1">
+              {[['+90°', 90], ['180°', 180], ['−90°', -90]].map(([label, deg]) => (
+                <button
+                  key={label}
+                  onClick={() => handleAttachRotPreset(rotorSpinAxis, deg)}
+                  title={`Turn the part ${label} in its mounting plane`}
+                  className="flex-1 py-1 text-[9px] rounded border bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
+                >
+                  {label}
+                </button>
+              ))}
+              <button
+                onClick={() => handleAttachRotPreset(rotorSpinAxis === 'x' ? 'z' : 'x', 180)}
+                title="Flip the part over on its mount"
+                className="flex-1 py-1 text-[9px] rounded border bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700"
+              >
+                Flip
+              </button>
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">Degrees, about the part’s own mount — survives the servo turning</div>
+          </div>
+
+          <button
+            onClick={handleDetach}
+            className="ui-btn ui-btn-danger w-full"
+          >
+            Detach from {shaftLabel(attachedMotor)}
+          </button>
+        </div>
+      )}
+
+      {/* Rigid bond badges */}
+      {myBonds.map(bond => {
+        const otherId  = bond.parentId === obj.id ? bond.childId : bond.parentId
+        const otherObj = objects.find(o => o.id === otherId)
+        const role     = bond.parentId === obj.id ? 'parent' : 'child'
+        const canRotate = !!(bond.contactLocalNormal && bond.contactLocalCenter)
+        return (
+          <div key={bond.id} className="mb-3 p-2.5 rounded-xl ui-card">
+            <RelationCard kind="Surface bond"
+              parent={role === 'parent' ? obj.name : (otherObj?.name ?? '(deleted)')}
+              child={role === 'child' ? obj.name : (otherObj?.name ?? '(deleted)')}
+              self={role} />
+
+            {/* Fine position — X/Y/Z world-space inputs for the bond child */}
+            {role === 'child' && (
+              <div className="mb-2">
+                <div className="text-[9px] text-gray-400 mb-1">Position (world)</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {['x','y','z'].map(axis => {
+                    const childObj = objects.find(o => o.id === bond.childId)
+                    return (
+                      <div key={axis} className="relative">
+                        <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold text-gray-500 uppercase">{axis}</span>
+                        <input
+                          type="number"
+                          step={0.1}
+                          value={r3(childObj?.position?.[axis] ?? 0)}
+                          onBlur={snapshot}
+                          onChange={e => {
+                            const v = parseFloat(e.target.value)
+                            if (!isNaN(v)) update({ position: { ...childObj?.position, [axis]: v } })
+                          }}
+                          className="w-full bg-gray-800 border border-gray-600/50 rounded text-xs text-slate-800 pl-4 pr-1 py-1.5 focus:outline-none focus:border-cyan-500"
+                        />
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Rotate on surface */}
+            {canRotate && (
+              <div className="mb-2">
+                <div className="text-[9px] text-gray-400 mb-1">Rotate on attached surface</div>
+                <div className="flex gap-1">
+                  {[
+                    { label: '↻ +90°', deg:  90 },
+                    { label: '↺ −90°', deg: -90 },
+                    { label: '180°',   deg: 180 },
+                  ].map(({ label, deg }) => (
+                    <button
+                      key={deg}
+                      onClick={() => handleRotate90OnSurface(bond, deg)}
+                      className="ui-btn flex-1 !px-1"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={() => { removeBond(bond.id); snapshot() }}
+              className="ui-btn ui-btn-danger w-full"
+            >
+              Detach Bond
+            </button>
+          </div>
+        )
+      })}
+
+      {/* Attachment Point — pick a specific spot on the prop surface */}
+      {isAttachable && !attachedMotor && (
+        <div className="mb-3 ui-card p-2.5">
+          <div className="text-[10px] text-orange-400 uppercase tracking-wider font-semibold mb-1">
+            ◎ Attachment Point
+          </div>
+          {obj.attachmentOffset ? (
+            <>
+              <div className="text-[9px] text-gray-400 mb-1.5">
+                Point set — orange dot shows where the shaft connects.
+              </div>
+              <button
+                onClick={() => {
+                  updateObject(selectedId, { attachmentOffset: null })
+                  objectManager.clearAttachmentMarker(selectedId)
+                }}
+                className="w-full py-1.5 text-[10px] text-orange-700 bg-orange-900/30 hover:bg-orange-700/40 border border-orange-700/40 rounded transition-colors"
+              >
+                ✕ Clear Attachment Point
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="text-[9px] text-gray-500 mb-1.5">
+                Click "Pick" then click the exact spot on the prop that should touch the motor shaft.
+              </div>
+              <button
+                data-tour="pick-attach"
+                onClick={() => attachPointEvents.dispatchEvent(new CustomEvent('startPick', { detail: { id: selectedId } }))}
+                className="ui-btn ui-btn-primary w-full"
+              >
+                ◎ Pick Attachment Point
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Direct attach: prop selected + shift-click on a motor/servo → one-click attach */}
+      {isAttachable && secondaryShaft && (
+        <div className="mb-3 p-2.5 rounded bg-indigo-900/20 border border-indigo-700/50">
+          <div className="text-[10px] text-indigo-400 uppercase tracking-wider font-semibold mb-1">
+            ⚙ Attach to {shaftLabel(secondaryShaft)}
+          </div>
+          <div className="text-[9px] text-gray-400 mb-2">
+            Attach <span className="text-gray-100 font-medium">{obj.name}</span> to{' '}
+            <span className="text-indigo-300 font-medium">{secondaryShaft.name}</span>'s rotating {secondaryShaft.type === 'servo' || secondaryShaft.type === 'servo_cr' ? 'horn' : 'shaft'}.
+          </div>
+          <button
+            onClick={() => handleAttachToMotor(secondaryShaft.id)}
+            className="ui-btn ui-btn-primary w-full"
+          >
+            ✓ Attach to {secondaryShaft.name}
+          </button>
+          <div className="text-[9px] text-gray-600 mt-1">Shift-click a different motor or servo to change target</div>
+        </div>
+      )}
+
+      {/* Attach to Motor/Servo — shown for any non-electronics object that isn't already attached */}
+      {canAttach && (
+        <div className="mb-3">
+          <div className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Shaft Attachment</div>
+          {/* Snap position picker */}
+          <div className="mb-2">
+            <div className="text-[9px] text-gray-500 mb-1">Snap to shaft/horn position:</div>
+            <div className="flex gap-1">
+              {[['Tip', 'tip'], ['Mid', 'mid'], ['Base', 'base']].map(([label, key]) => (
+                <button
+                  key={key}
+                  onClick={() => setAttachPreset(key)}
+                  className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
+                    attachPreset === key
+                      ? 'bg-indigo-700/60 border-indigo-500 text-white'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Alignment: which part of the object lands at the snap point */}
+          <div className="mb-2">
+            <div className="text-[9px] text-gray-500 mb-1">Align at snap point:</div>
+            <div className="flex gap-1">
+              {[
+                { key: 'center', label: 'Center',   hint: 'Object center at snap' },
+                { key: 'front',  label: '→ Tip',    hint: 'Pointed/front end at snap (e.g. cone tip)' },
+                { key: 'back',   label: 'Base ←',   hint: 'Flat/back end at snap' },
+              ].map(({ key, label, hint }) => (
+                <button
+                  key={key}
+                  title={hint}
+                  onClick={() => setAlignX(key)}
+                  className={`flex-1 py-1 text-[9px] rounded border transition-colors ${
+                    alignX === key
+                      ? 'bg-orange-700/60 border-orange-500 text-white'
+                      : 'bg-gray-800 border-gray-600/50 text-gray-400 hover:text-slate-900 hover:bg-gray-700'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="text-[9px] text-gray-600 mt-0.5">
+              {alignX === 'front' ? 'Pointed/+X end at snap · body hangs back'
+               : alignX === 'back' ? 'Flat/-X end at snap · body extends forward'
+               : 'Object center placed at snap position'}
+            </div>
+          </div>
+          {shaftTargets.length === 1 ? (
+            <button
+              onClick={() => handleAttachToMotor(shaftTargets[0].id)}
+              data-tour="attach-motor"
+              className="ui-btn ui-btn-primary w-full"
+            >
+              ⚙ Attach to {shaftTargets[0].name} ({shaftLabel(shaftTargets[0])})
+            </button>
+          ) : (
+            <div className="flex flex-col gap-1" data-tour="attach-motor">
+              {shaftTargets.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => handleAttachToMotor(m.id)}
+                  className="ui-btn ui-btn-primary w-full"
+                >
+                  ⚙ Attach to {m.name} ({shaftLabel(m)})
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Rotating Part picker — only for motor objects */}
+      {isMotor && (
+        <div className="mb-3 border border-gray-700/40 rounded p-2">
+          <div className="text-[10px] text-green-500 uppercase tracking-wider font-semibold mb-1">
+            ↻ Rotating Part
+          </div>
+          <div className="text-[9px] text-gray-500 mb-2">
+            Click a part to set it as the spinning shaft when the simulation runs.
+          </div>
+          <div className="max-h-40 overflow-y-auto space-y-0.5">
+            {objectManager.getMotorMeshNames(selectedId).map(name => (
+              <button
+                key={name}
+                onClick={() => handleSetShaft(name)}
+                className={`w-full text-left px-2 py-1 text-[10px] font-mono rounded transition-colors ${
+                  currentShaftName === name
+                    ? 'bg-green-700/60 text-green-700 border border-green-600/50'
+                    : 'text-gray-400 hover:bg-gray-700/60 hover:text-slate-900'
+                }`}
+              >
+                {currentShaftName === name ? '▶ ' : '   '}{name}
+              </button>
+            ))}
+          </div>
+          {currentShaftName && (
+            <div className="text-[9px] text-green-500 mt-1.5">
+              Shaft: <span className="font-mono">{currentShaftName}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+        {isElectronics && !attachedMotor && myBonds.length === 0 && (
+          <div className="text-[10px] text-gray-500 mb-2">Bond this part to a body with Surface attach. Shaft attachment is for props (wheels, arms) on a motor or servo.</div>
+        )}
       </DesignSection>
     </div>
   )

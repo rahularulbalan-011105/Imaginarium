@@ -11,6 +11,8 @@ import { loadGLTFFromFile, loadSTLFromFile, cloneModel, flattenToGeometry, ensur
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
 import { svgTextToGeometry } from '../utils/svgImport.js'
 import { trackEvent } from '../utils/utmTracking.js'
+import { PRESETS, openPreset as loadPreset } from '../utils/presets.js'
+import { usePlacement, placeCardProps } from '../managers/placement.js'
 
 const SHAPE_GROUPS = [
   {
@@ -21,7 +23,7 @@ const SHAPE_GROUPS = [
       { type: 'sphere',      label: 'Sphere',     icon: '●'  },
       { type: 'cylinder',    label: 'Cylinder',   icon: '⬤'  },
       { type: 'cone',        label: 'Cone',       icon: '▲'  },
-      { type: 'rectprism',   label: 'Rect Box',   icon: '▬'  },
+      { type: 'rectprism',   label: 'Long box',   icon: '▬'  },
       { type: 'plane',       label: 'Plane',      icon: '□'  },
       { type: 'torus',       label: 'Torus',      icon: '◯'  },
       { type: 'capsule',     label: 'Capsule',    icon: '💊' },
@@ -29,16 +31,16 @@ const SHAPE_GROUPS = [
     ],
   },
   {
-    label: 'Polyhedra',
+    label: 'More shapes',
     color: 'purple',
     items: [
       { type: 'tetrahedron',  label: 'Tetrahedron', icon: '△' },
       { type: 'octahedron',   label: 'Octahedron',  icon: '◈' },
-      { type: 'dodecahedron', label: 'Dodeca',       icon: '⬡' },
-      { type: 'prism',        label: 'Tri Prism',   icon: '▷' },
-      { type: 'hexagon',      label: 'Hex Prism',   icon: '⬡' },
-      { type: 'pyramid',      label: 'Sq Pyramid',  icon: '▲' },
-      { type: 'pentpyramid',  label: 'Pent Pyr',    icon: '⛛' },
+      { type: 'dodecahedron', label: 'Dodecahedron',       icon: '⬡' },
+      { type: 'prism',        label: 'Triangle prism',   icon: '▷' },
+      { type: 'hexagon',      label: 'Hexagon prism',   icon: '⬡' },
+      { type: 'pyramid',      label: 'Pyramid',  icon: '▲' },
+      { type: 'pentpyramid',  label: '5-sided pyramid',    icon: '⛛' },
     ],
   },
 ]
@@ -54,24 +56,6 @@ const MODELS = [
   { key: 'free_wheels', label: 'Wheels', icon: '🛞', color: '#cfd2d6' },
 ]
 
-// Ready-made Constructa presets (full project files in public/presets/, fetched
-// on click). Opening one loads it as the current project via the same
-// `constructa:load-project` path as the debug mission.
-const PRESETS = [
-  { file: '2-wheel-chassis', label: '2-Wheel Chassis', icon: '🚙' },
-  { file: '4-wheel-chassis', label: '4-Wheel Chassis', icon: '🚗' },
-  { file: 'single-leg',      label: 'Single Leg',      icon: '🦿' },
-  { file: 'simple-claw',     label: 'Simple Claw',     icon: '🦾' },
-  { file: 'robotic-head',    label: 'Robotic Head',    icon: '🤖' },
-  { file: 'propeller',       label: 'Propeller',       icon: '🌀' },
-  { file: 'name-plate',      label: 'Name Plate',      icon: '🏷️' },
-]
-
-const LABEL_COLORS = {
-  gray:   'text-gray-500',
-  purple: 'text-purple-500',
-  orange: 'text-orange-500',
-}
 
 export default function AssetLibrary() {
   const addObject    = useSceneStore((s) => s.addObject)
@@ -85,11 +69,11 @@ export default function AssetLibrary() {
   const [dropOver, setDropOver]   = useState(false)
   const [importErr, setImportErr] = useState(null)
 
-  const addShape = (type) => { addObject(type); snapshot() }
+  const pendingKey = usePlacement((st) => st.pending?.key)
 
   // Insert a built-in GLB model. Clones the preloaded model into the per-id
   // registry so it renders immediately; `modelKey` lets it reload later.
-  const addModel = async (key, name, color) => {
+  const addModel = async (key, name, color, record = true) => {
     await ensureModels([key])          // on-demand model load (deduplicated, cached)
     const objId = uuidv4()
     const model = cloneModel(key)
@@ -108,7 +92,8 @@ export default function AssetLibrary() {
       visible:   true,
       metadata:  { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     })
-    snapshot()
+    if (record) snapshot()   // placement records its own undo step
+    return objId
   }
 
   const importFiles = async (files) => {
@@ -187,17 +172,11 @@ export default function AssetLibrary() {
 
   const openPreset = async ({ file, label }) => {
     if (useSceneStore.getState().objects.length > 0 &&
-        !confirm(`Open the "${label}" preset? It replaces the current scene — unsaved changes will be lost.`)) return
+        !confirm(`Open "${label}"? It replaces what is on screen now.`)) return
     setPresetBusy(file)
     setImportErr(null)
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}presets/${file}.json`)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const data = await res.json()
-      // Fresh id so saving never overwrites another copy of the same preset.
-      window.dispatchEvent(new CustomEvent('constructa:load-project', {
-        detail: { ...data, projectId: uuidv4(), name: label },
-      }))
+      await loadPreset({ file, label })
       trackEvent('preset_opened', { preset: file })
     } catch (e) {
       setImportErr(`Could not load preset "${label}": ${e.message}`)
@@ -218,28 +197,122 @@ export default function AssetLibrary() {
   }
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      {/* ── Import drop zone ─────────────────────────────────────────────── */}
-      <div className="px-3 pt-3">
+    <div className="flex flex-col h-full overflow-y-auto px-2 pb-4">
+      {/* ── Shapes ───────────────────────────────────────────────────────── */}
+      {SHAPE_GROUPS.map((group) => (
+        <section key={group.label}>
+          <div className="ui-lib-head">{group.label === 'Basic' ? 'Basic shapes' : group.label}</div>
+          <div className="grid grid-cols-3 gap-0.5">
+            {group.items.map(({ type, label }) => (
+              <button
+                key={type}
+                data-tour={`shape-${type}`}
+                {...placeCardProps({ key: `shape:${type}`, label: label.toLowerCase(), create: () => addObject(type) }, pendingKey)}
+                title={`${label}: click, then click the grid to place it (or drag it onto the grid)`}
+                className="ui-lib-card"
+              >
+                <span className="ui-lib-glyph"><ShapeThumb type={type} /></span>
+                <span className="ui-lib-label">{label}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      ))}
+
+      {/* ── Starter projects (ready-made projects) ───────────────────────── */}
+      <section>
+        <div className="ui-lib-head">Starter projects</div>
+        <div className="flex flex-col">
+          {PRESETS.map((p) => (
+            <button
+              key={p.file}
+              onClick={() => openPreset(p)}
+              disabled={presetBusy !== null}
+              title={`Open the ${p.label} project (replaces what is on screen)`}
+              className="flex items-center justify-between h-8 px-2 rounded-md text-left text-[13px] hover:bg-gray-800 disabled:opacity-50"
+              style={{ color: 'rgb(var(--g-300))' }}
+            >
+              {p.label}
+              <span className="text-[11px]" style={{ color: 'rgb(var(--g-500))' }}>{presetBusy === p.file ? 'Opening…' : 'Open'}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ── Models (built-in GLB) ────────────────────────────────────────── */}
+      <section>
+        <div className="ui-lib-head">Models</div>
+        <div className="grid grid-cols-3 gap-0.5">
+          {MODELS.map(({ key, label, color }) => (
+            <button
+              key={key}
+              {...placeCardProps({ key: `model:${key}`, label: label.toLowerCase(), prepare: () => loadModel(key), create: () => addModel(key, label, color, false) }, pendingKey)}
+              onPointerEnter={() => loadModel(key)}
+              title={`${label}: click, then click the grid to place it`}
+              className="ui-lib-card"
+            >
+              <span className="ui-lib-glyph"><span className="ui-lib-tile">{label.slice(0, 2)}</span></span>
+              <span className="ui-lib-label">{label}</span>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* ── My Assets ────────────────────────────────────────────────────── */}
+      <section>
+        <div className="ui-lib-head">My parts</div>
+        {assets.length === 0 ? (
+          <div className="px-1 text-[12px] leading-relaxed" style={{ color: 'rgb(var(--g-500))' }}>
+            Nothing saved yet. Select something you built, then use <b>Save as asset</b> in the Edit tab to reuse it here.
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-0.5">
+            {assets.map((asset) => (
+              <div key={asset._savedId} className="relative group">
+                <button
+                  onClick={() => handleAddSaved(asset)}
+                  title={`Add ${asset.name}`}
+                  className="ui-lib-card w-full"
+                >
+                  <span className="ui-lib-glyph"><span className="w-10 h-10 rounded-md" style={{ background: asset.color }} /></span>
+                  <span className="ui-lib-label truncate w-full">{asset.name}</span>
+                </button>
+                <button
+                  onClick={() => deleteAsset(asset._savedId)}
+                  title="Remove saved part"
+                  aria-label="Remove saved part"
+                  className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 w-5 h-5 flex items-center justify-center ui-icon-btn"
+                >
+                  <Icon name="close" size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Import ───────────────────────────────────────────────────────── */}
+      <section>
+        <div className="ui-lib-head">Import</div>
         <div
-          className={`border-2 border-dashed rounded-lg p-3 text-center cursor-pointer transition-colors select-none ${
-            dropOver
-              ? 'border-indigo-400 bg-indigo-900/20 text-indigo-700'
-              : 'border-gray-600 hover:border-indigo-600/50 text-gray-400'
-          }`}
+          className="rounded-md px-3 py-3 text-center cursor-pointer select-none transition-colors"
+          style={{
+            border: `1px dashed ${dropOver ? 'rgb(var(--a-600))' : 'rgb(var(--g-600))'}`,
+            background: dropOver ? 'rgb(var(--a-600) / 0.06)' : 'transparent',
+            color: 'rgb(var(--g-400))',
+          }}
           onClick={() => fileRef.current?.click()}
           onDragOver={(e) => { e.preventDefault(); setDropOver(true) }}
           onDragLeave={() => setDropOver(false)}
           onDrop={handleDrop}
         >
-          <div className="text-2xl mb-1">{importing ? '⏳' : '📥'}</div>
-          <div className="text-[11px] font-medium">
-            {importing ? 'Importing…' : 'Drop file or click to import'}
+          <div className="text-[12px] font-medium" style={{ color: 'rgb(var(--g-200))' }}>
+            {importing ? 'Importing…' : 'Drop a file here, or click to choose'}
           </div>
-          <div className="text-[9px] text-gray-600 mt-0.5">GLB · GLTF · STL · SVG</div>
+          <div className="text-[11px] mt-0.5">GLB, GLTF, STL or SVG</div>
         </div>
         {importErr && (
-          <div className="mt-1 text-[10px] text-red-700 px-1">{importErr}</div>
+          <div className="mt-1 text-[12px] px-1" style={{ color: '#dc2626' }}>{importErr}</div>
         )}
         <input
           ref={fileRef}
@@ -249,107 +322,15 @@ export default function AssetLibrary() {
           className="hidden"
           onChange={handleFilePick}
         />
-      </div>
-
-      {/* ── Shape groups ─────────────────────────────────────────────────── */}
-      {SHAPE_GROUPS.map((group) => (
-        <div key={group.label} className="px-2 pt-3">
-          <div className={`text-[9px] uppercase tracking-wider mb-1.5 font-semibold ${LABEL_COLORS[group.color]}`}>
-            {group.label}
-          </div>
-          <div className="grid grid-cols-3 gap-1.5">
-            {group.items.map(({ type, label, icon }) => (
-              <button
-                key={type}
-                data-tour={`shape-${type}`}
-                onClick={() => addShape(type)}
-                title={label}
-                className="ui-lib-card"
-              >
-                <span className="ui-lib-glyph">{ICON_NAMES.includes(GLYPH[type] ?? type) ? <Icon name={GLYPH[type] ?? type} size={22} /> : <span className="text-lg leading-none">{icon}</span>}</span>
-                <span className="ui-lib-label">{label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      {/* ── Models (built-in GLB) ────────────────────────────────────────── */}
-      <div className="px-3 pt-3">
-        <div className="text-[9px] text-cyan-600 uppercase tracking-wider mb-1.5 font-semibold">Models</div>
-        <div className="grid grid-cols-3 gap-1.5">
-          {MODELS.map(({ key, label, icon, color }) => (
-            <button
-              key={key}
-              onClick={() => addModel(key, label, color)}
-              onPointerEnter={() => loadModel(key)}
-              title={label}
-              className="ui-lib-card"
-            >
-              <span className="ui-lib-glyph"><span className="text-lg leading-none">{icon}</span></span>
-              <span className="ui-lib-label">{label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Presets (ready-made projects) ────────────────────────────────── */}
-      <div className="px-3 pt-3">
-        <div className="text-[9px] text-orange-500 uppercase tracking-wider mb-1.5 font-semibold">Presets</div>
-        <div className="grid grid-cols-3 gap-1.5">
-          {PRESETS.map((p) => (
-            <button
-              key={p.file}
-              onClick={() => openPreset(p)}
-              disabled={presetBusy !== null}
-              title={`Open the ${p.label} preset`}
-              className="ui-lib-card"
-            >
-              <span className="ui-lib-glyph"><span className="text-lg leading-none">{presetBusy === p.file ? '⏳' : p.icon}</span></span>
-              <span className="ui-lib-label">{p.label}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── My Assets ────────────────────────────────────────────────────── */}
-      <div className="px-3 pt-3 pb-4">
-        <div className="text-[9px] text-indigo-500 uppercase tracking-wider mb-1.5 font-semibold">My Assets</div>
-        {assets.length === 0 ? (
-          <div className="text-[10px] text-gray-600 text-center py-4 leading-relaxed">
-            No saved assets.<br />
-            Select an object → Properties → Save as Asset
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-1">
-            {assets.map((asset) => (
-              <div key={asset._savedId} className="relative group">
-                <button
-                  onClick={() => handleAddSaved(asset)}
-                  title={`Add ${asset.name}`}
-                  className="w-full flex flex-col items-center gap-1 py-2 px-1 rounded transition-colors hover:bg-indigo-900/30"
-                  style={{ background: `${asset.color}18` }}
-                >
-                  <div
-                    className="w-7 h-7 rounded"
-                    style={{ background: asset.color, opacity: 0.85 }}
-                  />
-                  <span className="text-[8px] text-gray-400 leading-none truncate w-full text-center">
-                    {asset.name}
-                  </span>
-                </button>
-                <button
-                  onClick={() => deleteAsset(asset._savedId)}
-                  title="Remove saved asset"
-                  className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 text-[9px] text-gray-500 hover:text-red-400 leading-none px-0.5 transition-all"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      </section>
     </div>
   )
+}
+
+// A shape's picture (rendered by tools/thumbs in the shape's own colour); shapes
+// without one (Text) fall back to the line icon.
+function ShapeThumb({ type }) {
+  const [failed, setFailed] = useState(false)
+  if (failed || type === 'text') return <Icon name={ICON_NAMES.includes(GLYPH[type] ?? type) ? (GLYPH[type] ?? type) : 'cube'} size={34} />
+  return <img src={`${import.meta.env.BASE_URL}thumbs/shape_${type}.webp`} alt="" loading="lazy" draggable={false} onError={() => setFailed(true)} />
 }

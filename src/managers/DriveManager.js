@@ -1,8 +1,9 @@
 import * as THREE from 'three'
 import { simulationManager } from './SimulationManager.js'
 import { physicsManager } from './physics/PhysicsManager.js'
-import { DifferentialDrive } from './robot/DifferentialDrive.js'
-import { sideDriveRadius, wheelWorldRadius } from '../utils/wheels.js'
+import { DifferentialDrive, DEFAULT_DRIVE_RADIUS } from './robot/DifferentialDrive.js'
+import { isMecanum, groundRollerAxis, slipFactor, solveTwist, layoutCheck } from '../utils/mecanum.js'
+import { sideDriveRadius, wheelWorldRadius, driveRadiusFor } from '../utils/wheels.js'
 import { LeggedSystem } from './robot/LeggedSystem.js'
 import { stepTraction } from './robot/legTraction.js'
 import { useSceneStore } from '../stores/sceneStore.js'
@@ -443,6 +444,9 @@ class DriveManager {
     // (utils/wheels.js); motors without a Wheel part keep the old default radius.
     // Measured from the mesh's WORLD scale so a resized motor's wheel counts too.
     this._setWheelRadii(objects)
+    // Mecanum wheels on the drive motors → the robot can also move sideways
+    // (utils/mecanum.js). Without them nothing changes: the differential model.
+    this._setupMecanum(objects, pivotX, pivotZ)
 
     // ── Step 1b: detect legged robot ─────────────────────────────────────────
     // If there are no drive motors but servos have attached arm objects → legged robot
@@ -1044,6 +1048,7 @@ class DriveManager {
     this._roll      = 0
     this._rollVel   = 0
     if (this._integrator) { this._integrator.reset(); this._integrator = null }
+    this._mecanum = null
     simulationManager.motorLoad = {}            // encoders: no robot load once out of the simulator
     if (this._leggedSystem) { this._leggedSystem.reset(); this._leggedSystem = null }
     this._isLegged = false
@@ -1073,6 +1078,66 @@ class DriveManager {
     }
     this._drive.radiusLeft  = sideDriveRadius(this._leftIds,  attachments, byId, radiusOf)
     this._drive.radiusRight = sideDriveRadius(this._rightIds, attachments, byId, radiusOf)
+  }
+
+  /**
+   * Mecanum drive: each drive motor's wheel, where it sits on the robot (x
+   * forward, y left of the axle midpoint) and which way its ground roller
+   * points — read from the wheel's real orientation, so a wrongly placed A/B
+   * wheel behaves wrongly, as on a real robot. Null when no motor carries a
+   * mecanum wheel (then the differential model drives, unchanged).
+   */
+  _setupMecanum(objects, pivotX, pivotZ) {
+    this._mecanum = null
+    clearIssues('cad:mecanum')
+    const ids = [...new Set([...this._leftIds, ...this._rightIds])]
+    if (ids.length < 2) return
+    const byId = new Map(objects.map(o => [o.id, o]))
+    const wheelOf = new Map()
+    for (const [partId, motorId] of Object.entries(useElectronicsStore.getState().attachments)) {
+      const part = byId.get(partId)
+      if (part?.type === 'wheel' && ids.includes(motorId)) wheelOf.set(motorId, part)
+    }
+    if (![...wheelOf.values()].some(isMecanum)) return
+    // the robot's frame as it starts (body yaw 0 → heading = _yawOffset)
+    const yaw0 = this._yawOffset
+    const f = [Math.sin(yaw0), 0, Math.cos(yaw0)], l = [Math.cos(yaw0), 0, -Math.sin(yaw0)]
+    const p = new THREE.Vector3(), q = new THREE.Quaternion(), ws = new THREE.Vector3(), ax = new THREE.Vector3()
+    const wheels = ids.map((id) => {
+      const wheel = wheelOf.get(id)
+      const mesh = this.objectMgr.getMesh(wheel?.id ?? id)
+      mesh?.updateMatrixWorld(true)
+      mesh?.getWorldPosition(p)
+      const rx = p.x - pivotX, rz = p.z - pivotZ
+      let s = null, radius = DEFAULT_DRIVE_RADIUS
+      if (wheel && mesh) {
+        radius = driveRadiusFor(wheelWorldRadius(wheel, mesh.getWorldScale(ws)))
+        if (isMecanum(wheel)) {
+          // the ground roller's slant from the axle's world direction (the wheel's
+          // local X) — independent of how far the shaft has turned it
+          mesh.getWorldQuaternion(q)
+          ax.set(1, 0, 0).applyQuaternion(q)
+          s = slipFactor(groundRollerAxis([ax.x, ax.y, ax.z], wheel.rollerHand ?? 'A'), f, l)
+        }
+      }
+      return { id, x: rx * f[0] + rz * f[2], y: rx * l[0] + rz * l[2], s, radius, left: this._leftIds.includes(id) }
+    })
+    this._mecanum = { wheels, vy: 0 }
+    const chk = layoutCheck(wheels)
+    console.log('[Drive] mecanum', chk.pattern, wheels.map(w => `${byId.get(wheelOf.get(w.id)?.id)?.name ?? '-'} x${w.x.toFixed(1)} y${w.y.toFixed(1)} s${w.s == null ? '—' : w.s.toFixed(2)}`).join(' | '))
+    const plain = wheels.filter(w => w.s == null).length
+    if (plain) reportIssue(makeIssue('cad', 'cad:mecanum-mixed',
+      `${plain} drive motor${plain > 1 ? 's have' : ' has'} a plain wheel among the mecanum wheels`,
+      'A plain tyre grips sideways, so it stops the robot sliding across: it can drive and turn but barely strafe.',
+      'Put a mecanum wheel on every drive motor (Mechanical → Mecanum Wheel A / B).', 'warning'))
+    else if (chk.pattern === 'O') reportIssue(makeIssue('cad', 'cad:mecanum-o',
+      'The mecanum wheels are in an O pattern — swap A and B',
+      'Every wheel has the other hand from the standard X layout. The robot still moves, but sideways and turning come out reversed compared with normal mecanum code, and it barely holds its heading.',
+      'Swap each wheel’s rollers (select it → Properties → Rollers A/B): A on front-left and rear-right, B on front-right and rear-left.', 'warning'))
+    else if (!chk.canStrafe) reportIssue(makeIssue('cad', 'cad:mecanum-pattern',
+      'These mecanum wheels can’t drive sideways',
+      'The rollers have to form an X (two A and two B, diagonally opposite). With this mix the sideways pushes of the wheels cancel out.',
+      'A on front-left and rear-right, B on front-right and rear-left (select a wheel → Properties → Rollers).', 'warning'))
   }
 
   // Per-side speed scale from each BO motor's gearbox and its share of the robot's
@@ -1405,7 +1470,7 @@ class DriveManager {
     // executable ModuleHost (the DifferentialDrivePhysics module). It uses the
     // same control law, so motion is unchanged — the difference is the decision
     // now lives in a module. No blueprint → the built-in model, byte-identical.
-    if (!this._moduleHost && !this._hostTried && this._blueprint && this._forcedPath === 'wheeled') {
+    if (!this._mecanum && !this._moduleHost && !this._hostTried && this._blueprint && this._forcedPath === 'wheeled') {
       this._hostTried = true
       const host = new ModuleHost()
       host.enter(this._blueprint, { wheelbase: this.wheelbase, radiusLeft: this._drive.radiusLeft, radiusRight: this._drive.radiusRight, speedScaleLeft: this._drive.speedScaleLeft, speedScaleRight: this._drive.speedScaleRight })
@@ -1415,9 +1480,22 @@ class DriveManager {
       if (host.computeDrive(0, 0, 0) != null) this._moduleHost = host
       else host.exit()
     }
-    let v, omega
+    let v, omega, vy = 0
     const driveOut = this._moduleHost ? this._moduleHost.computeDrive(leftPWM, rightPWM, dt) : null
-    if (driveOut) { v = driveOut.v; omega = driveOut.omega }
+    if (this._mecanum) {
+      // every wheel on its own (not a side average): the four speeds set
+      // forward, sideways and turning together (utils/mecanum.js)
+      const d = this._drive
+      const t = solveTwist(this._mecanum.wheels.map(w => ({
+        ...w, v: d.pwmToVelocity(mSpeeds[w.id] ?? 0, w.radius) * ((w.left ? d.speedScaleLeft : d.speedScaleRight) ?? 1),
+      })))
+      v = t.vx; omega = t.omega
+      // sideways: the same mass lag as forward (PhysicsIntegrator: τ = 0.12 s/kg)
+      const m = this._mecanum
+      m.vy += (t.vy - m.vy) * (1 - Math.exp(-dt / Math.max(0.001, (this._totalMass ?? 1) * 0.12)))
+      vy = m.vy
+    }
+    else if (driveOut) { v = driveOut.v; omega = driveOut.omega }
     else { const r = this._drive.compute(leftPWM, rightPWM); v = r.v; omega = r.omega }
 
     // ── Physics path — Rapier kinematic body ─────────────────────────────────
@@ -1453,7 +1531,8 @@ class DriveManager {
       // Y linvel is 0 in the Rapier body — vertical movement is handled manually
       // above so the kinematic body stays at a fixed Y for correct XZ collision.
       // Body moves the SAME way the wheels roll (positive PWM → drive forward).
-      body.setLinvel({ x: pV * Math.sin(yaw), y: 0, z: pV * Math.cos(yaw) }, true)
+      // + sideways (mecanum only; 0 otherwise): robot-left = (cos yaw, −sin yaw)
+      body.setLinvel({ x: pV * Math.sin(yaw) + vy * Math.cos(yaw), y: 0, z: pV * Math.cos(yaw) - vy * Math.sin(yaw) }, true)
       body.setAngvel({ x: 0, y: pOmega, z: 0 }, true)
 
       physicsManager.step(dt)
@@ -1473,8 +1552,8 @@ class DriveManager {
       const { v: pV, omega: pOmega } = integrator
         ? integrator.step(v, omega, dt, yaw, physEnv)
         : { v, omega }
-      this.rootGroup.position.x += pV * Math.sin(yaw) * dt
-      this.rootGroup.position.z += pV * Math.cos(yaw) * dt
+      this.rootGroup.position.x += (pV * Math.sin(yaw) + vy * Math.cos(yaw)) * dt
+      this.rootGroup.position.z += (pV * Math.cos(yaw) - vy * Math.sin(yaw)) * dt
       this.rootGroup.rotation.y += pOmega * dt
     }
   }

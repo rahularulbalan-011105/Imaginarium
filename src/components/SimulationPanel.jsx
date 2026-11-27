@@ -1,11 +1,8 @@
-import { useState, lazy, Suspense } from 'react'
-import { useUiStore } from '../stores/uiStore.js'
-import { physicsManager } from '../managers/physics/PhysicsManager.js'
-import { preparePhysics } from '../managers/DriveManager.js'
+import { lazy, Suspense } from 'react'
+import { useSimToggle } from '../managers/simControl.js'
 import { recordSnapshot } from '../managers/history/editorDispatch.js'
 import { usePhysicsStore } from '../stores/physicsStore.js'
 import Icon from './ui/Icon.jsx'
-import { trackEvent } from '../utils/utmTracking.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 // Lazy: the ESP32 section is only mounted when the scene actually has a board.
 const Esp32Panel = lazy(() => import('./Esp32Panel.jsx'))
@@ -29,20 +26,17 @@ const ENVIRONMENTS = [
 
 function SectionTitle({ children }) {
   return (
-    <div className="text-[10px] font-semibold uppercase tracking-wider mb-1.5" style={{ color: 'rgb(var(--g-500))' }}>
+    <div className="ui-section-title mb-2">
       {children}
     </div>
   )
 }
 
 export default function SimulationPanel() {
-  const simActive    = useUiStore((s) => s.simActive)
-  const setSimActive = useUiStore((s) => s.setSimActive)
-  const setActivePanel = useUiStore((s) => s.setActivePanel)
+  const { simActive, preparing, toggle } = useSimToggle()
   const environment  = usePhysicsStore((s) => s.environment)
   const setEnvironment = usePhysicsStore((s) => s.setEnvironment)
   const gravity      = usePhysicsStore((s) => s.gravity)
-  const [preparing, setPreparing] = useState(false)
   // The ESP32 section only exists when the scene actually has an ESP32 board.
   const hasEsp32 = useSceneStore((s) => s.objects.some((o) => o.type === 'esp32'))
 
@@ -50,32 +44,21 @@ export default function SimulationPanel() {
     <div className="p-3 flex flex-col gap-4">
       {/* ── Run / Stop ─────────────────────────────────────────────────────── */}
       <div>
-        <SectionTitle>Simulation</SectionTitle>
+        <SectionTitle>Run</SectionTitle>
         <button
           data-tour="simulate"
-          onClick={async () => {
-            if (simActive) { setSimActive(false); return }
-            trackEvent('sim_started')
-            // Rapier loads in the background after boot; if the user is quicker,
-            // wait for it rather than silently falling back to kinematic physics.
-            if (!physicsManager.ready) setPreparing(true)
-            await preparePhysics()
-            setPreparing(false)
-            setSimActive(true)
-          }}
+          onClick={toggle}
           disabled={preparing}
-          className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 ${simActive ? 'animate-pulse' : 'hover:brightness-110'}`}
-          style={simActive
-            ? { background: '#eab308', color: '#1a1a1a', boxShadow: '0 2px 10px rgba(234,179,8,0.4)' }
-            : { background: 'linear-gradient(90deg,rgb(var(--a-500)),rgb(var(--a-600)))', color: '#fff', boxShadow: '0 2px 10px rgb(var(--a-600) / 0.35)' }}
+          className={`w-full ${simActive ? 'ui-btn' : 'ui-btn ui-btn-primary'}`}
+          style={{ height: 36, ...(simActive ? { color: '#b91c1c', borderColor: 'rgb(220 38 38 / 0.45)' } : null) }}
         >
-          <Icon name={simActive ? 'stop' : 'play'} size={16} />
-          {simActive ? 'Stop Simulation' : 'Start Simulation'}
+          <Icon name={simActive ? 'stop' : 'play'} size={14} />
+          {preparing ? 'Starting…' : simActive ? 'Stop simulation' : 'Start simulation'}
         </button>
-        <div className="text-[11px] mt-2 leading-snug" style={{ color: 'rgb(var(--g-400))' }}>
+        <div className="text-[12px] mt-2 leading-snug" style={{ color: 'rgb(var(--g-500))' }}>
           {simActive
-            ? 'Running with physics. Drive & robot controls appear in the viewport HUD.'
-            : 'Applies gravity, friction and wind so you can drive and test the build.'}
+            ? 'Running. Drive controls are at the bottom of the 3D view.'
+            : 'Adds gravity, friction and wind so you can drive and test what you built. The Simulate button in the top bar does the same.'}
         </div>
       </div>
 
@@ -89,14 +72,11 @@ export default function SimulationPanel() {
               <button
                 key={env.id}
                 onClick={() => { setEnvironment(env.id); recordSnapshot('Environment') }}
-                className="flex items-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-colors"
-                style={active
-                  ? { background: 'rgb(var(--a-600))', color: '#fff' }
-                  : { background: 'rgb(var(--g-800) / 0.6)', color: 'rgb(var(--g-300))' }}
-                onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgb(var(--a-600) / 0.14)' }}
-                onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'rgb(var(--g-800) / 0.6)' }}
+                aria-pressed={active}
+                className="ui-btn justify-start"
+                style={active ? { borderColor: 'rgb(var(--a-600))', color: 'rgb(var(--a-700))', background: 'rgb(var(--a-600) / 0.08)' } : undefined}
               >
-                <span>{env.emoji}</span>{env.label}
+                {env.label}
               </button>
             )
           })}

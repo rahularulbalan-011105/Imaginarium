@@ -21,7 +21,7 @@ const SECTIONS = [
   {
     icon: '⚡', title: '3 · Connect components',
     body: [
-      'Open ELEC → Wiring. In the Workbench drag from an Arduino pin to a pin on your component (or use Pick a Pin). Right-click a wire to recolour or delete it.',
+      'Open Build → Wiring. In the Workbench drag from an Arduino pin to a pin on your component (or use the Pin list). Right-click a wire to recolour or delete it.',
       'Power parts usually need GND and 5V; signal pins (like D3, D9) carry the control.',
       'Your wires also appear in 3D and in the Objects list.',
     ],
@@ -29,8 +29,8 @@ const SECTIONS = [
   {
     icon: '🧠', title: '4 · Write the logic',
     body: [
-      'Beginners: use CODE → Block Coding — drag blocks together, no typing. It writes the C++ for you.',
-      'Or use CODE → C++ Coding to write Arduino C++ directly. The Templates menu has ready examples (motor ramp, servo sweep, LED blink).',
+      'Beginners: use Code → Blocks — drag blocks together, no typing. It writes the C++ for you.',
+      'Or use Code → C++ to write Arduino C++ directly. The Templates menu has ready examples (motor ramp, servo sweep, LED blink).',
       'Press Run to execute. Watch motor/servo bars and the Serial Monitor for output.',
     ],
   },

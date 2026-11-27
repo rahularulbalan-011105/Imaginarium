@@ -4,7 +4,7 @@ import { esp32GpioFromName } from '../utils/esp32Board.js'
 import { L298N_INPUTS } from '../utils/l298n.js'
 import { ULN2003_INPUTS } from '../utils/stepper.js'
 
-const DEFAULT_CODE = `// Arduino Code
+export const DEFAULT_CODE = `// Arduino Code
 // Motor TERM_A connected to Pin ~3 (PWM)
 // Motor TERM_B connected to GND
 

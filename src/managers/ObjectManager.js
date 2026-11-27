@@ -1,8 +1,8 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
-import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup } from '../utils/electronicsFactory.js'
+import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createMecanumParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
+import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createTft28Group, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -63,7 +63,7 @@ function applyHoleStyle(object3d, obj) {
 // Wheel / caster geometry from the object's size fields, stamped with a key so
 // updateMesh rebuilds only when a size actually changes.
 const roundPartKey = (obj) => obj.type === 'wheel'
-  ? `w:${obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter}:${obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth}`
+  ? `w:${obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter}:${obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth}:${obj.wheelStyle === 'mecanum' ? `m${obj.rollerHand ?? 'A'}` : ''}`
   : `c:${obj.casterHeight ?? CASTER_DEFAULTS.casterHeight}:${obj.casterBall ?? CASTER_DEFAULTS.casterBall}`
 // mesh → simpler geometry to draw its selection outline from (wheel tyre: the
 // smooth ring, not every tread-block edge). A WeakMap, not userData: three.js
@@ -80,12 +80,16 @@ const _outlineGeo = new WeakMap()
 // userData.colorKey / defaultColor / fixedMaterial tell updateMesh's colour pass
 // to treat a part differently from obj.color / obj.material.
 const roundParts = (obj) => obj.type === 'wheel'
-  ? createWheelParts({ diameter: obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter, width: obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth })
+  ? (obj.wheelStyle === 'mecanum'      // mecanum: rollers instead of a tyre (utils/mecanum.js)
+    ? createMecanumParts({ diameter: obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter, width: obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth, hand: obj.rollerHand ?? 'A' })
+    : createWheelParts({ diameter: obj.wheelDiameter ?? WHEEL_DEFAULTS.wheelDiameter, width: obj.wheelWidth ?? WHEEL_DEFAULTS.wheelWidth }))
   : createCasterParts({ height: obj.casterHeight ?? CASTER_DEFAULTS.casterHeight, ball: obj.casterBall ?? CASTER_DEFAULTS.casterBall })
 const ROUND_PART_SPECS = {
   wheel: [
     { part: 'tyre', colorKey: 'tyreColor', defaultColor: WHEEL_TYRE_COLOR, fixedMaterial: 'standard', outline: 'tyreOutline' },
     { part: 'rim' },
+    // mecanum only: the grey hub bushing (a plain wheel's hub is part of its rim)
+    { part: 'hub', colorKey: 'hubColor', defaultColor: '#b8bcc3', fixedMaterial: 'standard' },
   ],
   caster: [
     { part: 'body' },
@@ -93,9 +97,16 @@ const ROUND_PART_SPECS = {
   ],
 }
 function buildRoundGroup(obj) {
-  const geos = roundParts(obj)
   const g = new THREE.Group()
+  fillRoundGroup(g, obj, roundParts(obj))
+  g.userData._roundKey = roundPartKey(obj)
+  g.userData.shapeVersion = 0
+  return g
+}
+// One mesh per part this shape has (a plain wheel has no separate hub).
+function fillRoundGroup(g, obj, geos) {
   for (const spec of ROUND_PART_SPECS[obj.type]) {
+    if (!geos[spec.part]) continue
     const color = spec.colorKey ? (obj[spec.colorKey] ?? spec.defaultColor) : obj.color
     const m = new THREE.Mesh(geos[spec.part], createMaterial(color, spec.fixedMaterial ?? obj.material))
     m.userData.roundPart = spec.part
@@ -105,12 +116,9 @@ function buildRoundGroup(obj) {
     m.castShadow = true; m.receiveShadow = true
     g.add(m)
   }
-  g.userData._roundKey = roundPartKey(obj)
-  g.userData.shapeVersion = 0
-  return g
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
+const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'tft28', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos + steppers)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper'])
@@ -186,6 +194,8 @@ class ObjectManager {
       object3d = createGasSensorGroup()
     } else if (obj.type === 'oled') {
       object3d = createOLEDGroup()
+    } else if (obj.type === 'tft28') {
+      object3d = createTft28Group()   // Waveshare 2.8" capacitive touch LCD (utils/tft28.js)
     } else if (obj.type === 'color_sensor') {
       object3d = createColorSensorGroup()
     } else if (obj.type === 'ldr_sensor') {
@@ -395,7 +405,14 @@ class ObjectManager {
       if ((obj.type === 'wheel' || obj.type === 'caster') && o.isGroup && o.userData._roundKey !== roundPartKey(obj)) {
         const parts = roundParts(obj)
         const specs = ROUND_PART_SPECS[obj.type]
-        for (const c of o.children) {
+        // a different set of parts (plain ↔ mecanum): rebuild the meshes, not just their shapes
+        const have = o.children.map((c) => c.userData.roundPart).filter(Boolean).sort().join()
+        const want = specs.map((sp) => sp.part).filter((k) => parts[k]).sort().join()
+        if (have !== want) {
+          for (const c of [...o.children]) if (c.userData.roundPart) { o.remove(c); c.geometry.dispose() }
+          fillRoundGroup(o, obj, parts)
+        }
+        else for (const c of o.children) {
           const g = parts[c.userData.roundPart]
           if (!g) continue
           c.geometry.dispose()
@@ -721,11 +738,17 @@ class ObjectManager {
     mesh.updateMatrixWorld(true)
     const worldPos = new THREE.Vector3(); mesh.getWorldPosition(worldPos)
     const worldQuat = new THREE.Quaternion(); mesh.getWorldQuaternion(worldQuat)
+    const worldScale = new THREE.Vector3(); mesh.getWorldScale(worldScale)
     const rotorQuat = new THREE.Quaternion(); rotorGroup.getWorldQuaternion(rotorQuat)
+    const rotorScale = new THREE.Vector3(); rotorGroup.getWorldScale(rotorScale)
     if (mesh.parent) mesh.parent.remove(mesh)
     rotorGroup.add(mesh)
     mesh.position.copy(rotorGroup.worldToLocal(worldPos.clone()))
     mesh.quaternion.copy(rotorQuat.invert().multiply(worldQuat))
+    // Keep the WORLD size too: a scaled servo (an SG90 is drawn at 0.6) would
+    // otherwise shrink whatever is attached to its horn by the same factor.
+    mesh.scale.set(worldScale.x / (rotorScale.x || 1), worldScale.y / (rotorScale.y || 1), worldScale.z / (rotorScale.z || 1))
+    mesh.updateMatrixWorld(true)
     this.attachedObjects.set(objectId, motorId)
     return true
   }
@@ -1136,9 +1159,10 @@ class ObjectManager {
 
   // ── Selection highlights ──────────────────────────────────────────────────
 
-  setSelectionHighlights(primaryId, secondaryId) {
+  setSelectionHighlights(primaryId, secondaryId, extraIds = []) {
+    const extras = new Set(extraIds)
     this.objects.forEach((o, id) => {
-      const emissive = id === primaryId
+      const emissive = id === primaryId || extras.has(id)
         ? new THREE.Color(0x1a2a66)
         : id === secondaryId
           ? new THREE.Color(0x662a00)
@@ -1152,7 +1176,10 @@ class ObjectManager {
 
       // Tinkercad-style edge outline: cyan on the primary selection, amber on the
       // secondary. Drawn over the shape's actual edges so it hugs the geometry.
-      const outline = id === primaryId ? 0x22d3ee : id === secondaryId ? 0xff8c1a : null
+      // With 3+ parts selected every one is a plain selection (cyan); the amber
+      // "2nd" only matters for two-part actions (Combine, Align with a reference).
+      const outline = id === primaryId || extras.has(id) ? 0x22d3ee
+        : id === secondaryId ? (extras.size ? 0x22d3ee : 0xff8c1a) : null
       this._setOutline(o, outline)
     })
   }

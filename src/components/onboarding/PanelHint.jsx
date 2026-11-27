@@ -6,7 +6,7 @@ import { useOnboardingStore } from '../../onboarding/onboardingStore.js'
 
 const HINTS = {
   properties: { icon: '🛠', text: 'Edit the selected object here — size, color, position, material and more. Click an object to begin.' },
-  objects:    { icon: '📋', text: 'Everything in your scene is listed here. Click to select, use 👁 to hide, ✕ to delete.' },
+  objects:    { icon: '📋', text: 'Everything in your scene is listed here. Click one to select it; use the eye to hide it.' },
   wiring:     { icon: '⚡', text: 'Connect electronics together. Click a pin on one component, then a pin on another, to run a wire.' },
   joints:     { icon: '⚙', text: 'Joints link two parts so they move together — hinges, sliders, and pivots. Shift-click a 2nd object to start.' },
   blocks:     { icon: '🧩', text: 'Program visually using drag-and-drop blocks. No typing — it generates Arduino code for you.' },
@@ -24,16 +24,16 @@ export default function PanelHint({ panelId }) {
   if (!hint || dismissed[panelId]) return null
 
   return (
-    <div className="flex items-start gap-2 mx-2 mt-2 px-2.5 py-2 rounded-lg"
-      style={{ background: 'rgb(var(--a-500) / 0.08)', border: '1px solid rgb(var(--a-500) / 0.2)' }}>
-      <span className="text-sm mt-0.5 shrink-0">{hint.icon}</span>
-      <span className="text-[10px] text-indigo-800 leading-snug flex-1">{hint.text}</span>
+    <div className="flex items-start gap-3 px-4 py-2.5 text-[12px] leading-snug"
+      style={{ background: 'rgb(var(--g-800))', borderBottom: '1px solid rgb(var(--g-700))', color: 'rgb(var(--g-400))' }}>
+      <span className="flex-1">{hint.text}</span>
       <button
         onClick={() => dismissHint(panelId)}
-        title="Got it — don't show again"
-        className="shrink-0 text-indigo-400/60 hover:text-slate-900 text-xs leading-none"
+        title="Hide this tip"
+        className="shrink-0 font-medium hover:underline"
+        style={{ color: 'rgb(var(--g-200))' }}
       >
-        ✕
+        Got it
       </button>
     </div>
   )

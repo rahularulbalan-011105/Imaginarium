@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
-import { simulationManager } from '../managers/SimulationManager.js'
-import { objectManager } from '../managers/ObjectManager.js'
-import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
-import { enterSimForCode } from '../managers/simForCode.js'
+import { runSketch, stopSketch, onSketchOutput, getSketchOutput } from '../managers/sketchRunner.js'
 import CompilerOutput from './CompilerOutput.jsx'
 import { LEGGED_TEMPLATES } from '../utils/leggedTemplates.js'
 import { L298N_EXAMPLE_SKETCH } from '../utils/l298n.js'
@@ -13,11 +10,16 @@ import { CR_SERVO_EXAMPLE_SKETCH } from '../utils/continuousServo.js'
 import { ENCODER_EXAMPLE_SKETCH } from '../utils/encoderMotor.js'
 import { PCA_EXAMPLE_SKETCH } from '../utils/pca9685.js'
 import { GRIPPER_EXAMPLE_SKETCH, GRIPPER_ARM_SKETCH } from '../utils/gripper.js'
+import { MECANUM_EXAMPLE_SKETCH } from '../utils/mecanum.js'
 
 const TEMPLATES = [
   {
     label: 'L298N: 2 motors',
     code: L298N_EXAMPLE_SKETCH,
+  },
+  {
+    label: 'Mecanum robot: forward, sideways, turn',
+    code: MECANUM_EXAMPLE_SKETCH,
   },
   {
     label: 'Gripper: close, hold, let go',
@@ -234,10 +236,6 @@ export default function CodeEditor({ full = false }) {
   const setCode        = useElectronicsStore((s) => s.setCode)
   const simulation     = useElectronicsStore((s) => s.simulation)
   const connections    = useElectronicsStore((s) => s.connections)
-  const startSimulation = useElectronicsStore((s) => s.startSimulation)
-  const stopSimulation  = useElectronicsStore((s) => s.stopSimulation)
-  const setMotorSpeed   = useElectronicsStore((s) => s.setMotorSpeed)
-  const setServoAngle   = useElectronicsStore((s) => s.setServoAngle)
   const objects         = useSceneStore((s) => s.objects)
 
   const [diag, setDiag]                   = useState(null)   // analyzeArduino() report
@@ -312,53 +310,33 @@ export default function CodeEditor({ full = false }) {
     requestAnimationFrame(() => ta.setSelectionRange(caret, caret))
   }
 
+  // Serial output + runtime errors come from the shared runner (managers/sketchRunner.js),
+  // so a sketch started from here or by Claude over MCP shows up in this monitor.
+  useEffect(() => {
+    const show = ({ serial, runtimeError: e }) => {
+      setSerialLog(serial.length > 4000 ? serial.slice(serial.length - 4000) : serial)
+      setRuntimeError(e)
+    }
+    show(getSketchOutput())          // output from a run that started before this panel opened
+    return onSketchOutput(show)
+  }, [])
+
   const handleRun = async () => {
     if (startingRef.current) return
-    setRuntimeError(null)
-    setSerialLog('')
-    window.dispatchEvent(new Event('constructa:code-run'))   // → community popup + code_run analytics (App listener)
-
-    // ── Compile pass: full diagnostics BEFORE running. Errors withhold execution. ──
-    const report = analyzeArduino(code, { board })
-    setDiag(report)
-    if (!report.ok) return   // blocking errors — do not start the simulation
-
-    // A robot only moves under the simulator — enter it first (no-op when it's
-    // already on, or when the scene has no servos/motors).
     startingRef.current = true
-    try { await enterSimForCode() } finally { startingRef.current = false }
-
-    simulationManager.configure(
-      connections,
-      objects,
-      setMotorSpeed,
-      (errMsg) => { setRuntimeError(errMsg); stopSimulation() },
-      (output) => {
-        setSerialLog(prev => {
-          const next = prev + output
-          return next.length > 4000 ? next.slice(next.length - 4000) : next
-        })
-      },
-      (ledId, brightness) => objectManager.animateLed(ledId, brightness),
-      (servoId, angle) => setServoAngle(servoId, angle)
-    )
-
-    const err = simulationManager.start(code)
-    if (err) {
+    let res
+    try { res = await runSketch(code) } finally { startingRef.current = false }
+    if (res.error && res.report) {
       // Transpiler safety-net (should be rare once diagnostics pass) — surface it
       // through the same panel as a single error.
-      setDiag({ ok: false, errors: [{ severity: 'error', kind: 'transpile', line: 1, col: 1, file: 'sketch.ino', message: err.error, explain: 'The code compiled past the analyzer but the transpiler could not process it.', suggestion: '', snippet: code.split('\n')[0] ?? '', caret: '^' }], warnings: report.warnings, stats: report.stats })
-    } else {
-      startSimulation()
+      const report = res.report
+      setDiag({ ok: false, errors: [{ severity: 'error', kind: 'transpile', line: 1, col: 1, file: 'sketch.ino', message: res.error, explain: 'The code compiled past the analyzer but the transpiler could not process it.', suggestion: '', snippet: code.split('\n')[0] ?? '', caret: '^' }], warnings: report.warnings, stats: report.stats })
+    } else if (res.report) {
+      setDiag(res.report)
     }
   }
 
-  const handleStop = () => {
-    simulationManager.stop()
-    objectManager.resetAllLeds()
-    stopSimulation()
-    setRuntimeError(null)
-  }
+  const handleStop = () => stopSketch()
 
   const noArduino    = !hasArduino
   const noComponent  = !hasControllable
@@ -372,12 +350,12 @@ export default function CodeEditor({ full = false }) {
 
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
-        <span className="text-xs font-semibold text-gray-300">{full ? 'C++ Coding' : 'Arduino Code'}</span>
+        <span className="text-[13px] font-semibold text-gray-200">{full ? 'C++' : 'Arduino code'}</span>
         {full && (
           <span className="text-[10px] text-gray-500">
             {hasEsp32
               ? 'ESP32 DevKit V1 target · simulated in the browser (no compile/flash)'
-              : 'Arduino sketch · Block Coding edits the same code'}
+              : 'Arduino sketch · the Blocks tab edits this same code'}
           </span>
         )}
 

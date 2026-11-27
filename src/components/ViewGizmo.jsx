@@ -59,12 +59,12 @@ function ViewGizmo() {
 
   const faceFill = (f) => {
     const active = label === FACES[f].label
-    if (hover === f) return 'rgb(var(--a-500) / 0.9)'
-    if (active)      return 'rgb(var(--a-600) / 0.85)'
+    if (hover === f) return 'rgb(var(--a-600) / 0.22)'
+    if (active)      return 'rgb(var(--a-600) / 0.14)'
     // gentle top-lighter / sides-darker shading so the cube reads as 3D
-    return f === 'top' ? 'rgb(var(--g-700) / 0.95)'
-      : f === 'left'  ? 'rgb(var(--g-800) / 0.95)'
-      :                 'rgb(var(--g-900) / 0.95)'
+    return f === 'top' ? '#ffffff'
+      : f === 'left'  ? '#eef1f5'
+      :                 '#e2e7ee'
   }
 
   return (
@@ -74,14 +74,14 @@ function ViewGizmo() {
       style={{ zIndex: Z.viewCube, opacity: suppressed ? 0 : 1, transition: 'opacity 180ms ease' }}
     >
       {/* Interactive iso cube */}
-      <div className={`p-1.5 ${suppressed ? '' : 'pointer-events-auto'} ${GLASS}`} style={glassStyle}>
+      <div className={suppressed ? '' : 'pointer-events-auto'}>
         <div className="flex items-center gap-1">
-          <svg width="60" height="60" viewBox="0 0 100 100" role="group" aria-label="View cube">
+          <svg width="92" height="92" viewBox="0 0 100 100" role="group" aria-label="View cube">
             {Object.keys(FACES).map((f) => (
               <g key={f}>
                 <polygon
                   points={FACES[f].pts}
-                  style={{ fill: faceFill(f), stroke: 'rgb(var(--g-500) / 0.6)', strokeWidth: 1.2, cursor: 'pointer', transition: 'fill 150ms ease' }}
+                  style={{ fill: faceFill(f), stroke: '#9aa5b4', strokeWidth: 1.2, cursor: 'pointer', transition: 'fill 150ms ease' }}
                   onMouseEnter={() => setHover(f)}
                   onMouseLeave={() => setHover(null)}
                   onClick={() => go(FACES[f].view)}
@@ -92,9 +92,9 @@ function ViewGizmo() {
                   x={f === 'top' ? 50 : f === 'left' ? 33 : 67}
                   y={f === 'top' ? 35 : 66}
                   textAnchor="middle"
-                  style={{ fontSize: 8.5, fontWeight: 700, fill: hover === f || label === FACES[f].label ? '#fff' : 'rgb(var(--g-400))', pointerEvents: 'none' }}
+                  style={{ fontSize: 9.5, fontWeight: 600, fill: '#374151', pointerEvents: 'none' }}
                 >
-                  {FACES[f].label.slice(0, 1)}
+                  {FACES[f].label.toUpperCase()}
                 </text>
               </g>
             ))}
@@ -106,17 +106,12 @@ function ViewGizmo() {
             title="All views"
             className="flex items-center justify-center w-6 h-6 rounded-lg transition-colors"
             style={{ color: 'rgb(var(--g-400))' }}
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgb(var(--a-600) / 0.16)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+
           >
             <Icon name={open ? 'chevronDown' : 'chevronRight'} size={14} />
           </button>
         </div>
 
-        {/* Current-view label */}
-        <div className="text-center text-[9px] font-semibold tracking-wide pt-0.5" style={{ color: 'rgb(var(--a-400))' }}>
-          {label}
-        </div>
       </div>
 
       {/* Full quick-view grid (all six faces + Home) — hidden while suppressed */}
@@ -130,12 +125,10 @@ function ViewGizmo() {
                   key={v.key}
                   onClick={() => go(v.key)}
                   title={`${v.label} view`}
-                  className="px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-colors"
+                  className="px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
                   style={active
-                    ? { background: 'rgb(var(--a-600))', color: '#fff' }
-                    : { background: 'rgb(var(--g-800) / 0.6)', color: 'rgb(var(--g-300))' }}
-                  onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgb(var(--a-600) / 0.16)' }}
-                  onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'rgb(var(--g-800) / 0.6)' }}
+                    ? { background: 'rgb(var(--a-600) / 0.12)', color: 'rgb(var(--a-700))' }
+                    : { background: 'rgb(var(--g-800))', color: 'rgb(var(--g-300))' }}
                 >
                   {v.label}
                 </button>
@@ -145,12 +138,12 @@ function ViewGizmo() {
           <button
             onClick={() => go('home')}
             title="Home / isometric view"
-            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-[11px] font-medium transition-colors"
             style={label === 'Perspective'
-              ? { background: 'rgb(var(--a-600))', color: '#fff' }
-              : { background: 'rgb(var(--g-800) / 0.6)', color: 'rgb(var(--g-300))' }}
+              ? { background: 'rgb(var(--a-600) / 0.12)', color: 'rgb(var(--a-700))' }
+              : { background: 'rgb(var(--g-800))', color: 'rgb(var(--g-300))' }}
           >
-            <Icon name="home" size={12} /> Home (Iso)
+            <Icon name="home" size={12} /> Home view
           </button>
         </div>
       )}

@@ -1,14 +1,28 @@
 import { create } from 'zustand'
+import { SHAPE_COLORS } from '../utils/shapeColors.js'
 import { v4 as uuidv4 } from 'uuid'
 import { runBoolean, buildUnionMembers, unionWorldGeoJSONs } from '../utils/csg.js'
 import { trackEvent } from '../utils/utmTracking.js'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_RIM_COLOR, WHEEL_TYRE_COLOR, CASTER_BODY_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 
 // Default object names for parts whose type id isn't their real name.
-const PART_NAMES = { l298n: 'L298N', uln2003: 'ULN2003', esp32: 'ESP32', servo_cr: 'ContServo', motor_enc: 'EncMotor', pca9685: 'PCA9685', gripper: 'Gripper' }
+const PART_NAMES = { l298n: 'L298N', uln2003: 'ULN2003', esp32: 'ESP32', servo_cr: 'ContServo', motor_enc: 'EncMotor', pca9685: 'PCA9685', gripper: 'Gripper', tft28: 'TFT28' }
 
 const PALETTE = ['#ef4444','#f97316','#eab308','#22c55e','#3b82f6','#8b5cf6','#ec4899','#06b6d4']
 let paletteIdx = 0
+
+// ── Multi-selection ──────────────────────────────────────────────────────────
+// selectedId (primary) and secondaryId (2nd) stay the source of truth for every
+// existing one/two-object feature. Parts selected beyond those two live in
+// extraIds, which only count while the primary they were made with is still the
+// primary (extraFor) — so any code that simply sets selectedId (add, duplicate,
+// group…) drops the stale extras without having to know they exist.
+export function selectedIdsOf(s) {
+  const ids = [s.selectedId, s.secondaryId]
+  if (s.extraFor && s.extraFor === s.selectedId) ids.push(...(s.extraIds ?? []))
+  const live = new Set(s.objects.map((o) => o.id))
+  return [...new Set(ids.filter((id) => id && live.has(id)))]
+}
 
 export const useSceneStore = create((set, get) => ({
   objects: [],
@@ -29,7 +43,7 @@ export const useSceneStore = create((set, get) => ({
     // Sensors/peripherals are electronics too — they must be on this list so they
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
-    const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer']
+    const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'tft28', 'buzzer']
     const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'motor_enc', 'l298n', 'stepper', 'uln2003', 'pca9685', 'gripper', ...SENSOR_TYPES].includes(type)
     const mechTypes = ['gear', 'bolt', 'screw', 'wheel', 'caster']
     const isMech = mechTypes.includes(type)
@@ -54,6 +68,8 @@ export const useSceneStore = create((set, get) => ({
       : type === 'uln2003'                ? { x: -12 - count * 5, y: 0.1, z: -10 }
       : type === 'pca9685'                ? { x: 4 + count * 8, y: 0.1, z: -10 }
       : type === 'stepper'                ? { x: -12 - count * 5, y: 0,   z: -3 }
+      // Touch LCD: the model rests on its standoffs at y = 0, left of the sensor row.
+      : type === 'tft28'                  ? { x: -16 - count * 7, y: 0, z: -9 }
       : SENSOR_TYPES.includes(type)       ? { x: count * 4 - 6, y: 1.2,  z: -9 }
       // Wheel / caster: resting ON the grid (y = half their height), side by side.
       : type === 'wheel'                  ? { x: count * 2 + 6, y: WHEEL_DEFAULTS.wheelDiameter / 2, z: 4 }
@@ -68,7 +84,7 @@ export const useSceneStore = create((set, get) => ({
       : type === 'wheel'        ? WHEEL_RIM_COLOR   // yellow rim; the tyre has its own tyreColor
       : type === 'caster'       ? CASTER_BODY_COLOR // silver body; the ball stays steel
       : isMech                  ? '#9ca3af'
-      : PALETTE[paletteIdx++ % PALETTE.length]
+      : SHAPE_COLORS[type] ?? PALETTE[paletteIdx++ % PALETTE.length]
     const displayCount = count + 1
     const gearDefaults = type === 'gear' ? { teeth: 12, module: 0.25, faceWidth: 0.5, bore: 0 } : {}
     const textDefaults = type === 'text' ? { textContent: 'Text', textSize: 1, textHeight: 0.4 } : {}
@@ -95,6 +111,11 @@ export const useSceneStore = create((set, get) => ({
       },
     }
     if (overrides) Object.assign(obj, overrides, { id: obj.id, type })
+    // Mecanum wheels are numbered per hand (MecanumA_1, MecanumB_1 …) — the hand matters when building.
+    if (obj.wheelStyle === 'mecanum' && !overrides?.name) {
+      const n = get().objects.filter(o => o.wheelStyle === 'mecanum' && o.rollerHand === obj.rollerHand).length + 1
+      obj.name = `Mecanum${obj.rollerHand ?? 'A'}_${n}`
+    }
     set((state) => ({ objects: [...state.objects, obj] }))
     // Analytics: user added a shape/part — carry the running scene count so the
     // dashboard can show "shapes in the pane" (peak per user).
@@ -121,8 +142,20 @@ export const useSceneStore = create((set, get) => ({
   // Secondary selection (for boolean ops)
   secondaryId: null,
 
-  selectObject: (id) => set({ selectedId: id, secondaryId: null }),
-  clearSelection: () => set({ selectedId: null, secondaryId: null }),
+  extraIds: [],
+  extraFor: null,
+  selectObject: (id) => set({ selectedId: id, secondaryId: null, extraIds: [], extraFor: null }),
+  clearSelection: () => set({ selectedId: null, secondaryId: null, extraIds: [], extraFor: null }),
+  /** Replace the whole selection (first id = primary). */
+  setSelectionList: (ids) => {
+    const list = [...new Set(ids.filter(Boolean))]
+    set({ selectedId: list[0] ?? null, secondaryId: list[1] ?? null, extraIds: list.slice(2), extraFor: list[0] ?? null })
+  },
+  /** Shift+click: add a part to the selection, or take it out if it is already in. */
+  toggleSelect: (id) => {
+    const cur = selectedIdsOf(get())
+    get().setSelectionList(cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id])
+  },
   setSecondaryId: (id) => set({ secondaryId: id }),
   clearSecondaryId: () => set({ secondaryId: null }),
 

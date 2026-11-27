@@ -1,4 +1,4 @@
-import { memo, useCallback } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { wireManager } from '../managers/WireManager.js'
@@ -69,9 +69,8 @@ export default function ObjectList() {
   if (objects.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full p-4 text-center">
-        <div className="text-3xl mb-2 opacity-30">📦</div>
-        <div className="text-sm text-gray-500">No objects in scene.</div>
-        <div className="text-xs text-gray-600 mt-1">Use the toolbox to add shapes.</div>
+        <div className="text-[13px] text-gray-400">Nothing here yet.</div>
+        <div className="text-[12px] text-gray-500 mt-1">Add shapes from Library, or parts from Build → Electronics.</div>
       </div>
     )
   }
@@ -138,6 +137,19 @@ export default function ObjectList() {
 // One row. Memoized: updateObject keeps unchanged objects by reference, so a
 // drag re-renders only the dragged row. `content-visibility: auto` lets the
 // browser skip layout/paint for off-screen rows (large scenes stay cheap).
+// The part's picture (public/thumbs), else a swatch in the object's colour.
+const THUMB_BASE = `${import.meta.env.BASE_URL}thumbs/`
+const SHAPE_THUMBS = new Set(['box', 'cylinder', 'sphere', 'cone', 'rectprism', 'torus', 'capsule', 'tetrahedron', 'octahedron', 'dodecahedron', 'prism', 'hexagon', 'pyramid', 'pentpyramid', 'plane'])
+function RowThumb({ obj }) {
+  const [failed, setFailed] = useState(false)
+  const src = SHAPE_THUMBS.has(obj.type) ? `${THUMB_BASE}shape_${obj.type}.webp`
+    : obj.type in TYPE_ICONS || obj.type.startsWith('weapon_') || /^[a-z0-9_]+$/.test(obj.type) ? `${THUMB_BASE}${obj.type}.webp` : null
+  if (!src || failed || obj.type === 'csg' || obj.type === 'model' || obj.type === 'text') {
+    return <span className="w-6 h-6 rounded shrink-0" style={{ background: obj.color, boxShadow: 'inset 0 0 0 1px rgb(0 0 0 / 0.12)' }} />
+  }
+  return <img src={src} alt="" className="w-6 h-6 object-contain shrink-0" loading="lazy" draggable={false} onError={() => setFailed(true)} />
+}
+
 const ObjectRow = memo(function ObjectRow({ obj, isPrimary, isSecondary, onRowClick, onDelete, onToggleVisible }) {
   return (
     <div
@@ -145,19 +157,18 @@ const ObjectRow = memo(function ObjectRow({ obj, isPrimary, isSecondary, onRowCl
       style={{ contentVisibility: 'auto', containIntrinsicSize: 'auto 33px' }}
       className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-gray-800/50 group transition-colors ${
         isPrimary
-          ? 'bg-indigo-900/20 border-l-2 border-l-indigo-500'
+          ? 'bg-indigo-500/10 border-l-2 border-l-indigo-500'
           : isSecondary
-          ? 'bg-orange-900/30 border-l-2 border-l-orange-500'
+          ? 'bg-indigo-500/5 border-l-2 border-l-indigo-300'
           : 'hover:bg-gray-800/50'
       }`}
     >
-      <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: obj.color }} />
-      <span className="text-sm shrink-0">{TYPE_ICONS[obj.type] ?? '📦'}</span>
+      <RowThumb obj={obj} />
       <span className={`flex-1 text-xs truncate ${
-        isPrimary ? 'text-indigo-800' : isSecondary ? 'text-orange-700' : 'text-gray-300'
+        isPrimary ? 'text-gray-50 font-medium' : 'text-gray-300'
       }`}>
         {obj.name}
-        {isSecondary && <span className="ml-1 text-[9px] text-orange-700 opacity-70">2nd</span>}
+        {isSecondary && <span className="ml-1 text-[11px] text-gray-500">(2nd)</span>}
       </span>
       <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
         <button

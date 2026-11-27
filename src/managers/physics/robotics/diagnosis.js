@@ -178,13 +178,13 @@ export function servoWiringIssues(servos, wiring) {
     issues.push(makeIssue('electronics', 'elec:servo-power',
       `${list(noPower)} ${noPower.length === 1 ? 'has' : 'have'} no power`,
       "A servo needs its VCC wired to a supply pin (5V) and its GND to a ground pin. Without power it can't hold or move — it goes limp.",
-      'ELEC → Wiring: connect each servo VCC → 5V and GND → GND.'))
+      'Build → Wiring: connect each servo VCC → 5V and GND → GND.'))
   }
   if (noSignal.length) {
     issues.push(makeIssue('electronics', 'elec:servo-signal',
       `${list(noSignal)} ${noSignal.length === 1 ? 'is' : 'are'} not connected to the board`,
       "Nothing is wired to the servo's SIGNAL pin, so the code can't reach it — it goes limp.",
-      'ELEC → Wiring: connect each servo SIGNAL to a board pin (and use that pin in Servo.attach()), or plug it into a PCA9685 channel.'))
+      'Build → Wiring: connect each servo SIGNAL to a board pin (and use that pin in Servo.attach()), or plug it into a PCA9685 channel.'))
   }
   return issues
 }
@@ -197,7 +197,7 @@ export function attachIssue(pin, servos, wiring) {
     return makeIssue('electronics', `elec:attach-${pin}`,
       `Servo.attach(${pin}): no servo is wired to pin ${pin}`,
       `${list(unwired)} ${unwired.length === 1 ? 'has' : 'have'} no signal wire, so nothing on pin ${pin} moves.`,
-      `ELEC → Wiring: connect a servo SIGNAL to pin ${pin}${used.length ? ` (servos are already on ${pinList(used)})` : ''}.`)
+      `Build → Wiring: connect a servo SIGNAL to pin ${pin}${used.length ? ` (servos are already on ${pinList(used)})` : ''}.`)
   }
   return makeIssue('code', `code:attach-${pin}`,
     `Servo.attach(${pin}): no servo is wired to pin ${pin}`,

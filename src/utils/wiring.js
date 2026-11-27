@@ -9,8 +9,9 @@ import { L298N_PIN_ORDER } from './l298n.js'
 import { ULN2003_PIN_ORDER, STEPPER_WIRES } from './stepper.js'
 import { ENC_MOTOR_PIN_ORDER } from './encoderMotor.js'
 import { PCA_PIN_ORDER } from './pca9685.js'
+import { TFT28_PIN_ORDER } from './tft28.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
+export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'tft28', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
 
 export const PIN_DEFS = {
   // L298N motor driver: motor outputs, power terminal, logic header (utils/l298n.js).
@@ -39,6 +40,8 @@ export const PIN_DEFS = {
   ultrasonic: ['VCC','TRIG','ECHO','GND'],
   buzzer:     ['SIGNAL','GND'],
   oled:       ['GND','VCC','SCL','SDA'],
+  // Waveshare 2.8" touch LCD: its 13-pin GH1.25 header (utils/tft28.js).
+  tft28:      TFT28_PIN_ORDER,
   gas_sensor: ['VCC','GND','DO','AO'],
   color_sensor: ['VCC','GND','S0','S1','S2','S3','OUT'],
   ldr_sensor:   ['VCC','GND','AO','DO'],

@@ -1,3 +1,4 @@
+import Icon from './ui/Icon.jsx'
 import { useEffect, useRef, useState } from 'react'
 import * as Blockly from 'blockly'
 import { useElectronicsStore } from '../stores/electronicsStore.js'
@@ -27,7 +28,7 @@ export default function BlocksPanel({ workspace = false }) {
   const [error, setError]    = useState(null)
   const [diag, setDiag]      = useState(null)   // same compiler diagnostics as the Code editor
   // Gate Blockly init behind a click — except in the main workspace, where opening
-  // CODE → Block Coding is itself the deliberate action (Blockly is lazy-loaded).
+  // Code → Blocks is itself the deliberate action (Blockly is lazy-loaded).
   const [started, setStarted] = useState(workspace)
   const [maximized, setMaximized] = useState(false)
 
@@ -170,29 +171,44 @@ export default function BlocksPanel({ workspace = false }) {
         ? 'flex flex-col bg-gray-950 fixed inset-3 z-50 rounded-xl border border-gray-700 shadow-2xl overflow-hidden'
         : 'flex flex-col h-full min-h-0 bg-gray-950 overflow-hidden'
     }>
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700/50 shrink-0">
-        <span className="text-xs font-semibold text-gray-300">🧩 Block Coding</span>
-        {workspace && <span className="text-[10px] text-gray-500">Blocks write the C++ sketch — use “Use in C++” or Run</span>}
+      <div className="flex items-center gap-2 px-3 h-11 shrink-0" style={{ background: 'rgb(var(--g-900))', borderBottom: '1px solid rgb(var(--g-700))' }}>
+        {/* Run is the main action of this screen, so it leads the bar. */}
+        {simulation.running ? (
+          <button onClick={handleStop} className="ui-btn" style={{ color: '#b91c1c', borderColor: 'rgb(220 38 38 / 0.45)' }}>
+            <Icon name="stop" size={13} /> Stop
+          </button>
+        ) : (
+          <button onClick={handleRun} className="ui-btn ui-btn-primary">
+            <Icon name="play" size={13} /> Run blocks
+          </button>
+        )}
+        <button onClick={sendToEditor}
+          title="Copy the C++ these blocks make into the C++ tab (replaces the sketch there)"
+          className="ui-btn">
+          Use in C++
+        </button>
         {started && (
           <>
             {!workspace && <button
               onClick={() => setMaximized(m => !m)}
               title={maximized ? 'Restore to panel' : 'Maximize editor'}
-              className="ml-1 text-[11px] text-gray-400 hover:text-slate-900 px-1.5 py-0.5 rounded border border-gray-700/50 hover:border-gray-500 transition-colors leading-none"
+              className="ui-btn ui-btn-quiet"
             >
-              {maximized ? '🗗 Restore' : '🗖 Maximize'}
+              {maximized ? 'Restore' : 'Maximize'}
             </button>}
             <button
               onClick={resetBlocks}
               title="Clear all blocks back to a clean start"
-              className="text-[11px] text-gray-400 hover:text-red-300 px-1.5 py-0.5 rounded border border-gray-700/50 hover:border-red-500/50 transition-colors leading-none"
+              className="ui-btn ui-btn-quiet"
             >
-              ↺ Reset
+              Clear
             </button>
           </>
         )}
-        <div className={`ml-auto w-2 h-2 rounded-full ${simulation.running ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}`} />
-        <span className="text-[10px] text-gray-500">{simulation.running ? 'Running' : 'Idle'}</span>
+        <span className="ml-auto flex items-center gap-1.5 text-[12px] text-gray-500">
+          <span className={`w-2 h-2 rounded-full ${simulation.running ? 'bg-green-500' : 'bg-gray-600'}`} />
+          {simulation.running ? 'Running' : 'Stopped'}
+        </span>
       </div>
 
       {/* Workspace — Blockly fills an absolutely-positioned box inside a sized,
@@ -203,52 +219,28 @@ export default function BlocksPanel({ workspace = false }) {
         </div>
       ) : (
         <div className="flex-1 min-h-[240px] flex flex-col items-center justify-center gap-3 p-4 text-center">
-          <div className="text-4xl opacity-40">🧩</div>
-          <div className="text-xs text-gray-400 max-w-[220px]">
-            Visual Arduino blocks. Loads a ~700&nbsp;KB editor — click to start.
+          <div className="text-[13px] text-gray-400 max-w-[260px]">
+            Program your robot by snapping blocks together. No typing needed.
           </div>
-          <button
-            onClick={() => setStarted(true)}
-            className="px-4 py-2 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
-          >
-            Load Block Editor
+          <button onClick={() => setStarted(true)} className="ui-btn ui-btn-primary">
+            Open the block editor
           </button>
         </div>
       )}
-
-      {/* Controls */}
-      <div className="flex gap-2 px-3 py-2 border-t border-gray-700/50 shrink-0">
-        {simulation.running ? (
-          <button onClick={handleStop}
-            className="flex-1 flex items-center justify-center gap-2 py-2 rounded bg-red-700 hover:bg-red-600 text-white text-xs font-medium transition-colors">
-            <span>■</span> Stop
-          </button>
-        ) : (
-          <button onClick={handleRun}
-            className="flex-1 flex items-center justify-center gap-2 py-2 rounded bg-green-700 hover:bg-green-600 text-white text-xs font-medium transition-colors">
-            <span>▶</span> Run Blocks
-          </button>
-        )}
-        <button onClick={sendToEditor}
-          title="Put the generated C++ into C++ Coding (replaces the sketch there)"
-          className="px-3 py-2 rounded bg-gray-700 hover:bg-gray-600 text-gray-200 text-xs font-medium transition-colors">
-          {'</>'} Use in C++
-        </button>
-      </div>
 
       {/* Compiler diagnostics on the generated C++ (line numbers refer to the preview below) */}
       <CompilerOutput result={diag} />
 
       {error && (
         <div className="mx-3 mb-2 px-2.5 py-2 bg-red-900/30 border border-red-700/50 rounded text-[11px] text-red-300 font-mono shrink-0 leading-snug">
-          <div className="text-red-400 font-semibold text-[10px] uppercase tracking-wide mb-0.5">⚠ Runtime Error</div>
+          <div className="text-red-400 font-semibold text-[11px] mb-0.5">Error while running</div>
           {error}
         </div>
       )}
 
       {/* Live generated-code preview */}
       <div className="px-3 pb-3 shrink-0">
-        <div className="text-[9px] text-gray-500 uppercase tracking-wider mb-1">Generated C++</div>
+        <div className="text-[12px] font-medium text-gray-400 mb-1 mt-2">C++ made by your blocks</div>
         <pre className="bg-gray-900 text-green-400 font-mono text-[10px] p-2 rounded border border-gray-700/40 h-24 overflow-auto whitespace-pre-wrap break-words">
           {code || <span className="text-gray-600">Drag blocks to generate code…</span>}
         </pre>
