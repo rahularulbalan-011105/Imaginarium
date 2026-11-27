@@ -161,6 +161,23 @@ const SHAPES = {
       </>
     ) }
   },
+  // Waveshare 2.8" touch LCD, seen from the front: black glass with the 240×320
+  // screen (thick bezel at the bottom), the 13-pin GH1.25 header down the left
+  // edge in board order (VCC first) — the blue PCB peeks out behind the glass.
+  tft28: () => {
+    const w = 190, h = 250
+    const sx = 22, sy = 16, sw = w - 44, sh = (sw * 58.2) / 43.8
+    return { w, h, title: '2.8" TOUCH LCD', pins: edge(PIN_DEFS.tft28, 'left', w, h, 0.1, 0.9), art: (
+      <>
+        <rect x="4" y="5" width={w - 8} height={h - 10} rx="4" fill="#2457ac" />
+        <rect x="1" y="1" width={w - 2} height={h - 2} rx="9" fill="#0b0c0e" stroke="rgb(0 0 0 / 0.35)" strokeWidth="1.5" />
+        <rect x={sx} y={sy} width={sw} height={sh} rx="2" fill="#050608" stroke="#1f2329" />
+        <path d={`M${sx + sw * 0.55} ${sy} L${sx + sw} ${sy} L${sx + sw} ${sy + sh * 0.35} Z`} fill="rgb(255 255 255 / 0.04)" />
+        <text x={w / 2} y={sy + sh + 20} textAnchor="middle" fontSize="10" fontWeight="800" fill="#e5e7eb" letterSpacing="1">2.8" TOUCH LCD</text>
+        <text x={w / 2} y={sy + sh + 33} textAnchor="middle" fontSize="7" fontWeight="700" fill="#94a3b8">ST7789 SPI · CST328 TOUCH</text>
+      </>
+    ) }
+  },
   // ULN2003: green board — IN1–IN4 on the left, − + power bottom-left, the
   // motor socket (OUT1–OUT4 + COM) along the top, LEDs A–D down the right.
   uln2003: () => {
@@ -318,6 +335,7 @@ export function shapeOf(type) {
   if (type === 'l298n') return SHAPES.l298n()
   if (type === 'uln2003') return SHAPES.uln2003()
   if (type === 'pca9685') return SHAPES.pca9685()
+  if (type === 'tft28') return SHAPES.tft28()
   if (type === 'stepper') return SHAPES.stepper()
   if (type === 'servo') return SHAPES.servo()
   if (type === 'servo_cr') return SHAPES.servo(true)

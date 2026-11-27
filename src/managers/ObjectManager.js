@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
 import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createMecanumParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
-import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup } from '../utils/electronicsFactory.js'
+import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createTft28Group, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
@@ -118,7 +118,7 @@ function fillRoundGroup(g, obj, geos) {
   }
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
+const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'tft28', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper'])
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos + steppers)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper'])
@@ -194,6 +194,8 @@ class ObjectManager {
       object3d = createGasSensorGroup()
     } else if (obj.type === 'oled') {
       object3d = createOLEDGroup()
+    } else if (obj.type === 'tft28') {
+      object3d = createTft28Group()   // Waveshare 2.8" capacitive touch LCD (utils/tft28.js)
     } else if (obj.type === 'color_sensor') {
       object3d = createColorSensorGroup()
     } else if (obj.type === 'ldr_sensor') {

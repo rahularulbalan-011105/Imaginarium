@@ -36,6 +36,7 @@ const CATEGORIES = [
     key: 'displays', label: 'Displays', color: '#8b5cf6', icon: '📺', blurb: 'Show text and graphics.',
     items: [
       { type: 'oled', label: 'OLED', icon: '📺', desc: 'I²C 128×64', purpose: 'Displays text and graphics.', usage: 'readouts · menus · debugging' },
+      { type: 'tft28', label: '2.8" Touch LCD', icon: '🖥', desc: 'SPI 240×320 · capacitive touch', purpose: 'Waveshare 2.8inch colour TFT with a capacitive touch panel. The screen (ST7789) talks SPI: MOSI, SCLK, LCD_CS, LCD_DC, LCD_RST, plus LCD_BL for backlight brightness. The touch chip (CST328) talks I2C on TP_SDA / TP_SCL, with TP_INT and TP_RST. Runs on 3.3 V or 5 V. MISO is not connected on this module.', usage: 'touch menus · dashboards · images' },
     ],
   },
   {
