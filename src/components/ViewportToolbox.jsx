@@ -5,6 +5,7 @@ import { useUiStore } from '../stores/uiStore.js'
 import { patchManager } from '../managers/PatchManager.js'
 import Icon from './ui/Icon.jsx'
 import { GLASS, glassStyle } from './ui/surfaces.js'
+import { useToolsStore } from '../stores/toolsStore.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ViewportToolbox — "Quick Tools": a floating, draggable, minimizable overlay on
@@ -54,6 +55,36 @@ function Tile({ icon, label, onClick, title, active, dataTour, badge, corner }) 
       {corner && <span className="absolute top-1 right-1.5 text-[7px] font-mono leading-none" style={{ color: active ? '#fff' : 'rgb(var(--g-500))' }}>{corner}</span>}
       {badge != null && <span className="absolute bottom-0.5 text-[7px] leading-none" style={{ color: active ? '#fff' : 'rgb(var(--g-400))' }}>{badge}</span>}
     </button>
+  )
+}
+
+// Workplane / Ruler / Note: each arms a one-click pick in the viewport
+// (Viewport.handleClick). A second click on an armed tile disarms it; a set
+// workplane or ruler shows a small reset badge.
+function DesignTools() {
+  const pickMode = useToolsStore(s => s.pickMode)
+  const workplane = useToolsStore(s => s.workplane)
+  const ruler = useToolsStore(s => s.ruler)
+  const setPickMode = useToolsStore(s => s.setPickMode)
+  const setWorkplane = useToolsStore(s => s.setWorkplane)
+  const setRuler = useToolsStore(s => s.setRuler)
+  return (
+    <div className="grid grid-cols-3 gap-1">
+      <Tile icon="layers" label="Workplane" active={pickMode === 'workplane' || !!workplane} dataTour="tool-workplane"
+        onClick={() => (workplane && pickMode !== 'workplane' ? setWorkplane(null) : setPickMode('workplane'))}
+        corner={workplane ? '×' : null}
+        title={workplane ? 'Workplane is on a face — click to put it back on the floor'
+          : pickMode === 'workplane' ? 'Click any face to put the workplane on it (Esc to cancel)'
+          : 'Workplane — click, then click a face: new shapes are created on that face'} />
+      <Tile icon="sliders" label="Ruler" active={pickMode === 'ruler' || !!ruler} dataTour="tool-ruler"
+        onClick={() => (ruler && pickMode !== 'ruler' ? setRuler(null) : setPickMode('ruler'))}
+        corner={ruler ? '×' : null}
+        title={ruler ? 'Remove the ruler' : pickMode === 'ruler' ? 'Click where the ruler should start'
+          : 'Ruler — place it, then select an object to read and type exact positions and sizes'} />
+      <Tile icon="edit" label="Note" active={pickMode === 'note'} dataTour="tool-note"
+        onClick={() => setPickMode('note')}
+        title={pickMode === 'note' ? 'Click where the note should be pinned' : 'Note — pin a text note to a spot in the design'} />
+    </div>
   )
 }
 
@@ -218,6 +249,11 @@ function ViewportToolbox() {
           <Tile icon="slice" label="Slice" active={sliceToolActive} onClick={handleSliceTool}
             title={sliceToolActive ? 'Exit slice mode' : 'Slice — draw a line across a selected shape to cut it into two pieces'} />
         </div>
+
+        <Divider />
+
+        {/* ── Tinkercad design tools: Workplane · Ruler · Note ──────────────── */}
+        <DesignTools />
 
         <Divider />
 

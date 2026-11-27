@@ -11,6 +11,8 @@ import { loadGLTFFromFile, loadSTLFromFile, cloneModel, flattenToGeometry, ensur
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
 import { svgTextToGeometry } from '../utils/svgImport.js'
 import { trackEvent } from '../utils/utmTracking.js'
+import { setDragPayload } from '../utils/dropPlacement.js'
+import ScribblePad from './ScribblePad.jsx'
 
 const SHAPE_GROUPS = [
   {
@@ -39,6 +41,23 @@ const SHAPE_GROUPS = [
       { type: 'hexagon',      label: 'Hex Prism',   icon: '⬡' },
       { type: 'pyramid',      label: 'Sq Pyramid',  icon: '▲' },
       { type: 'pentpyramid',  label: 'Pent Pyr',    icon: '⛛' },
+      { type: 'icosahedron',  label: 'Icosahedron', icon: '⬣' },
+    ],
+  },
+  {
+    // The rest of Tinkercad's Basic Shapes (utils/shapes3d.js).
+    label: 'More Shapes',
+    color: 'orange',
+    items: [
+      { type: 'half_sphere', label: 'Half Sphere', icon: '◓' },
+      { type: 'round_roof',  label: 'Round Roof',  icon: '⌓' },
+      { type: 'wedge',       label: 'Wedge',       icon: '◺' },
+      { type: 'tube',        label: 'Tube',        icon: '◎' },
+      { type: 'polygon',     label: 'Polygon',     icon: '⬠' },
+      { type: 'paraboloid',  label: 'Paraboloid',  icon: '⏶' },
+      { type: 'star_shape',  label: 'Star',        icon: '★' },
+      { type: 'heart',       label: 'Heart',       icon: '♥' },
+      { type: 'scribble',    label: 'Scribble',    icon: '✎', scribble: true },
     ],
   },
 ]
@@ -86,6 +105,7 @@ export default function AssetLibrary() {
   const [importErr, setImportErr] = useState(null)
 
   const addShape = (type) => { addObject(type); snapshot() }
+  const [scribbling, setScribbling] = useState(false)
 
   // Insert a built-in GLB model. Clones the preloaded model into the per-id
   // registry so it renders immediately; `modelKey` lets it reload later.
@@ -251,6 +271,8 @@ export default function AssetLibrary() {
         />
       </div>
 
+      {scribbling && <ScribblePad onCancel={() => setScribbling(false)}
+        onDone={(pts) => { setScribbling(false); addObject('scribble', undefined, { scribblePoints: pts }); snapshot() }} />}
       {/* ── Shape groups ─────────────────────────────────────────────────── */}
       {SHAPE_GROUPS.map((group) => (
         <div key={group.label} className="px-2 pt-3">
@@ -258,11 +280,13 @@ export default function AssetLibrary() {
             {group.label}
           </div>
           <div className="grid grid-cols-3 gap-1.5">
-            {group.items.map(({ type, label, icon }) => (
+            {group.items.map(({ type, label, icon, scribble }) => (
               <button
                 key={type}
                 data-tour={`shape-${type}`}
-                onClick={() => addShape(type)}
+                onClick={() => (scribble ? setScribbling(true) : addShape(type))}
+                draggable={!scribble}
+                onDragStart={(e) => setDragPayload(e, { type })}
                 title={label}
                 className="ui-lib-card"
               >

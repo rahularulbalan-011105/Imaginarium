@@ -28,6 +28,14 @@ import { useHistory } from '../hooks/useHistory.js'
 import { driveManager } from '../managers/DriveManager.js'
 import { loadGLTFFromFile, loadSTLFromFile, loadModel, isModelLoaded, modelKeysFor } from '../utils/modelLoader.js'
 import { storeImportedGeometry } from '../managers/ObjectManager.js'
+import { readDragPayload, screenToPlane } from '../utils/dropPlacement.js'
+import { initPlugging } from '../parts/plugManager.js'
+import { useToolsStore } from '../stores/toolsStore.js'
+import { workplaneFromHit, workplanePlane, workplaneQuaternion } from '../utils/workplane.js'
+import RulerPanel from './RulerPanel.jsx'
+import NotesOverlay from './NotesOverlay.jsx'
+import { ensureModels, hasModel, modelKeyOf } from '../utils/modelLoader.js'
+import { variantOverrides } from '../utils/componentVariants.js'
 import { v4 as uuidv4 } from 'uuid'
 
 // Surface tool: pointer travel (px) below which a press is a click on a face,
@@ -156,6 +164,15 @@ export default function Viewport() {
       return
     }
     patchManager.init(sceneManager.scene, sceneManager.camera, objectManager)
+    initPlugging()   // breadboards: legs dropped on holes plug in (src/parts/plugManager.js)
+    // Design tools: the grid follows the workplane; the ruler marker follows the ruler.
+    const syncTools = (st) => {
+      sceneManager.setWorkplane(st.workplane)
+      sceneManager.setRulerMarker(st.ruler?.origin ?? null, st.workplane ? workplaneQuaternion(st.workplane) : null)
+    }
+    syncTools(useToolsStore.getState())
+    useToolsStore.subscribe((st, prev) => { if (st.workplane !== prev.workplane || st.ruler !== prev.ruler) syncTools(st) })
+    window.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && useToolsStore.getState().pickMode) useToolsStore.getState().clearPickMode() })
     driveManager.init(sceneManager.scene, objectManager)
     alignmentManager.init(sceneManager.scene, sceneManager.camera, sceneManager.renderer)
     initialized.current = true
@@ -554,6 +571,37 @@ export default function Viewport() {
   const handleViewportDrop = useCallback(async (e) => {
     e.preventDefault()
     setDropHighlight(false)
+    // A part / shape dragged from a library: create it where it was dropped.
+    const payload = readDragPayload(e)
+    if (payload) {
+      const rect = canvasRef.current.getBoundingClientRect()
+      const wp = useToolsStore.getState().workplane
+      const hit = wp ? (() => {
+        // Drop onto the workplane: cast onto its plane instead of the floor.
+        const ndc = new THREE.Vector2(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1)
+        const ray = new THREE.Raycaster(); ray.setFromCamera(ndc, sceneManager.camera)
+        const p = new THREE.Vector3()
+        return ray.ray.intersectPlane(workplanePlane(wp), p) ? p : null
+      })() : screenToPlane(e.clientX, e.clientY, rect, sceneManager.camera, 0)
+      const store = useSceneStore.getState()
+      const key = modelKeyOf(payload.type)
+      if (hasModel(key)) await ensureModels([key])
+      const overrides = payload.variant ? variantOverrides(payload.variant, store.objects) : undefined
+      const created = store.addObject(payload.type, undefined, overrides)
+      if (hit && created) {
+        // Keep the type's spawn height above the plane (parts stand on it), move to the drop point.
+        if (wp) {
+          const n = new THREE.Vector3(wp.normal.x, wp.normal.y, wp.normal.z).normalize()
+          const h = new THREE.Vector3(created.position.x - wp.origin.x, created.position.y - wp.origin.y, created.position.z - wp.origin.z).dot(n)
+          const p = hit.clone().addScaledVector(n, h)
+          store.updateObject(created.id, { position: { x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3) } })
+        } else {
+          store.updateObject(created.id, { position: { x: +hit.x.toFixed(2), y: created.position.y, z: +hit.z.toFixed(2) } })
+        }
+      }
+      snapshot()
+      return
+    }
     const files = Array.from(e.dataTransfer.files)
     for (const file of files) {
       const ext  = file.name.split('.').pop().toLowerCase()
@@ -586,6 +634,26 @@ export default function Viewport() {
       if (!initialized.current || dragging.current) return
       if (wireManager.isDragging) return
       const bounds = canvasRef.current.getBoundingClientRect()
+
+      // ── Design tools (Workplane / Ruler / Note) take the next click ───────
+      const tools = useToolsStore.getState()
+      if (tools.pickMode) {
+        const hit = sceneManager.pickSurface(e, bounds)
+        const mode = tools.pickMode
+        tools.clearPickMode()
+        if (mode === 'workplane') {
+          // A face → workplane on it; empty floor → back to the default floor.
+          tools.setWorkplane(hit?.objectId ? workplaneFromHit(hit.point, hit.normal) : null)
+        } else if (mode === 'ruler' && hit) {
+          tools.setRuler({ origin: { x: +hit.point.x.toFixed(3), y: +hit.point.y.toFixed(3), z: +hit.point.z.toFixed(3) } })
+        } else if (mode === 'note' && hit) {
+          const p = hit.point.clone().addScaledVector(hit.normal, 0.05)
+          const n = useSceneStore.getState().addObject('note', { x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3) }, { noteText: 'Note' })
+          useSceneStore.getState().selectObject?.(n.id)
+          snapshot()
+        }
+        return
+      }
 
       // ── Joint feature-pick mode: pick a corner/edge/face on each object ───
       if (jointPickRef.current) {
@@ -884,6 +952,8 @@ export default function Viewport() {
       {!simActive && !WORKSPACE_PANELS.has(activePanel) && <ViewGizmo />}
 
       <DimensionOverlay />
+      <RulerPanel />
+      <NotesOverlay />
       <SurfaceAttachPrompt />
       <ExtrudePanel />
 

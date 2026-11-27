@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { SCENE_TO_M } from './EnvironmentConfig.js'
 import { objectManager } from '../ObjectManager.js'
 import { createGeometry } from '../../utils/geometryFactory.js'
+import { onPartsRegistered } from '../../parts/registry.js'
 
 // kg/m³
 const DENSITY = { plastic: 1200, metal: 7800, rubber: 1200, default: 1000 }
@@ -142,6 +143,9 @@ function baseVolumeSU3(type) {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /** Mass in kg for a single scene object (type/scale only — no real-geometry lookup). */
+// Catalogue parts (src/parts) carry their real mass in spec.mass_kg.
+onPartsRegistered((p) => { if (!(p.type in ELEC_MASS)) ELEC_MASS[p.type] = p.spec.mass_kg })
+
 export function getMass(type, scale, material) {
   if (type in ELEC_MASS) return ELEC_MASS[type]
   const density = DENSITY[material] ?? DENSITY.default
@@ -159,6 +163,7 @@ export function getMass(type, scale, material) {
  */
 export function getMassForObject(o) {
   if (!o) return 0.001
+  if (o.type === 'note') return 0          // an annotation, not a body
   if (o.type in ELEC_MASS) return ELEC_MASS[o.type]
   const density = DENSITY[o.material] ?? DENSITY.default
   // Weapons keep their tuned block estimate (combat classes are balanced on it).

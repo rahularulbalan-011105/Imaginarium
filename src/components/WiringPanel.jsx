@@ -4,7 +4,8 @@ import { useElectronicsStore } from '../stores/electronicsStore.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import ConnectionMenu from './ConnectionMenu.jsx'
-import { ELEC_TYPES, PIN_DEFS, pinRole, wireStyle, friendlyPin, isDuplicate, ROLE_COLORS } from '../utils/wiring.js'
+import { ELEC_TYPES, PIN_DEFS, pinNamesFor, pinRole, wireStyle, friendlyPin, isDuplicate, ROLE_COLORS } from '../utils/wiring.js'
+import { getPart } from '../parts/registry.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pick a Pin — click a pin, click another, Connect. Reads and writes the single
@@ -149,11 +150,11 @@ export default function WiringPanel() {
 
       <div className="px-3 pb-3 space-y-2.5">
         {elecObjects.map(comp => {
-          const pins = PIN_DEFS[comp.type] ?? []
+          const pins = pinNamesFor(comp)
           return (
             <div key={comp.id} className="ui-card overflow-hidden">
               <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: '1px solid rgb(var(--g-700) / 0.45)' }}>
-                <span className="text-base">{COMP_ICONS[comp.type] ?? '📦'}</span>
+                <span className="text-base">{COMP_ICONS[comp.type] ?? getPart(comp.type)?.icon ?? '📦'}</span>
                 <div className="min-w-0">
                   <div className="text-xs font-semibold leading-tight truncate" style={{ color: 'rgb(var(--g-100))' }}>{comp.name}</div>
                   <div className="text-[9px] capitalize leading-tight" style={{ color: 'rgb(var(--g-500))' }}>{comp.type.replace('_', ' ')}</div>

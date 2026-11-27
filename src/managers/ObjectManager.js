@@ -1,16 +1,28 @@
 import * as THREE from 'three'
 import { BufferGeometryLoader } from 'three'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_TYRE_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
-import { createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createMecanumParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
+import { SHAPE_TYPES, createGeometry, createMaterial, applyBendDeform, createSpurGearGeometry, createWheelParts, createMecanumParts, createCasterParts, createBoltGroup, createScrewGroup, createFilletedBoxGeometry, createPartialFilletedBoxGeometry, createTextGeometry } from '../utils/geometryFactory.js'
 import { createArduinoGroup, createSuboGroup, createEsp32Group, createMotorGroup, createMotorBOGroup, createMotorDCGroup, createLEDGroup, createServoGroup, createIRSensorGroup, createUltrasonicGroup, createBuzzerGroup, createGasSensorGroup, createOLEDGroup, createColorSensorGroup, createLDRGroup, createDHT11Group, createL298NGroup, createStepperGroup, createUln2003Group, createContinuousServoGroup, createEncoderMotorGroup, createPca9685Group, createGripperGroup, createModuleSensorGroup, isModuleSensorType, createGearMotorGroup, isGearMotorModel } from '../utils/electronicsFactory.js'
 import { cloneModel, loadWeaponModel } from '../utils/modelLoader.js'
 import { assemblyMembers } from '../utils/robotAssembly.js'
 import { wireManager } from './WireManager.js'
 import { createOutline } from '../utils/selectionOutline.js'
+import { ELECTRONICS_TYPES } from '../utils/elecTypes.js'
+import { getPart, partsLoaded, onPartsRegistered } from '../parts/registry.js'
+import { LEGACY_ELEC_TYPES } from '../utils/elecTypes.js'
+import { SHAPE_PARAMS, shapeParamKey } from '../utils/shapes3d.js'
+import { buildPartObject, partModelKey } from '../parts/buildPart.js'
 
 // Live geometry registry — holds imported model geometries by object ID.
 // Bypasses the toJSON/parse round-trip which can silently produce empty geometries.
 const _importedGeoms = new Map()
+
+// Catalogue parts that arrive before the catalogue chunk (see createMesh).
+const _pendingParts = new Map()          // id → latest scene object
+const NON_CATALOG = new Set([...LEGACY_ELEC_TYPES, 'gear', 'wheel', 'caster', 'bolt', 'screw', 'text', 'csg', 'model', 'note'])
+function isMaybeCatalogType(type) {
+  return !!type && !NON_CATALOG.has(type) && !SHAPE_TYPES.has(type) && !type.startsWith('weapon_')
+}
 export function storeImportedGeometry(id, geo) { _importedGeoms.set(id, geo) }
 export function clearImportedGeometry(id) { _importedGeoms.delete(id) }
 
@@ -118,8 +130,7 @@ function fillRoundGroup(g, obj, geos) {
   }
 }
 
-const ELECTRONICS  = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper',
-  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
+const ELECTRONICS  = ELECTRONICS_TYPES   // legacy + catalogue parts (utils/elecTypes.js)
 const MOTOR_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 // Types that expose a rotorGroup for prop attachment (motors + servos + steppers)
 const SHAFT_TYPES  = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc', 'servo', 'servo_cr', 'stepper'])
@@ -169,7 +180,16 @@ class ObjectManager {
   createMesh(obj) {
     let object3d
 
-    if (isGearMotorModel(obj)) {
+    const catalogPart = getPart(obj.type)
+    if (catalogPart) {
+      // Catalogue part (src/parts): its own real-size model + pin table.
+      object3d = buildPartObject(catalogPart, obj)
+    } else if (!partsLoaded() && isMaybeCatalogType(obj.type)) {
+      // A saved catalogue part loading before the catalogue chunk: hold a
+      // placeholder, rebuilt as soon as its definition registers.
+      object3d = new THREE.Group()
+      _pendingParts.set(obj.id, obj)
+    } else if (isGearMotorModel(obj)) {
       // N20 / metal gear motors: a motor_bo / motor_enc variant with its own model.
       object3d = createGearMotorGroup(obj.variant)
     } else if (obj.type === 'arduino') {
@@ -220,6 +240,16 @@ class ObjectManager {
       object3d = createUln2003Group()  // its driver board
     } else if (isModuleSensorType(obj.type)) {
       object3d = createModuleSensorGroup(obj.type)  // PIR / flame / soil / rain / sound / touch / BMP280 / MPU6050 / Hall
+    } else if (obj.type === 'note') {
+      // Note (Tinkercad Notes): a map-pin marker; its text is an HTML overlay (NotesOverlay).
+      object3d = new THREE.Group()
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.22, 16, 12), new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.5 }))
+      head.position.y = 0.75
+      const stem = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.6, 12), new THREE.MeshStandardMaterial({ color: 0xa16207, roughness: 0.6 }))
+      stem.rotation.x = Math.PI
+      stem.position.y = 0.3
+      object3d.add(head, stem)
+      object3d.userData.isNote = true
     } else if (obj.type === 'gear') {
       const geo = createSpurGearGeometry({
         teeth: obj.teeth ?? 12, module: obj.module ?? 0.25, faceWidth: obj.faceWidth ?? 0.5,
@@ -273,8 +303,9 @@ class ObjectManager {
       const isFillable = obj.type === 'box' || obj.type === 'rectprism'
       const geo = (fillet > 0 && isFillable)
         ? buildFilletedBox(obj, fillet, filletSegs)
-        : createGeometry(obj.type)
+        : createGeometry(obj.type, obj)
       if (fillet > 0 && isFillable) stampFilletKey(geo, obj, fillet, filletSegs)
+      geo.userData.shapeKey = shapeParamKey(obj.type, obj)
       const mat = createMaterial(obj.color, obj.material)
       object3d = new THREE.Mesh(geo, mat)
       if (obj.deform?.bend) applyBendDeform(geo, obj.deform.bend, obj.deform.bendAxis ?? 'y')
@@ -355,6 +386,7 @@ class ObjectManager {
   updateMesh(id, obj) {
     const o = this.objects.get(id)
     if (!o) return
+    if (_pendingParts.has(id)) { _pendingParts.set(id, obj); return }   // placeholder: keep the latest data
 
     const attached = this.attachedObjects.has(id)
     // Remember the geometry so the selection outline is rebuilt only when the shape
@@ -393,8 +425,32 @@ class ObjectManager {
       applyHoleStyle(o, obj)
     }
 
+    // Catalogue part whose model depends on a property (resistor bands, LED
+    // colour, NeoPixel count …): rebuild the model in place, keep the root
+    // (its transform, attachments and id) and re-register its pins.
+    const part = getPart(obj.type)
+    if (part && o.userData.partKey !== partModelKey(part, obj)) {
+      const fresh = buildPartObject(part, obj)
+      for (const c of [...o.children]) { o.remove(c); c.traverse(n => { n.geometry?.dispose?.() }) }
+      for (const c of [...fresh.children]) o.add(c)
+      o.userData.partKey = fresh.userData.partKey
+      o.userData.dynamicPins = fresh.userData.dynamicPins
+      o.userData.partHandles = fresh.userData.partHandles
+      o.traverse(child => { child.userData.rootId = obj.id })
+      if (wireManager.scene) { wireManager.unregisterComponent(obj.id); wireManager.registerComponent(o, obj.id, obj.type) }
+    }
+
     // Geometry rebuilds (gear params / fillet / bend) — shapes only, not CSG.
     if (!ELECTRONICS.has(obj.type) && obj.type !== 'csg') {
+      // Parametric Tinkercad shapes (polygon sides, tube wall, star points, scribble outline).
+      if (SHAPE_PARAMS[obj.type] && o.geometry && o.geometry.userData.shapeKey !== shapeParamKey(obj.type, obj)) {
+        o.geometry.dispose()
+        o.geometry = createGeometry(obj.type, obj)
+        o.geometry.userData.shapeKey = shapeParamKey(obj.type, obj)
+        if (obj.deform?.bend) applyBendDeform(o.geometry, obj.deform.bend, obj.deform.bendAxis ?? 'y')
+        o.userData.shapeVersion = (o.userData.shapeVersion ?? 0) + 1   // DimensionOverlay watches this
+        this.refreshOutline(id)
+      }
       // Gear: rebuild geometry when parameters change
       if (obj.type === 'gear' && o.geometry) {
         const t = obj.teeth ?? 12, m = obj.module ?? 0.25, fw = obj.faceWidth ?? 0.5, b = obj.bore ?? 0
@@ -437,7 +493,7 @@ class ObjectManager {
           o.geometry.dispose()
           o.geometry = (newFillet > 0)
             ? buildFilletedBox(obj, newFillet, obj.filletSegments ?? 3)
-            : createGeometry(obj.type)
+            : createGeometry(obj.type, obj)
           stampFilletKey(o.geometry, obj, newFillet, obj.filletSegments ?? 3)
           // Re-apply bend on the new geometry if one was set
           if (obj.deform?.bend) applyBendDeform(o.geometry, obj.deform.bend, obj.deform.bendAxis ?? 'y')
@@ -1653,3 +1709,14 @@ function sameMat(a, b) {
 }
 
 export const objectManager = new ObjectManager()
+
+// Rebuild placeholders once their catalogue definition registers.
+onPartsRegistered((part) => {
+  for (const [id, obj] of _pendingParts) {
+    if (obj.type !== part.type) continue
+    _pendingParts.delete(id)
+    if (!objectManager.objects.has(id)) continue
+    objectManager.removeMesh(id)
+    objectManager.createMesh(obj)
+  }
+})

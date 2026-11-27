@@ -1,16 +1,17 @@
 import * as THREE from 'three'
 import { STLExporter } from 'three/addons/exporters/STLExporter.js'
 import { objectManager } from '../managers/ObjectManager.js'
+import { ELECTRONICS_TYPES } from './elecTypes.js'
 
 // 1 scene unit = 0.05 m = 50 mm (matches SCENE_TO_M in EnvironmentConfig).
 export const MM_PER_UNIT = 50
 
-const ELECTRONICS = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper',
-  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
+const ELECTRONICS = ELECTRONICS_TYPES   // utils/elecTypes.js (the old copy missed esp32, pca9685, gripper, colour/LDR/DHT11)
 
 // Objects worth sending to a 3D printer (skip boards/sensors/motors).
 export function printableObjects(objects) {
-  return objects.filter(o => o.visible !== false && !ELECTRONICS.has(o.type))
+  // Notes are annotations, not geometry: never printed.
+  return objects.filter(o => o.visible !== false && !ELECTRONICS.has(o.type) && o.type !== 'note')
 }
 
 // World-space clone of every leaf mesh under an object3d, as plain Mesh nodes.

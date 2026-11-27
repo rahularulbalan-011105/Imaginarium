@@ -20,6 +20,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { validateEsp32Pin } from './esp32Board.js'
+import { onPartsRegistered } from '../parts/registry.js'
 
 const FILE = 'sketch.ino'
 
@@ -93,6 +94,20 @@ const LIB_CLASSES = new Set(['Servo', 'Stepper', 'Adafruit_PWMServoDriver', 'LDR
 const KNOWN_LIBS = new Set(['Subo', 'Servo', 'Stepper', 'Adafruit_PWMServoDriver', 'LDR', 'DHT11', 'ColorSensor', 'Wire', 'SPI', 'Adafruit_SSD1306', 'Adafruit_GFX', 'pitches', 'MotorExpansion', 'IMU', 'Encoder', 'Battery', 'math', 'stdint', 'Arduino', 'string', 'stdlib', 'EEPROM',
   'WiFi', 'WiFiClient', 'BluetoothSerial', 'BLESerial', 'BLEDevice', 'ESP32Servo', 'driver/ledc', 'esp_wifi',
   'Adafruit_BMP280', 'Adafruit_Sensor', 'MPU6050_light', 'MPU6050'])
+
+// Arduino core helpers the analyzer did not know yet (shift registers, bit maths).
+Object.assign(CORE_FUNCS, { shiftOut: 4, shiftIn: 3, bit: 1 })
+CORE_CONSTS.add('MSBFIRST'); CORE_CONSTS.add('LSBFIRST')
+for (const c of ['HEX', 'DEC', 'OCT', 'BIN']) CORE_CONSTS.add(c)
+// Catalogue parts (src/parts) declare the library symbols their sketches use:
+// part.code = { includes: ['LiquidCrystal'], classes: ['LiquidCrystal'], consts: [...], functions: { name: arity } }
+onPartsRegistered((p) => {
+  const c = p.code ?? {}
+  for (const x of c.includes ?? []) KNOWN_LIBS.add(x)
+  for (const x of c.classes ?? []) LIB_CLASSES.add(x)
+  for (const x of c.consts ?? []) CORE_CONSTS.add(x)
+  Object.assign(CORE_FUNCS, c.functions ?? {})
+})
 
 const C_TYPES = new Set(['void', 'int', 'float', 'double', 'bool', 'boolean', 'char', 'byte', 'long', 'short', 'unsigned', 'signed', 'String', 'auto', 'size_t', 'uint8_t', 'uint16_t', 'uint32_t', 'int8_t', 'int16_t', 'int32_t', 'word'])
 const CONTROL_KW = new Set(['if', 'else', 'while', 'for', 'do', 'switch', 'case', 'default', 'return', 'break', 'continue', 'goto'])
@@ -474,6 +489,16 @@ export function analyzeArduino(src, { board = 'arduino' } = {}) {
             if (v.level === 'error') err('invalid-pin', a1, v.message, `${tk.v}() cannot use this pin on an ESP32 DevKit V1.`, v.hint ?? '')
             else if (v.level === 'warn') warn('risky-pin', a1, v.message, `${tk.v}() works here, but this pin has a caveat on the ESP32.`, v.hint ?? '')
           }
+        }
+      }
+
+      // ATtiny85: only pins 0–5 exist (PB0–PB5); hardware PWM only on PB0, PB1, PB4.
+      if (board === 'attiny85' && ['pinMode', 'digitalWrite', 'digitalRead', 'analogWrite'].includes(tk.v)) {
+        const a1 = nthArgFirstTok(sig, k + 1, 0)
+        if (a1 && soloArg(sig, k + 1, 0) && a1.t === T.NUM && /^\d+$/.test(String(a1.v))) {
+          const n = +a1.v
+          if (n > 5) err('invalid-pin', a1, `Pin ${n} does not exist on an ATtiny85`, 'The ATtiny85 has six I/O pins, numbered 0–5 (PB0–PB5).', 'Use a pin from 0 to 5.')
+          else if (tk.v === 'analogWrite' && ![0, 1, 4].includes(n)) warn('no-pwm', a1, `Pin ${n} has no PWM on an ATtiny85`, 'Hardware PWM is only on PB0, PB1 and PB4; analogWrite on other pins just switches fully on or off.', 'Use pin 0, 1 or 4 for analogWrite.')
         }
       }
 

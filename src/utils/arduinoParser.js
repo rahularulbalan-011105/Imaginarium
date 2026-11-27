@@ -1,3 +1,4 @@
+import { onPartsRegistered } from '../parts/registry.js'
 // Lexer + recursive-descent parser + JS code-generator for Arduino C++ subset.
 // Replaces the regex-based transpiler in SimulationManager.
 
@@ -186,6 +187,12 @@ function isClassType(typeStr) {
   const base = typeStr.replace(/\b(const|static|unsigned|signed)\b/g, '').trim()
   return /^[A-Z][A-Za-z0-9_]*$/.test(base) && !C_TYPES.has(base) && !CTRL_UPPER.has(base)
 }
+
+// Library classes with lowercase names (IRremote's `decode_results`), constructed
+// with `new` like the PascalCase ones. Catalogue parts declare theirs in
+// part.code.classes (registered below).
+const LOWER_CLASSES = new Set(['decode_results'])
+onPartsRegistered((p) => { for (const c of p.code?.classes ?? []) if (/^[a-z]/.test(c)) LOWER_CLASSES.add(c) })
 
 // ── Parser ────────────────────────────────────────────────────────────────────
 
@@ -529,6 +536,12 @@ class Parser {
   }
 
   parseUnary() {
+    // `&x` (address-of) and `*p` (dereference): objects are references in JS, so
+    // `irrecv.decode(&results)` passes the object itself — drop the operator.
+    if (this.ts.peek().t === TT.OP && (this.ts.peek().v === '&' || this.ts.peek().v === '*')) {
+      this.ts.next()
+      return this.parseUnary()
+    }
     if (this.ts.peek().t === TT.OP && ['!','~','-','+','++','--'].includes(this.ts.peek().v)) {
       const op = this.ts.next().v
       return { type:'Unary', op, pre: true, arg: this.parseUnary() }
@@ -602,7 +615,8 @@ class Parser {
 // ── Code generator ────────────────────────────────────────────────────────────
 
 // `step` = Stepper.step(), which blocks until the move is done (sketchSandbox).
-const ASYNC_BUILTINS = new Set(['delay','delayMicroseconds','step'])
+// waitForKey = Keypad.waitForKey(), which blocks until a key is pressed.
+const ASYNC_BUILTINS = new Set(['delay','delayMicroseconds','step','waitForKey'])
 
 const CASTS = {
   'int':'Math.trunc', 'long':'Math.trunc', 'short':'Math.trunc',
@@ -612,7 +626,28 @@ const CASTS = {
 }
 
 class Gen {
-  constructor(userFuncs, skipDefines) { this.uf = userFuncs; this.skip = skipDefines || new Set(); this.ind = 0; this.out = [] }
+  constructor(userFuncs, skipDefines) {
+    this.uf = userFuncs; this.skip = skipDefines || new Set(); this.ind = 0; this.out = []
+    // Variables declared char / float (scope-insensitive): Arduino's Print shows a
+    // char as its character and a float with 2 decimals, which JS numbers lose.
+    this.charVars = new Set(); this.floatVars = new Set()
+  }
+  _noteType(vt, name) {
+    const t = ` ${vt} `
+    if (/\bchar\b/.test(t) && !/\*/.test(t)) this.charVars.add(name)
+    if (/\b(float|double)\b/.test(t)) this.floatVars.add(name)
+  }
+  _baseName(n) { while (n && (n.type === 'Index' || n.type === 'Member')) n = n.obj; return n?.type === 'Ident' ? n.name : null }
+  _isChar(n) { return n?.type === 'Char' || (n && (n.type === 'Ident' || n.type === 'Index') && this.charVars.has(this._baseName(n))) }
+  _isFloat(n) {
+    if (!n) return false
+    if (n.type === 'Num') return /[.eE]/.test(String(n.v)) && !/^0[xX]/.test(String(n.v))
+    if (n.type === 'Ident' || n.type === 'Index') return this.floatVars.has(this._baseName(n))
+    if (n.type === 'Cast') return /float|double/.test(n.ct)
+    if (n.type === 'Binary' && ['+', '-', '*', '/'].includes(n.op)) return this._isFloat(n.l) || this._isFloat(n.r)
+    if (n.type === 'Unary' && n.op === '-') return this._isFloat(n.arg)
+    return false
+  }
   I()   { return '  '.repeat(this.ind) }
   w(s)  { this.out.push(s) }
   get() { return this.out.join('') }
@@ -665,6 +700,7 @@ class Gen {
   }
 
   gFn(n) {
+    for (const p of n.params) if (p.pn) this._noteType(p.pt ?? '', p.pn)
     const ps = n.params.map(p => p.pn || '_p').join(', ')
     this.w(`${this.I()}async function ${n.name}(${ps}) {\n`)
     this.ind++
@@ -674,6 +710,7 @@ class Gen {
   }
 
   gVar(d) {
+    this._noteType(d.vt ?? '', d.name)
     const kw = (d.isConst && !d.isArr) ? 'const' : 'let'
     if (d.isArr) {
       let iv
@@ -703,7 +740,7 @@ class Gen {
     // PascalCase types are Arduino library classes (Servo, Wire, LiquidCrystal, etc.)
     // — construct with new so `Servo myServo;` → `let myServo = new Servo()`
     const base = vt.trim()
-    if (/^[A-Z]/.test(base) && !['HIGH','LOW','OUTPUT','INPUT'].includes(base))
+    if ((/^[A-Z]/.test(base) && !['HIGH','LOW','OUTPUT','INPUT'].includes(base)) || LOWER_CLASSES.has(base))
       return ` = new ${base}()`
     return ' = 0'
   }
@@ -782,6 +819,17 @@ class Gen {
       }
 
       case 'Call': {
+        // Arduino Print semantics for print()/println() on any object (Serial,
+        // an LCD, a display …): a char shows as its character, a float with 2
+        // decimals (or the given digits), an integer in the given base (HEX/BIN …).
+        if (n.callee.type === 'Member' && (n.callee.prop === 'print' || n.callee.prop === 'println') && n.args.length >= 1 && n.args.length <= 2) {
+          const [a, b] = n.args
+          const av = this.gExpr(a), bv = b ? this.gExpr(b) : null
+          const fmt = this._isChar(a) && !b ? `__chr(${av})`
+            : this._isFloat(a) ? `__flt(${av}${bv != null ? ', ' + bv : ''})`
+            : bv != null ? `__base(${av}, ${bv})` : av
+          return `${this.gExpr(n.callee)}(${fmt})`
+        }
         const args = n.args.map(a => this.gExpr(a)).join(', ')
         // Determine callee name for await injection
         let cname = null

@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { esp32GpioFromName } from '../utils/esp32Board.js'
 import { L298N_INPUTS } from '../utils/l298n.js'
 import { ULN2003_INPUTS } from '../utils/stepper.js'
+import { LEGACY_SENSOR_TYPES } from '../utils/elecTypes.js'
 
 const DEFAULT_CODE = `// Arduino Code
 // Motor TERM_A connected to Pin ~3 (PWM)
@@ -199,10 +200,22 @@ export const SUBO_IO_TO_GPIO = {
 }
 export const SUBO_ADC_IOS = new Set(['IO1', 'IO5', 'IO8', 'IO11', 'IO12', 'IO17', 'IO19', 'IO20', 'IO21'])
 
+// Controller boards: the only parts whose header pins carry pin numbers.
+const BOARD_TYPES_SET = new Set(['arduino', 'subo', 'esp32', 'attiny85', 'microbit'])
+
 export function pinNameToNumber(pinName) {
   if (!pinName) return null
   const d = pinName.match(/^D(\d+)$/)
   if (d) return parseInt(d[1], 10)
+  // Uno analog header A0–A5 = digital pins 14–19 (A4/A5 also carry I²C SDA/SCL).
+  const an = pinName.match(/^A([0-5])$/)
+  if (an) return 14 + parseInt(an[1], 10)
+  // ATtiny85 port B pins PB0–PB5 = Arduino pins 0–5 (ATTinyCore / damellis core).
+  const pb = pinName.match(/^PB([0-5])$/)
+  if (pb) return parseInt(pb[1], 10)
+  // micro:bit edge connector P0–P20 = Arduino-nRF5 pins 0–20.
+  const mb = pinName.match(/^P([0-9]|1[0-9]|20)$/)
+  if (mb) return parseInt(mb[1], 10)
   // SUBO IOn label → its GPIO number, so wiring to IOn maps the same as the code's pins
   if (pinName in SUBO_IO_TO_GPIO) return SUBO_IO_TO_GPIO[pinName]
   // ESP32 header pins are named by GPIO ('GPIO23'), and TX0/RX0 are GPIO1/3 —
@@ -227,8 +240,11 @@ export function buildPinToComponentMap(connections, objects) {
   for (const { fromPinId, toPinId } of Object.values(connections)) {
     const pairs = [[fromPinId, toPinId], [toPinId, fromPinId]]
     for (const [a, b] of pairs) {
-      const [, aPin] = a.split(':')
+      const [aComp, aPin] = a.split(':')
       const [bComp, bPin] = b.split(':')
+      // Only a CONTROLLER's header pin is a numbered pin. (A part pin named '2'
+      // — a resistor leg — must not read as GPIO 2.)
+      if (byId[aComp] && !BOARD_TYPES_SET.has(byId[aComp].type)) continue
       const pinNum = pinNameToNumber(aPin)
       if (pinNum === null) continue
       const bObj = byId[bComp]
@@ -259,9 +275,8 @@ export function buildPinToComponentMap(connections, objects) {
 }
 
 // Sensor components whose output pins feed a value back to the controller.
-export const SENSOR_TYPES = new Set(['ir_sensor', 'ultrasonic', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11',
-  // Module sensors (digital/analog) + the I²C BMP280 / MPU6050 parts (utils/i2cSensors.js)
-  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
+// Legacy sensors read through sensorMap; catalogue sensors are read through the circuit solver.
+export const SENSOR_TYPES = new Set(LEGACY_SENSOR_TYPES)
 const SENSOR_OUTPUT_PINS = ['OUT', 'DO', 'AO', 'ECHO', 'SIGNAL', 'DATA']
 
 // ── Pin ROLE tests (by pin-key name, matching PIN_DEFS naming across boards) ──
@@ -319,8 +334,9 @@ export function buildSensorInputMap(connections, objects) {
   const map = {}
   for (const { fromPinId, toPinId } of Object.values(connections)) {
     for (const [a, b] of [[fromPinId, toPinId], [toPinId, fromPinId]]) {
-      const [, aPin] = a.split(':')
+      const [aComp, aPin] = a.split(':')
       const [bComp, bPin] = b.split(':')
+      if (byId[aComp] && !BOARD_TYPES_SET.has(byId[aComp].type)) continue   // see buildPinToComponentMap
       const pinNum = pinNameToNumber(aPin)
       if (pinNum === null) continue
       const bObj = byId[bComp]

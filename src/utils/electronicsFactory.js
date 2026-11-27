@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { GRIP, fingerRoot } from './gripper.js'
 import { cloneModel, findRotorNode, detectRotorAxis, findEmissiveMeshes } from './modelLoader.js'
 import { ESP32_PINS } from './esp32Board.js'
+import { onPartsRegistered, partPinDefs3D } from '../parts/registry.js'
 
 // ─── shared material helper ───────────────────────────────────────────────────
 const mat = (color, opts = {}) =>
@@ -11,21 +12,29 @@ const mat = (color, opts = {}) =>
 // type: 'pwm' | 'digital' | 'analog' | 'gnd' | 'power'
 // Positions are tuned to match the scaled GLB / procedural models
 
-export const ARDUINO_PINS = {
-  D2:   { x: -2.38 + 2*0.365, y: 0.62, z: 3.1,  color: 0xffcc00, type: 'digital', label: '~2'  },
-  D3:   { x: -2.38 + 3*0.365, y: 0.62, z: 3.1,  color: 0xff8800, type: 'pwm',     label: '~3'  },
-  D4:   { x: -2.38 + 4*0.365, y: 0.62, z: 3.1,  color: 0xffcc00, type: 'digital', label: '4'   },
-  D5:   { x: -2.38 + 5*0.365, y: 0.62, z: 3.1,  color: 0xff8800, type: 'pwm',     label: '~5'  },
-  D6:   { x: -2.38 + 6*0.365, y: 0.62, z: 3.1,  color: 0xff8800, type: 'pwm',     label: '~6'  },
-  D9:   { x: -2.38 + 9*0.365, y: 0.62, z: 3.1,  color: 0xff8800, type: 'pwm',     label: '~9'  },
-  D10:  { x: -2.38 +10*0.365, y: 0.62, z: 3.1,  color: 0xff8800, type: 'pwm',     label: '~10' },
-  D11:  { x: -2.38 +11*0.365, y: 0.62, z: 3.1,  color: 0xff8800, type: 'pwm',     label: '~11' },
-  '5V': { x: 2.12,            y: 0.62, z: -3.1, color: 0xff2222, type: 'power',   label: '5V'  },
-  GND1: { x: 2.45,            y: 0.62, z: -3.1, color: 0x333333, type: 'gnd',     label: 'GND' },
-  GND2: { x: 2.78,            y: 0.62, z: -3.1, color: 0x333333, type: 'gnd',     label: 'GND' },
-  SDA:  { x: -1.0,            y: 0.62, z: -3.1, color: 0x22c55e, type: 'digital', label: 'SDA' },
-  SCL:  { x: -0.67,           y: 0.62, z: -3.1, color: 0x3b82f6, type: 'digital', label: 'SCL' },
+// Uno R3 header layout as fractions along the board's long edge (0 = USB end).
+// Digital row (top edge): D13 … D0 run away from the USB end, after GND/SDA/SCL.
+// Bottom edge: power header (3V3 5V GND GND VIN) then analog A0 … A5.
+const UNO_PWM = new Set([3, 5, 6, 9, 10, 11])
+export const UNO_LAYOUT = [
+  ...['SCL', 'SDA', 'GND3'].map((name, i) => ({ name, row: 'dig', t: 0.24 + i * 0.037 })),
+  ...Array.from({ length: 14 }, (_, k) => 13 - k).map((n, k) => ({ name: `D${n}`, row: 'dig', t: 0.36 + k * 0.037 + (n <= 7 ? 0.035 : 0) })),
+  ...['3V3', '5V', 'GND1', 'GND2', 'VIN'].map((name, i) => ({ name, row: 'pwr', t: 0.37 + i * 0.037 })),
+  ...['A0', 'A1', 'A2', 'A3', 'A4', 'A5'].map((name, i) => ({ name, row: 'pwr', t: 0.6 + i * 0.037 })),
+]
+export function unoPinStyle(name) {
+  const d = name.match(/^D(\d+)$/)
+  if (d) { const n = +d[1]; return UNO_PWM.has(n) ? { color: 0xff8800, type: 'pwm', label: `~${n}` } : { color: 0xffcc00, type: 'digital', label: `${n}` } }
+  if (/^A\d$/.test(name)) return { color: 0x22cc88, type: 'analog', label: name }
+  if (name === '5V' || name === '3V3' || name === 'VIN') return { color: 0xff2222, type: 'power', label: name }
+  if (name.startsWith('GND')) return { color: 0x333333, type: 'gnd', label: 'GND' }
+  if (name === 'SDA') return { color: 0x22c55e, type: 'digital', label: 'SDA' }
+  return { color: 0x3b82f6, type: 'digital', label: 'SCL' }
 }
+// Static fallback (procedural board, 6.86 × 5.34 cm): long axis X, top edge +Z.
+export const ARDUINO_PINS = Object.fromEntries(UNO_LAYOUT.map(({ name, row, t }, i) => [name, {
+  x: -3.43 + 6.86 * t, y: 0.62, z: row === 'dig' ? 2.5 : -2.5, r: 0.1, ...unoPinStyle(name), ldy: i % 2 ? 0.3 : 0,
+}]))
 
 export const MOTOR_PINS = {
   TERM_A: { x: -2.55, y: -0.25, z: 0, color: 0xff2222, type: 'power', label: '+' },
@@ -318,6 +327,9 @@ export const PIN_DEFS = {
   hall_sensor:   HALL_PINS,
 }
 
+// Catalogue parts (src/parts) bring their own 3D pin tables.
+onPartsRegistered((p) => { PIN_DEFS[p.type] = partPinDefs3D(p.type) })
+
 const PIN_SPHERE_R = 0.17
 
 // Label offset: above pin for Arduino, to the left for motor/led terminals
@@ -336,10 +348,13 @@ const LABEL_OFFSET = {
 // Create a canvas-texture sprite label for a pin
 function createPinLabelSprite(text, color) {
   const W = 128, H = 30, S = 2
-  const canvas = document.createElement('canvas')
+  // No DOM / no 2D canvas (headless tests, a locked-down WebView): a blank label
+  // keeps the pin itself working instead of throwing.
+  const canvas = typeof document !== 'undefined' ? document.createElement('canvas') : null
+  const ctx = canvas?.getContext?.('2d')
+  if (!ctx) return new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, opacity: 0 }))
   canvas.width  = W * S
   canvas.height = H * S
-  const ctx = canvas.getContext('2d')
 
   ctx.fillStyle = 'rgba(5, 5, 18, 0.82)'
   const r = 7 * S, w = W * S, h = H * S
@@ -391,6 +406,9 @@ export function addPinSpheresToGroup(group, componentId, type) {
     sphere.userData.pinLabel      = def.label
     sphere.userData.pinColor      = def.color
     group.add(sphere)
+    // Dense grids (breadboard holes) skip the per-pin label sprite: hundreds of
+    // canvas textures would cost far more than they help.
+    if (def.noLabel) continue
 
     const label = createPinLabelSprite(def.label, def.color)
     // Optional per-component label shrink (dense boards like SUBO) so labels never overlap.
@@ -448,40 +466,16 @@ function buildArduinoFromGLB(scene) {
   const longMin  = box.min[longAxis]
   const longSpan = size[longAxis]
 
-  const PWM = new Set([3, 5, 6, 9, 10, 11])
+  // Full Uno header (UNO_LAYOUT): digital row on the max-medAxis edge, power +
+  // analog on the min edge, each at its real fraction of the board length.
   const pins = {}
-
-  // D2–D11 (10 pins) spaced along the long edge
-  for (let i = 2; i <= 11; i++) {
-    const t = (i - 2) / 9                          // 0 → 1
-    const p = { x: 0, y: 0, z: 0 }
-    p[longAxis] = longMin + longSpan * (0.12 + t * 0.76)
-    p[medAxis]  = digRow
-    p[thinAxis] = above
-    pins[`D${i}`] = {
-      ...p,
-      color: PWM.has(i) ? 0xff8800 : 0xffcc00,
-      type:  PWM.has(i) ? 'pwm' : 'digital',
-      label: PWM.has(i) ? `~${i}` : `${i}`,
-    }
-  }
-
-  // 5V + two GND pins along the opposite long edge
-  const pwrDefs = [
-    { name: '5V',   t: 0.20, color: 0xff2222, type: 'power', label: '5V'  },
-    { name: 'GND1', t: 0.40, color: 0x444444, type: 'gnd',   label: 'GND' },
-    { name: 'GND2', t: 0.60, color: 0x444444, type: 'gnd',   label: 'GND' },
-    // I2C: A4 = SDA, A5 = SCL on the analog header (same end as the real board)
-    { name: 'SDA',  t: 0.80, color: 0x22c55e, type: 'digital', label: 'SDA' },
-    { name: 'SCL',  t: 0.88, color: 0x3b82f6, type: 'digital', label: 'SCL' },
-  ]
-  for (const { name, t, color, type, label } of pwrDefs) {
+  UNO_LAYOUT.forEach(({ name, row, t }, i) => {
     const p = { x: 0, y: 0, z: 0 }
     p[longAxis] = longMin + longSpan * t
-    p[medAxis]  = pwrRow
+    p[medAxis]  = row === 'dig' ? digRow : pwrRow
     p[thinAxis] = above
-    pins[name] = { ...p, color, type, label }
-  }
+    pins[name] = { ...p, r: 0.1, ...unoPinStyle(name), ldy: i % 2 ? 0.3 : 0 }
+  })
 
   root.userData.dynamicPins = pins
 

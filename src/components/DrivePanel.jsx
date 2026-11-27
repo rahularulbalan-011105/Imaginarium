@@ -9,6 +9,7 @@ import { usePhysicsStore } from '../stores/physicsStore.js'
 import { driveManager } from '../managers/DriveManager.js'
 import { ENVIRONMENTS } from '../managers/physics/EnvironmentConfig.js'
 import SimIssues, { SimModeBadge } from './SimIssues.jsx'
+import { PartSimControls, hasSimControls } from './PartControls.jsx'
 
 const LEGGED_SPEED = 8     // scene units/s
 const LEGGED_TURN  = 1.8   // rad/s
@@ -165,6 +166,7 @@ export default function DrivePanel() {
   const hasOled   = objects.some(o => o.type === 'oled')
   const hasBuzzer = objects.some(o => o.type === 'buzzer')
   const hasSubo   = objects.some(o => o.type === 'subo')
+  const partCtl   = objects.filter(hasSimControls)     // catalogue parts: buttons, knobs, meters
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-20 bg-gray-950/95 border-t border-yellow-700/40 shadow-2xl">
@@ -228,7 +230,7 @@ export default function DrivePanel() {
       </div>
 
       {/* ── Peripherals: live sensor inputs + OLED + buzzer + SUBO on-board ───── */}
-      {(sensors.length > 0 || hasOled || hasBuzzer || hasSubo) && (
+      {(sensors.length > 0 || hasOled || hasBuzzer || hasSubo || partCtl.length > 0) && (
         <div className="flex flex-wrap items-end gap-4 px-4 py-2 bg-gray-950/60 border-b border-gray-800/60">
           {sensors.some(s => s.type === 'ir_sensor' || s.type === 'ultrasonic' || SCENE_DRIVEN.has(s.type)) && (
             <div className="flex flex-col">
@@ -244,6 +246,7 @@ export default function DrivePanel() {
             <SensorControl key={s.id} obj={s} value={sensorValues[s.id]} values={sensorValues} auto={autoSense}
               onChange={v => setSensorValue(s.id, v)} setValue={setSensorValue} />
           ))}
+          {partCtl.map(o => <PartSimControls key={o.id} obj={o} />)}
           {hasOled && <OledScreen text={oledText} />}
           {hasBuzzer && (
             <div className="flex flex-col">

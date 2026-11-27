@@ -27,6 +27,9 @@ import { SERVO_PRESETS } from '../managers/physics/robotics/ServoActuator.js'
 import { PCA_ADDRESSES, PCA_CHANNELS, hex, addrOf, plugWires, boardWires, pcaWiring } from '../utils/pca9685.js'
 import { isSupplyPinName, isGroundPinName } from '../stores/electronicsStore.js'
 import { v4 as uuidv4 } from 'uuid'
+import { PartProperties } from './PartControls.jsx'
+import ShapeParams from './ShapeParams.jsx'
+import { mirrorPatch } from '../utils/mirror.js'
 
 function Vec3Input({ label, value, onChange, onBlurSnapshot, step = 0.1 }) {
   const handleChange = (axis) => (e) => {
@@ -1369,6 +1372,8 @@ export default function PropertiesPanel() {
       {(obj.type === 'wheel' || obj.type === 'caster') && (
         <RoundPartControls obj={obj} objects={objects} attachedTo={objects.find(o => o.id === attachments[obj.id])} update={update} snapshot={snapshot} />
       )}
+      <PartProperties obj={obj} update={update} snapshot={snapshot} />
+      <ShapeParams obj={obj} update={update} snapshot={snapshot} />
       {obj.type === 'stepper' && <StepperControls obj={obj} objects={objects} snapshot={snapshot} />}
       {obj.type === 'pca9685' && <PcaControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
       {obj.type === 'gripper' && <GripperControls obj={obj} objects={objects} update={update} snapshot={snapshot} />}
@@ -2059,9 +2064,7 @@ function PatternTools({ obj, insertObject, snapshot }) {
   }
 
   const applyMirror = (ax) => {
-    const position = { ...obj.position }; position[ax] = -position[ax]
-    const scale    = { ...obj.scale };    scale[ax]    = -scale[ax]   // true reflection
-    insertObject(cloneWith({ position, scale }))
+    insertObject(cloneWith(mirrorPatch(obj, ax)))   // true reflection (utils/mirror.js)
     snapshot()
   }
 

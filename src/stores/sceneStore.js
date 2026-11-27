@@ -3,6 +3,11 @@ import { v4 as uuidv4 } from 'uuid'
 import { runBoolean, buildUnionMembers, unionWorldGeoJSONs } from '../utils/csg.js'
 import { trackEvent } from '../utils/utmTracking.js'
 import { WHEEL_DEFAULTS, CASTER_DEFAULTS, WHEEL_RIM_COLOR, WHEEL_TYRE_COLOR, CASTER_BODY_COLOR, CASTER_BALL_COLOR } from '../utils/wheels.js'
+import { ELECTRONICS_TYPES, LEGACY_SENSOR_TYPES } from '../utils/elecTypes.js'
+import { getPart, partDefaults } from '../parts/registry.js'
+import { shapeDefaults } from '../utils/shapes3d.js'
+import { useToolsStore } from './toolsStore.js'
+import { placeOnWorkplane } from '../utils/workplane.js'
 
 // Default object names for parts whose type id isn't their real name.
 const PART_NAMES = { l298n: 'L298N', uln2003: 'ULN2003', esp32: 'ESP32', servo_cr: 'ContServo', motor_enc: 'EncMotor', pca9685: 'PCA9685', gripper: 'Gripper' }
@@ -29,9 +34,9 @@ export const useSceneStore = create((set, get) => ({
     // Sensors/peripherals are electronics too — they must be on this list so they
     // get an electronics spawn offset (NOT the {0,1,0} default, which buries every
     // one inside the object already at the origin) + the electronics grey colour.
-    const SENSOR_TYPES = ['ultrasonic', 'ir_sensor', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'oled', 'buzzer',
-      'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor']
-    const isElectronics = ['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'servo_cr', 'motor_enc', 'l298n', 'stepper', 'uln2003', 'pca9685', 'gripper', ...SENSOR_TYPES].includes(type)
+    const SENSOR_TYPES = LEGACY_SENSOR_TYPES.concat(['oled', 'buzzer'])
+    const isElectronics = ELECTRONICS_TYPES.has(type)
+    const part = getPart(type)
     const mechTypes = ['gear', 'bolt', 'screw', 'wheel', 'caster']
     const isMech = mechTypes.includes(type)
     const isWeapon = typeof type === 'string' && type.startsWith('weapon_')
@@ -56,6 +61,8 @@ export const useSceneStore = create((set, get) => ({
       : type === 'pca9685'                ? { x: 4 + count * 8, y: 0.1, z: -10 }
       : type === 'stepper'                ? { x: -12 - count * 5, y: 0,   z: -3 }
       : SENSOR_TYPES.includes(type)       ? { x: count * 4 - 6, y: 1.2,  z: -9 }
+      // Catalogue parts (src/parts): their own spawn spot, else a row in front of the board.
+      : part                             ? { x: (part.spawn?.x ?? -6) + count * (part.spawn?.dx ?? 3), y: part.spawn?.y ?? 0.2, z: part.spawn?.z ?? 1 }
       // Wheel / caster: resting ON the grid (y = half their height), side by side.
       : type === 'wheel'                  ? { x: count * 2 + 6, y: WHEEL_DEFAULTS.wheelDiameter / 2, z: 4 }
       : type === 'caster'                 ? { x: count * 3 + 6, y: CASTER_DEFAULTS.casterHeight / 2, z: 8 }
@@ -63,7 +70,11 @@ export const useSceneStore = create((set, get) => ({
       // the tutorial's two wheels) don't spawn stacked on the exact same spot
       // (which buried them inside the chassis at the origin).
       : { x: count * 2.5, y: 1, z: 0 }
-    const pos = position ?? defaultPos
+    // An explicit position wins; otherwise the default spot is laid onto the
+    // active workplane (Tinkercad: new shapes land on the face you picked).
+    const wp = position ? null : useToolsStore.getState().workplane
+    const placed = placeOnWorkplane(wp, defaultPos)
+    const pos = position ?? placed.position
     const color = isElectronics ? '#556677'
       : isWeapon                ? '#8a94a3'
       : type === 'wheel'        ? WHEEL_RIM_COLOR   // yellow rim; the tyre has its own tyreColor
@@ -73,17 +84,19 @@ export const useSceneStore = create((set, get) => ({
     const displayCount = count + 1
     const gearDefaults = type === 'gear' ? { teeth: 12, module: 0.25, faceWidth: 0.5, bore: 0 } : {}
     const textDefaults = type === 'text' ? { textContent: 'Text', textSize: 1, textHeight: 0.4 } : {}
+    const partProps = part ? partDefaults(type) : type === 'note' ? { noteText: 'Note' } : shapeDefaults(type)
     const roundDefaults = type === 'wheel' ? { ...WHEEL_DEFAULTS, tyreColor: WHEEL_TYRE_COLOR } : type === 'caster' ? { ...CASTER_DEFAULTS, ballColor: CASTER_BALL_COLOR } : {}
     const obj = {
       id: uuidv4(),
       // Part numbers keep their real spelling (L298N_1, not L298n_1).
-      name: `${PART_NAMES[type] ?? type.charAt(0).toUpperCase() + type.slice(1)}_${displayCount}`,
+      name: `${PART_NAMES[type] ?? part?.shortName ?? type.charAt(0).toUpperCase() + type.slice(1)}_${displayCount}`,
       type,
+      ...partProps,
       ...gearDefaults,
       ...textDefaults,
       ...roundDefaults,
       position: { ...pos },
-      rotation: { x: 0, y: 0, z: 0 },
+      rotation: placed.rotation,
       scale: { x: 1, y: 1, z: 1 },
       color,
       // Wheel rim/tyre and caster body use 'standard': fully metallic parts

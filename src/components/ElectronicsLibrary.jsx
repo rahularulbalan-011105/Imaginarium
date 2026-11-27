@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { ensureModels, isModelLoaded, hasModel, loadModel, modelKeyOf } from '../utils/modelLoader.js'
 import { useSceneStore } from '../stores/sceneStore.js'
 import { useHistory } from '../hooks/useHistory.js'
 import { variantOverrides } from '../utils/componentVariants.js'
+import { allParts, loadParts, partsLoaded } from '../parts/registry.js'
+import { PART_CATEGORIES } from '../parts/definePart.js'
+import { setDragPayload } from '../utils/dropPlacement.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ElectronicsLibrary — the dedicated "Electronics" section of the right
@@ -94,16 +97,41 @@ const CATEGORIES = [
   },
 ]
 
-const SOON = [
-  { key: 'power', label: 'Power',         icon: '🔋', note: 'Batteries · supplies · regulators — coming soon.' },
-  { key: 'comms', label: 'Communication', icon: '📶', note: 'WiFi · Bluetooth · RF — coming soon.' },
-]
+// Catalogue parts (src/parts) join the built-in sections by key; new keys get
+// their own section, in PART_CATEGORIES order.
+function mergedCategories() {
+  const cats = CATEGORIES.map(c => ({ ...c, items: [...c.items] }))
+  for (const p of allParts()) {
+    let cat = cats.find(c => c.key === p.category)
+    if (!cat) {
+      const meta = PART_CATEGORIES.find(c => c.key === p.category)
+      cat = { key: p.category, label: meta.label, color: meta.color, blurb: meta.blurb, items: [] }
+      cats.push(cat)
+    }
+    cat.items.push({ type: p.type, label: p.label, icon: p.icon ?? '◆', desc: p.desc, purpose: p.purpose, usage: p.usage ?? '', tinkercad: p.tinkercad })
+  }
+  const order = [...PART_CATEGORIES.map(c => c.key), 'weapons']
+  return cats.sort((a, b) => order.indexOf(a.key) - order.indexOf(b.key))
+}
+const matches = (item, q) => !q || [item.label, item.desc, item.type, item.tinkercad, item.usage].some(t => t && t.toLowerCase().includes(q))
 
 export default function ElectronicsLibrary() {
   const addObject = useSceneStore((s) => s.addObject)
   const { snapshot } = useHistory()
-  const [openCats, setOpenCats] = useState({ mcu: true, sensors: true, displays: true, actuators: true, drivers: true, weapons: true })
-  const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !o[key] }))
+  // The catalogue is a lazy chunk (registry.loadParts): re-render once it lands.
+  const [ready, setReady] = useState(partsLoaded())
+  useEffect(() => { if (!ready) loadParts().then(() => setReady(true)).catch(() => setReady(true)) }, [ready])
+  const ALL_CATEGORIES = useMemo(() => mergedCategories(), [ready])
+  const [openCats, setOpenCats] = useState({})
+  const [query, setQuery] = useState('')
+  const [onlyCat, setOnlyCat] = useState(null)
+  const q = query.trim().toLowerCase()
+  const shown = ALL_CATEGORIES
+    .filter(c => !onlyCat || c.key === onlyCat)
+    .map(c => ({ ...c, items: c.items.filter(it => matches(it, q)) }))
+    .filter(c => c.items.length)
+  const total = shown.reduce((n, c) => n + c.items.length, 0)
+  const toggleCat = (key) => setOpenCats((o) => ({ ...o, [key]: !(o[key] ?? true) }))
   // Models load on demand: fetch this part's GLB (usually already prefetched on
   // hover/idle) before creating it, so its pins anchor to the real board.
   const [loadingType, setLoadingType] = useState(null)
@@ -122,9 +150,27 @@ export default function ElectronicsLibrary() {
   return (
     <div className="flex flex-col h-full overflow-y-auto p-2">
       <div className="text-[9px] text-orange-500 uppercase tracking-wider mb-1.5 font-semibold px-1">Electronics</div>
+      <input
+        type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+        placeholder="Search parts (e.g. resistor, 555, LCD)…" aria-label="Search electronics parts"
+        data-tour="elec-search"
+        className="w-full mb-1.5 px-2 py-1.5 rounded-md text-[12px] bg-gray-800/70 border border-gray-700/60 outline-none focus:border-orange-500/70"
+        style={{ color: 'rgb(var(--g-200))' }}
+      />
+      <div className="flex flex-wrap gap-1 mb-1.5" role="group" aria-label="Filter by category">
+        <button onClick={() => setOnlyCat(null)} aria-pressed={!onlyCat}
+          className={`px-1.5 py-0.5 rounded text-[10px] border ${!onlyCat ? 'border-orange-500 text-orange-400' : 'border-gray-700/60 text-gray-400'}`}>All</button>
+        {ALL_CATEGORIES.map(c => (
+          <button key={c.key} onClick={() => setOnlyCat(onlyCat === c.key ? null : c.key)} aria-pressed={onlyCat === c.key}
+            className="px-1.5 py-0.5 rounded text-[10px] border"
+            style={onlyCat === c.key ? { borderColor: c.color, color: c.color } : { borderColor: 'rgb(var(--g-700) / 0.6)', color: 'rgb(var(--g-400))' }}>{c.label}</button>
+        ))}
+      </div>
+      <div className="text-[9px] mb-1 px-1" style={{ color: 'rgb(var(--g-500))' }}>{total} part{total === 1 ? '' : 's'} · click to add or drag into the scene</div>
       <div className="space-y-1">
-        {CATEGORIES.map((cat) => {
-          const open = !!openCats[cat.key]
+        {shown.length === 0 && <div className="text-[11px] px-2 py-3" style={{ color: 'rgb(var(--g-500))' }}>No part matches “{query}”.</div>}
+        {shown.map((cat) => {
+          const open = (openCats[cat.key] ?? true) || !!q
           return (
             // Each category carries its own colour (--cat) so the groups are told
             // apart at a glance: edge bar, tinted header, count and item hover.
@@ -150,6 +196,8 @@ export default function ElectronicsLibrary() {
                         key={key}
                         data-tour={`elec-${key}`}
                         onClick={() => addPart(type, variant)}
+                        draggable
+                        onDragStart={(e) => setDragPayload(e, { type, variant })}
                         onPointerEnter={() => { const mk = modelKeyOf(type); if (hasModel(mk)) loadModel(mk) }}
                         disabled={loadingType === key}
                         title={`${label}\n${purpose}\nCommonly used for: ${usage}`}
@@ -170,23 +218,6 @@ export default function ElectronicsLibrary() {
           )
         })}
 
-        {SOON.map((cat) => {
-          const open = !!openCats[cat.key]
-          return (
-            <div key={cat.key} className="rounded-lg border border-gray-800/60 overflow-hidden bg-gray-900/40">
-              <button
-                onClick={() => toggleCat(cat.key)}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 hover:bg-gray-800/40 transition-colors"
-                title={cat.note}
-              >
-                <span className="text-[11px] font-medium text-gray-500">{cat.label}</span>
-                <span className="text-[9px] text-gray-600">(0)</span>
-                <span className="ml-auto text-[8px] uppercase tracking-wider text-gray-600">soon</span>
-              </button>
-              {open && <div className="px-2.5 pb-2 text-[9px] text-gray-600 leading-snug">{cat.note}</div>}
-            </div>
-          )
-        })}
       </div>
     </div>
   )

@@ -5,7 +5,8 @@ import { useSceneStore } from '../stores/sceneStore.js'
 import { useUiStore } from '../stores/uiStore.js'
 import { simulationManager } from '../managers/SimulationManager.js'
 import { objectManager } from '../managers/ObjectManager.js'
-import { defineArduinoBlocks, ARDUINO_TOOLBOX } from '../blockly/arduinoBlocks.js'
+import { defineArduinoBlocks, toolboxWithParts } from '../blockly/arduinoBlocks.js'
+import { loadParts, partsLoaded } from '../parts/registry.js'
 import { arduinoGenerator } from '../blockly/arduinoGenerator.js'
 import { analyzeArduino } from '../utils/arduinoDiagnostics.js'
 import { enterSimForCode } from '../managers/simForCode.js'
@@ -40,9 +41,13 @@ export default function BlocksPanel({ workspace = false }) {
   const setMotorSpeed   = useElectronicsStore(s => s.setMotorSpeed)
   const setServoAngle   = useElectronicsStore(s => s.setServoAngle)
 
+  // Catalogue parts bring blocks: wait for the catalogue before building the toolbox.
+  const [partsReady, setPartsReady] = useState(partsLoaded())
+  useEffect(() => { if (!partsReady) loadParts().then(() => setPartsReady(true)).catch(() => setPartsReady(true)) }, [partsReady])
+
   // Initialise the workspace once the user opts in
   useEffect(() => {
-    if (!started || !blocklyDiv.current) return
+    if (!started || !blocklyDiv.current || !partsReady) return
     // Hard-clean: dispose any prior workspace and clear the container so a
     // re-mount (StrictMode / tab switch) can never leave a ghost workspace
     // or duplicate scrollbar behind.
@@ -51,7 +56,7 @@ export default function BlocksPanel({ workspace = false }) {
 
     defineArduinoBlocks()
     const ws = Blockly.inject(blocklyDiv.current, {
-      toolbox: ARDUINO_TOOLBOX,
+      toolbox: toolboxWithParts(),
       trashcan: true,
       // Blockly's default sounds load from blockly-demo.appspot.com, which the
       // app's CSP (media-src 'self') blocks — a console error on every drag.
@@ -118,7 +123,7 @@ export default function BlocksPanel({ workspace = false }) {
       ro.disconnect()
       ws.dispose(); wsRef.current = null
     }
-  }, [started]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [started, partsReady]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendToEditor = () => { setCode(code); useUiStore.getState().setActivePanel('code') }
 
@@ -128,7 +133,9 @@ export default function BlocksPanel({ workspace = false }) {
     window.dispatchEvent(new Event('constructa:code-run'))   // → community popup (first run only)
     const objects = useSceneStore.getState().objects
     // Same compiler diagnostics as the text editor, run on the generated C++.
-    const board = objects.some(o => o.type === 'subo') ? 'subo' : 'arduino'
+    const board = objects.some(o => o.type === 'subo') ? 'subo'
+      : (!objects.some(o => o.type === 'arduino') && objects.some(o => o.type === 'attiny85')) ? 'attiny85'
+      : (!objects.some(o => o.type === 'arduino') && objects.some(o => o.type === 'microbit')) ? 'microbit' : 'arduino'
     const report = analyzeArduino(code, { board })
     setDiag(report)
     if (!report.ok) return   // blocking errors — withhold execution

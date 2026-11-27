@@ -28,6 +28,8 @@
  * @property {Object} [electrical]    { voltage?, currentDraw_mA?, logic? }  (reserved for power stage)
  */
 
+import { onPartsRegistered } from '../parts/registry.js'
+
 const REGISTRY = {}
 
 /** Register (or override) a component definition. */
@@ -127,3 +129,12 @@ for (const [type, mA] of Object.entries(DRAW_mA)) {
   const d = getComponentDef(type)
   if (d) d.electrical = { ...(d.electrical ?? {}), currentDraw_mA: mA }
 }
+
+// ── Catalogue parts (src/parts) ───────────────────────────────────────────────
+const ROLE_OF_CAT = { mcu: 'controller', sensors: 'sensor', input: 'sensor', lights: 'output', displays: 'output', actuators: 'actuator', drivers: 'driver', power: 'power' }
+const CAT_OF = { mcu: 'controller', sensors: 'sensor', input: 'sensor', actuators: 'actuator', drivers: 'driver', lights: 'output', displays: 'output' }
+onPartsRegistered((p) => {
+  if (getComponentDef(p.type)) return
+  registerComponent({ type: p.type, category: CAT_OF[p.category] ?? 'structure', label: p.label, icon: p.icon, role: ROLE_OF_CAT[p.category] ?? p.category,
+    capabilities: p.capabilities ?? {}, electrical: { voltage: p.spec?.vcc, currentDraw_mA: p.currentDraw_mA ?? 0 } })
+})

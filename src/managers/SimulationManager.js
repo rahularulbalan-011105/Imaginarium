@@ -12,14 +12,15 @@ import { roboticsHardware } from './physics/robotics/telemetry.js'
 import { objectManager } from './ObjectManager.js'
 import { parseAndTranspile } from '../utils/arduinoParser.js'
 import { createSensorLibraries } from '../arduino/sensorLibs.js'
-import { MODULE_SENSOR_TYPES, moduleLevel, moduleAnalogRaw, moduleDigital, moduleTriggered, readBMP280, readMPU6050 } from '../arduino/sensorSim.js'
+import { ultrasonicCm, ultrasonicEchoUs, irDetects, gasDigital, MODULE_SENSOR_TYPES, moduleLevel, moduleAnalogRaw, moduleDigital, moduleTriggered, readBMP280, readMPU6050 } from '../arduino/sensorSim.js'
 import { createMotionTracker } from '../arduino/motionSim.js'
 import { i2cSensorWiring, I2C_SENSOR_TYPES } from '../utils/i2cSensors.js'
 import { runSketchSandboxed } from './sketchSandbox.js'
 import { ESP32_PINS } from '../utils/esp32Board.js'
 import { parseControlAnnotations, controlDefaults } from '../utils/esp32Controls.js'
 import { servoWiring, attachIssue, makeIssue } from './physics/robotics/diagnosis.js'
-import { reportIssue, clearIssues, setSerialSink } from './simIssues.js'
+import { reportIssue, clearIssues, setSerialSink, resolveIssue } from './simIssues.js'
+import { CircuitBridge, partSandboxRuntime, partSandboxConsts } from '../circuit/simBridge.js'
 
 const MOTOR_TYPES = new Set(['motor', 'motor_bo', 'motor_dc', 'motor_enc'])
 
@@ -45,6 +46,8 @@ const BUILTIN_NAMES = new Set([
   'abs','min','max','sq','sqrt','pow','floor','ceil','round','log','exp',
   'sin','cos','tan','random','randomSeed','Serial','onRuntimeError',
   'Servo','Stepper','Adafruit_PWMServoDriver',
+  // Print bases (sketchSandbox defines them; a sketch's own #define is skipped)
+  'HEX','DEC','OCT','BIN',
   // Interrupts (encoder sketches)
   'attachInterrupt','detachInterrupt','digitalPinToInterrupt','interrupts','noInterrupts','RISING','FALLING','CHANGE',
   // SUBO library API + constants
@@ -165,7 +168,26 @@ class SimulationManager {
     // Which board is this sketch for? ESP32 differs from an AVR in ways the
     // runtime must honour — chiefly a 12-bit ADC (0…4095, not 0…1023).
     this._board = this._objects.some(o => o.type === 'esp32') ? 'esp32'
-      : this._objects.some(o => o.type === 'subo') ? 'subo' : 'arduino'
+      : this._objects.some(o => o.type === 'subo') ? 'subo'
+      : (!this._objects.some(o => o.type === 'arduino') && this._objects.some(o => o.type === 'attiny85')) ? 'attiny85'
+      : (!this._objects.some(o => o.type === 'arduino') && this._objects.some(o => o.type === 'microbit')) ? 'microbit' : 'arduino'
+
+    // ── circuit bridge: the MNA solver + catalogue parts (src/circuit, src/parts).
+    // Inactive (no-op) unless the scene holds a catalogue part.
+    this._circuitT = null
+    this._circuit = new CircuitBridge({
+      objects: this._objects, connections: this._connections, pinMap, board: this._board,
+      control: (id, key) => useElectronicsStore.getState().sensorValues[`${id}:${key}`],
+      hooks: {
+        meshOf: (id) => objectManager.objects.get(id),
+        led: (id, b) => { self.ledBrightness[id] = b; self._onLedBrightness?.(id, b) },
+        motor: (id, v) => { self.motorSpeeds[id] = v; self._onMotorSpeed?.(id, v) },
+        beep: (id, on) => { self._onBuzzer?.(id, on ? 2000 : 0) },
+        issue: (key, i) => reportIssue(makeIssue('elec', key, i.title, i.detail, '', i.severity)),
+        resolve: (key) => resolveIssue(key),
+        serial: (t) => self._onSerialOut?.(t),
+      },
+    })
 
     // Program-declared Simulation-tab controls. Parsed from `// @control` lines —
     // never guessed from arbitrary C++.
@@ -327,7 +349,9 @@ class SimulationManager {
 
     const _write = (pin, val, isDigital, skipUln = false) => {
       if (!self._running) return
+      self._circuit?.writePin(pin, val, isDigital)          // circuit bridge
       const comps = pinMap[pin]
+      if (self._circuit?.sim.hasPin(pin) && (!comps || comps.length === 0)) return
       if (!comps || comps.length === 0) {
         console.warn(`[Sim] pin ${pin} written but no component connected — check wire connections`)
         return
@@ -405,8 +429,8 @@ class SimulationManager {
       if (st.autoSense) {
         const d  = objectManager.senseDistance(s.id)        // scene units, or null
         const cm = d == null ? null : Math.round(d * 5)     // 1 scene unit = 5 cm
-        if (s.type === 'ultrasonic') { const v = cm == null ? 400 : Math.min(400, cm); _report(s.id, v); return v }
-        if (s.type === 'ir_sensor')  { const v = (cm != null && cm <= 30) ? 1 : 0;     _report(s.id, v); return v }
+        if (s.type === 'ultrasonic') { const v = ultrasonicCm(d); _report(s.id, v); return v }
+        if (s.type === 'ir_sensor')  { const v = irDetects(d);    _report(s.id, v); return v }
       }
       return st.sensorValues[s.id] ?? (s.type === 'ultrasonic' ? 100 : 0)
     }
@@ -447,9 +471,12 @@ class SimulationManager {
       if (s && MODULE_SENSOR_TYPES.has(s.type)) return _modDigital(s)
       if (s) {
         if (s.type === 'ir_sensor')  return _read(s) ? 1 : 0
-        if (s.type === 'gas_sensor') return (_read(s) > 512) ? 1 : 0    // DO threshold
+        if (s.type === 'gas_sensor') return gasDigital(_read(s))       // DO threshold
         return 0
       }
+      // circuit bridge: a pin wired into the solved circuit reads its real voltage.
+      const cv = self._circuit?.readDigital(pin)
+      if (cv != null) return cv
       // SUBO on-board push buttons (GPIO 47 = right, 1 = left). Real hardware
       // uses internal pull-ups → idle HIGH (1), pressed LOW (0). State comes from
       // the sim's SUBO panel; only active when a SUBO board is in the scene.
@@ -466,7 +493,7 @@ class SimulationManager {
     const adcFull = () => (this._board === 'esp32' ? 4095 : 1023)
     const analogRead = (pin) => {
       const s = sensorMap[pin]
-      if (!s) return 0
+      if (!s) return self._circuit?.readAnalog(pin, adcFull()) ?? 0   // circuit bridge
       const full = adcFull()
       if (MODULE_SENSOR_TYPES.has(s.type)) {
         const raw = _modAnalog10(s)
@@ -481,7 +508,7 @@ class SimulationManager {
     const pulseIn = (pin) => {
       const s = sensorMap[pin]
       if (!s || s.type !== 'ultrasonic') return 0
-      return Math.round(_read(s) * 58)
+      return ultrasonicEchoUs(_read(s))
     }
 
     // ── Buzzer (Web Audio) ────────────────────────────────────────────────────
@@ -648,6 +675,14 @@ class SimulationManager {
     // aliases and LED_BUILTIN follow the Arduino-ESP32 core for a DevKit V1.
     const ESP32_CONSTS = `const A0=36,A3=39,A4=32,A5=33,A6=34,A7=35,A10=4,A12=2,A13=15,A14=13,A15=12,A16=14,A17=27,A18=25,A19=26,INPUT_PULLUP=5,INPUT_PULLDOWN=9,LED_BUILTIN=2,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;`
 
+    // ATtiny85 (ATTinyCore / damellis core): pins 0–5 are PB0–PB5; the analog
+    // aliases name ADC channels by the pin they sit on (A1 = PB2, A2 = PB4, A3 = PB3,
+    // A0 = PB5/RESET). Used INSTEAD of the SUBO set, like the ESP32's.
+    const ATTINY_CONSTS = 'const A0=5,A1=2,A2=4,A3=3,PB0=0,PB1=1,PB2=2,PB3=3,PB4=4,PB5=5,INPUT_PULLUP=2,LED_BUILTIN=1,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;'
+
+    // micro:bit (Arduino-nRF5 core, micro:bit variant): buttons A/B on P5/P11.
+    const MICROBIT_CONSTS = 'const PIN_BUTTON_A=5,PIN_BUTTON_B=11,LED_ON=1,LED_OFF=0,INPUT_PULLUP=2,A0=0,A1=1,A2=2,WHITE=1,BLACK=0,SSD1306_WHITE=1,SSD1306_BLACK=0,SSD1306_INVERSE=2,SSD1306_SWITCHCAPVCC=2,SSD1306_EXTERNALVCC=1,SCREEN_WIDTH=128,SCREEN_HEIGHT=64;'
+
     // Default TCS3200 colour-sensor control-pin macros, so `ColorSensor color(S0,
     // S1,S2,S3,OUT);` runs even when a copied sketch omits its own #defines.
     // A sketch that DOES #define them has those skipped (see BUILTIN_NAMES) and
@@ -697,6 +732,9 @@ class SimulationManager {
       switch (fn) {
         case 'analogWrite':  _write(a[0], a[1], false); break
         case 'digitalWrite': _write(a[0], a[1], true); break
+        case 'pinMode':      self._circuit?.pinMode(a[0], a[1]); break                 // circuit bridge
+        case 'part':         self._circuit?.partCall(String(a[0]), String(a[1]), a[2] ?? []); break
+        case 'shiftOut':     self._circuit?.shiftOut(a[0], a[1], a[2], a[3]); break
         case 'tone':         tone(a[0], a[1], a[2]); break
         case 'noTone':       noTone(a[0]); break
         case 'serial':       if (self._onSerialOut) self._onSerialOut(a[0]); break
@@ -749,7 +787,8 @@ class SimulationManager {
         userJs: jsCode,
         // The I²C bus is seeded up front: setup() runs before the first per-frame
         // snapshot arrives, and bmp.begin() / mpu.begin() must see the boards.
-        consts: `${this._board === 'esp32' ? ESP32_CONSTS : SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}\nIN.i2c = ${JSON.stringify(this._i2cInput ? this._i2cInput() : [])};`,
+        extraRuntime: partSandboxRuntime(),        // catalogue parts' libraries (LiquidCrystal, Keypad …)
+        consts: `${this._board === 'esp32' ? ESP32_CONSTS : this._board === 'attiny85' ? ATTINY_CONSTS : this._board === 'microbit' ? MICROBIT_CONSTS : SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}\n${partSandboxConsts()}\nIN.parts = ${JSON.stringify(this._circuit?.input() ?? {})};\nIN.i2c =${JSON.stringify(this._i2cInput ? this._i2cInput() : [])};`,
         onOut: dispatch,
         onError: (msg) => onRuntimeError(msg),
         getInput: () => self._buildInput(sensorMap, pinMap, digitalRead, analogRead, pulseIn, libReaders),
@@ -878,6 +917,18 @@ class SimulationManager {
       pulse[p] = pulseIn(p)
       lib[p] = libReaders(p)
     }
+    // circuit bridge: step the solver one frame, then every circuit pin's level.
+    if (this._circuit?.active) {
+      const tNow = performance.now()
+      const fdt = this._circuitT == null ? 1 / 60 : Math.min(0.1, (tNow - this._circuitT) / 1000)
+      this._circuitT = tNow
+      this._circuit.frame(fdt)
+      for (const p of this._circuit.circuitPins()) {
+        if (dread[p] == null) dread[p] = digitalRead(p)
+        if (aread[p] == null) aread[p] = analogRead(p)
+      }
+      Object.assign(pulse, this._circuit.pulses())            // pulseIn() from catalogue parts
+    }
     // SUBO on-board buttons are not in sensorMap but are read with digitalRead.
     for (const p of [47, 1]) if (dread[p] == null) dread[p] = digitalRead(p)
     // Encoders read the servo wired to a pin.
@@ -913,6 +964,7 @@ class SimulationManager {
     return {
       quad, uno: this._board === 'arduino',
       aread, dread, pulse, lib, enc, touch,
+      parts: this._circuit?.input() ?? {},
       i2c: this._i2cInput ? this._i2cInput() : [],
       imu: roboticsHardware.imu() ?? null,
       battery: roboticsHardware.battery() ?? null,
@@ -1106,6 +1158,7 @@ class SimulationManager {
 
   stop() {
     this._running = false
+    this._circuit?.stop(); this._circuit = null           // circuit bridge
     clearIssues('elec:enc'); clearIssues('code:irq')
     clearIssues('elec:pca'); clearIssues('code:pca')
     this.encoders = {}

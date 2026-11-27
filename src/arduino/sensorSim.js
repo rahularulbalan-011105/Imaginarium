@@ -122,6 +122,16 @@ const THRESHOLD = { flame_sensor: 50, soil_moisture: 40, rain_sensor: 30, sound_
 export const MODULE_SENSOR_TYPES = new Set(Object.keys(MODULE_DEFAULTS))
 
 /** The physical quantity (panel units) for a module sensor; null if disconnected. */
+// ── HC-SR04 ultrasonic / IR obstacle / MQ gas rules (used by SimulationManager) ──
+/** Distance (cm) an HC-SR04 reports for a scene distance in units (1 unit = 5 cm); no echo → 400 cm (its max range). */
+export function ultrasonicCm(units) { return units == null ? 400 : Math.min(400, Math.round(units * 5)) }
+/** Echo pulse width (µs) for a distance in cm: the sound's round trip, 1 cm ≈ 58 µs. */
+export function ultrasonicEchoUs(cm) { return Math.round(cm * 58) }
+/** IR obstacle module: detects anything within 30 cm. */
+export function irDetects(units) { return units != null && Math.round(units * 5) <= 30 ? 1 : 0 }
+/** MQ-2 module DO: its comparator trips above mid-scale (raw > 512). */
+export function gasDigital(raw) { return raw > 512 ? 1 : 0 }
+
 export function moduleLevel(store, type, id) {
   if (id == null) return null
   const m = num(valueAt(store, id))

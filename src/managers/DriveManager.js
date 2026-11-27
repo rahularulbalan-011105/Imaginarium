@@ -236,7 +236,7 @@ class DriveManager {
     const topLevel = []
     const standaloneObjects = []
     for (const obj of objects) {
-      if (obj.type === 'plane') continue
+      if (obj.type === 'plane' || obj.type === 'note') continue
       const mesh = this.objectMgr.getMesh(obj.id)
       if (!mesh || mesh.parent !== this.scene) continue
       // obj.loose = a pick-up part (gripper target): not part of the robot either

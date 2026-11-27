@@ -9,9 +9,10 @@ import { L298N_PIN_ORDER } from './l298n.js'
 import { ULN2003_PIN_ORDER, STEPPER_WIRES } from './stepper.js'
 import { ENC_MOTOR_PIN_ORDER } from './encoderMotor.js'
 import { PCA_PIN_ORDER } from './pca9685.js'
+import { ELECTRONICS_TYPES } from './elecTypes.js'
+import { partPinNames, onPartsRegistered } from '../parts/registry.js'
 
-export const ELEC_TYPES = new Set(['arduino', 'subo', 'esp32', 'motor', 'motor_bo', 'motor_dc', 'led', 'servo', 'ir_sensor', 'ultrasonic', 'buzzer', 'oled', 'gas_sensor', 'color_sensor', 'ldr_sensor', 'dht11', 'l298n', 'stepper', 'uln2003', 'servo_cr', 'motor_enc', 'pca9685', 'gripper',
-  'pir_sensor', 'flame_sensor', 'soil_moisture', 'rain_sensor', 'sound_sensor', 'touch_sensor', 'bmp280', 'accelerometer', 'gyroscope', 'hall_sensor'])
+export const ELEC_TYPES = ELECTRONICS_TYPES   // utils/elecTypes.js
 
 export const PIN_DEFS = {
   // L298N motor driver: motor outputs, power terminal, logic header (utils/l298n.js).
@@ -24,7 +25,10 @@ export const PIN_DEFS = {
   // ESP32 pin names are derived from the board table (utils/esp32Board.js) so the
   // wiring UI and the 3D board can never drift apart.
   esp32:    ESP32_PIN_NAMES,
-  arduino:  ['D2','D3','D4','D5','D6','D7','D8','D9','D10','D11','5V','GND1','GND2','SDA','SCL'],   // SDA = A4, SCL = A5 (I2C)
+  // Full Uno R3 header (real silk order): digital D0–D13 + GND + SDA/SCL on top;
+  // power (3V3 5V GND GND VIN) and analog A0–A5 along the bottom. SDA/SCL are
+  // the same copper as A4/A5 (circuit/boards.js joins them).
+  arduino:  [...Array.from({ length: 14 }, (_, i) => `D${i}`), 'GND3', 'SDA', 'SCL', '3V3', '5V', 'GND1', 'GND2', 'VIN', 'A0', 'A1', 'A2', 'A3', 'A4', 'A5'],
   // Official Subo IO header (Subo.h): IO1..IO21 + power rails. Matches SUBO_PIN_ORDER in
   // electronicsFactory so these map to the same pinIds as the 3D pin spheres.
   subo:     ['IO1','IO2','IO3','IO4','IO5','IO6','IO7','IO8','IO9','IO10','IO11','IO12','IO13','IO14','IO15','IO16','IO17','IO18','IO19','IO20','IO21','5V','GND1','GND2'],
@@ -57,10 +61,15 @@ export const PIN_DEFS = {
   hall_sensor:   ['GND','VCC','OUT'],
 }
 
+// Catalogue parts (src/parts) bring their own pin lists.
+onPartsRegistered((p) => { PIN_DEFS[p.type] = partPinNames(p.type) })
+/** Pin names for one scene object (catalogue parts may vary with their props). */
+export function pinNamesFor(obj) { return (obj && partPinNames(obj.type, obj)) ?? PIN_DEFS[obj?.type] ?? [] }
+
 /** 'power' | 'gnd' | 'signal' for a pin name. */
 export function pinRole(pin) {
-  if (/^(5V|3V3|12V|VCC|VIN|V\+|ANODE|COM|RED)$/i.test(pin)) return 'power'
-  if (/^(GND\d*|CATHODE)$/i.test(pin)) return 'gnd'
+  if (/^(5V|3V3|3V|12V|VCC|VIN|V\+|ANODE|COM|RED|POS)$/i.test(pin)) return 'power'
+  if (/^(GND\d*|CATHODE|NEG)$/i.test(pin)) return 'gnd'
   return 'signal'
 }
 

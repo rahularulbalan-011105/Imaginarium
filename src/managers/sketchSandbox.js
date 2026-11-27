@@ -27,6 +27,8 @@
 // Calls the frame may forward. Anything not in this list is ignored by the parent.
 export const OUT_CALLS = new Set([
   'analogWrite', 'digitalWrite', 'tone', 'noTone',
+  // Circuit solver + catalogue parts (src/circuit, src/parts)
+  'pinMode', 'shiftOut', 'part',
   'serial', 'oled', 'servoAttach', 'servoWrite', 'pinsWrite', 'irqAttach', 'pcaOut',
   'matrix', 'playTone', 'stopBuzzer', 'playBuzSeq', 'driveMotors',
   'walk', 'turn', 'stopWalking',
@@ -47,12 +49,12 @@ const forScriptTag = (js) => String(js).replace(/<\/(script)/gi, '<\\/$1')
 // Exported for tests: the whole runtime lives inside one template literal, so a
 // stray backtick or an under-escaped newline silently breaks EVERY sketch. A
 // test parses this output to catch that before a user ever presses Run.
-export function bootstrapHtml(userJs, consts) {
+export function bootstrapHtml(userJs, consts, extraRuntime = '') {
   // NOTE: this runs inside the sandboxed frame. It has no app imports and no
   // access to anything outside itself.
   const runtime = `
 'use strict';
-var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, i2c:[], imu:null, battery:null, hwActive:false,
+var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, parts:{}, shiftIn:{}, i2c:[], imu:null, battery:null, hwActive:false,
            touch:{}, ctrl:{}, wifi:null, ble:null, net:null, serialIn:'' };
 var RUNNING = true;
 var send = function (f, a) { try { parent.postMessage({ t:'out', f:f, a:a }, '*') } catch (e) {} };
@@ -76,7 +78,9 @@ var millis = function () { return Math.round(performance.now()) };
 var micros = function () { return Math.round(performance.now() * 1000) };
 
 // ── pins: writes go out, reads come from the snapshot ─────────────────────
-var pinMode = function () {};
+// pinMode reaches the circuit solver: OUTPUT drives, INPUT floats, INPUT_PULLUP
+// switches the ~35 kΩ internal pull-up in (a button to GND then reads LOW).
+var pinMode = function (p, m) { send('pinMode', [Number(p), Number(m)]) };
 var analogWrite  = function (p, v) { send('analogWrite',  [Number(p), Number(v)]) };
 var digitalWrite = function (p, v) { send('digitalWrite', [Number(p), v]) };
 var analogRead = function (p) { var v = IN.aread[Number(p)]; return v == null ? 0 : v };
@@ -86,6 +90,14 @@ var digitalRead = function (p) {
 };
 var pulseIn = function (p) { var v = IN.pulse[Number(p)]; return v == null ? 0 : v };
 var HIGH = 1, LOW = 0, OUTPUT = 1, INPUT = 0;
+// shiftOut / shiftIn (Arduino core): one call carries the whole byte, so a
+// 74HC595 sees every clock edge even though the sketch runs between frames.
+var MSBFIRST = 1, LSBFIRST = 0;
+var shiftOut = function (d, c, order, v) { send('shiftOut', [Number(d), Number(c), Number(order), (Number(v) || 0) & 255]) };
+var shiftIn = function (d) { var v = IN.shiftIn && IN.shiftIn[Number(d)]; return v == null ? 0 : v };
+// Catalogue part libraries talk to their parent-side handler through these.
+var __part = function (type, fn, args) { send('part', [String(type), String(fn), args || []]) };
+var __partIn = function (type) { return (IN.parts && IN.parts[type]) || {} };
 
 // ── interrupts + quadrature encoders ──────────────────────────────────────
 // The parent sends each encoder's exact signed quadrature count (IN.quad). Every
@@ -155,6 +167,24 @@ var random = function (a, b) {
   return Math.floor(Math.random() * (Number(b) - Number(a))) + Number(a);
 };
 var randomSeed = function () {};
+// Bit helpers (Arduino.h macros that return a value).
+var bitRead = function (x, n) { return ((Number(x) >> Number(n)) & 1) };
+var bit = function (n) { return 1 << Number(n) };
+var lowByte = function (x) { return Number(x) & 0xff };
+var highByte = function (x) { return (Number(x) >> 8) & 0xff };
+// Arduino Print formatting (the transpiler wraps print()/println() arguments):
+// a char prints as its character, a float with 2 decimals (or the given
+// digits), an integer in the given base — print(255, HEX) → "FF".
+var HEX = 16, DEC = 10, OCT = 8, BIN = 2;
+var __chr = function (v) { return typeof v === 'number' ? String.fromCharCode(v) : v };
+var __flt = function (v, d) { var n = Number(v); if (!isFinite(n)) return isNaN(n) ? 'nan' : (n > 0 ? 'inf' : '-inf'); return n.toFixed(d == null ? 2 : Math.max(0, Math.min(20, Number(d) || 0))) };
+var __base = function (v, b) {
+  var n = Number(v); b = Number(b);
+  if (typeof v !== 'number' || !(b === 2 || b === 8 || b === 10 || b === 16)) return v;
+  if (b === 10) return String(Math.trunc(n));
+  var u = n < 0 ? (n >>> 0) : Math.trunc(n);                 // negative ints print as unsigned 32-bit, as on an AVR long
+  return u.toString(b).toUpperCase();
+};
 
 // ── output devices ────────────────────────────────────────────────────────
 var Serial = {
@@ -650,6 +680,8 @@ var controlPublish = function (id, v) { send('controlPublish', [String(id), Numb
 
 var onRuntimeError = function (m) { try { parent.postMessage({ t:'err', m:String(m) }, '*') } catch (e) {} };
 `
+  // Libraries contributed by catalogue parts (part.code.sandbox), same scope.
+  + '\n' + (extraRuntime || '') + '\n'
 
   // The user's sketch plus the forever-loop, in the same scope as the runtime.
   const program = `
@@ -695,7 +727,7 @@ try { parent.postMessage({ t:'ready' }, '*') } catch (e) {}
  * @param {()=>object} o.getInput                   builds the input snapshot
  * @returns {{stop:()=>void, push:()=>void}}
  */
-export function runSketchSandboxed({ userJs, consts, onOut, onError, getInput }) {
+export function runSketchSandboxed({ userJs, consts, onOut, onError, getInput, extraRuntime = '' }) {
   const frame = document.createElement('iframe')
   // No allow-same-origin: the frame gets an opaque origin, so app storage and the
   // parent DOM are unreachable. No allow-popups / allow-forms / allow-modals.
@@ -703,7 +735,7 @@ export function runSketchSandboxed({ userJs, consts, onOut, onError, getInput })
   frame.setAttribute('aria-hidden', 'true')
   frame.setAttribute('tabindex', '-1')
   frame.style.cssText = 'position:absolute;width:0;height:0;border:0;visibility:hidden;pointer-events:none'
-  frame.srcdoc = bootstrapHtml(userJs, consts)
+  frame.srcdoc = bootstrapHtml(userJs, consts, extraRuntime)
 
   let stopped = false
   let lastBeat = performance.now()

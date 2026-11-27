@@ -17,7 +17,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check:bundle": "node tools/check-bundle.mjs",
-    "optimize:models": "node tools/optimize-models.mjs"
+    "optimize:models": "node tools/optimize-models.mjs",
+    "test:dashboard": "node tools/parts-dashboard.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

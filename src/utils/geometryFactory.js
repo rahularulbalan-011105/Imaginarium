@@ -5,6 +5,7 @@ import { TextGeometry } from 'three/addons/geometries/TextGeometry.js'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import helvetiker from 'three/examples/fonts/helvetiker_regular.typeface.json'
 import { rollerAxisLocal } from './mecanum.js'
+import { createShape3d, NEW_SHAPE_TYPES } from './shapes3d.js'
 
 // Lazily parse the bundled font once — TextGeometry needs a parsed Font instance.
 let _font = null
@@ -110,7 +111,13 @@ export function createPartialFilletedBoxGeometry(type, radius, segments, axis, c
   return geo
 }
 
-export function createGeometry(type) {
+// Every primitive createGeometry() knows (used to tell shapes from catalogue parts).
+export const SHAPE_TYPES = new Set(['cylinder', 'cone', 'box', 'sphere', 'tetrahedron', 'pyramid', 'pentpyramid', 'octahedron', 'dodecahedron', 'rectprism', 'torus', 'plane', 'capsule', 'prism', 'diamond', 'hexagon', 'star', 'gear', 'wheel', 'caster', ...NEW_SHAPE_TYPES])
+
+export function createGeometry(type, obj) {
+  // Tinkercad shapes added later (utils/shapes3d.js) — parametric from `obj`.
+  const extra = createShape3d(type, obj)
+  if (extra) return extra
   switch (type) {
     // ── current shape set ──────────────────────────────────────────────────
     case 'cylinder':     return new THREE.CylinderGeometry(1, 1, 2, 32)

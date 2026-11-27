@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parts Test Dashboard</title>
+<style>
+:root { --bg:#f7f7f5; --fg:#1c1c1a; --mute:#6b6b66; --line:#e2e2dd; --card:#ffffff;
+  --pass:#15803d; --passbg:#dcfce7; --fail:#b91c1c; --failbg:#fee2e2; --nt:#92400e; --ntbg:#fef3c7; --na:#6b6b66; --nabg:#efefec; --acc:#ea580c; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#141413; --fg:#ececea; --mute:#9a9a94; --line:#2c2c2a; --card:#1c1c1b;
+  --pass:#4ade80; --passbg:#14321f; --fail:#f87171; --failbg:#3b1515; --nt:#fbbf24; --ntbg:#3a2a0b; --na:#9a9a94; --nabg:#262624; } }
+:root[data-theme="dark"] { --bg:#141413; --fg:#ececea; --mute:#9a9a94; --line:#2c2c2a; --card:#1c1c1b;
+  --pass:#4ade80; --passbg:#14321f; --fail:#f87171; --failbg:#3b1515; --nt:#fbbf24; --ntbg:#3a2a0b; --na:#9a9a94; --nabg:#262624; }
+* { box-sizing: border-box } body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.45 system-ui, -apple-system, Segoe UI, sans-serif }
+main { max-width: 1280px; margin: 0 auto; padding: 24px 16px 48px }
+h1 { font-size: 22px; margin: 0 0 4px } .lede { color: var(--mute); margin: 0 0 20px; max-width: 78ch }
+.stats { display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 18px }
+.stat { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px }
+.stat b { display:block; font-size: 22px; font-variant-numeric: tabular-nums } .stat span { color:var(--mute); font-size:12px }
+.bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin: 8px 0 12px }
+.bar input { flex: 1 1 220px; padding:8px 10px; border-radius:8px; border:1px solid var(--line); background:var(--card); color:var(--fg) }
+.bar button { padding:6px 10px; border-radius:999px; border:1px solid var(--line); background:var(--card); color:var(--fg); cursor:pointer; font-size:12px }
+.bar button[aria-pressed="true"] { border-color: var(--acc); color: var(--acc) }
+.wrap { overflow-x:auto; border:1px solid var(--line); border-radius:10px; background:var(--card) }
+table { border-collapse: collapse; width:100%; min-width: 980px } th, td { padding: 8px 10px; border-bottom:1px solid var(--line); text-align:left; vertical-align: top }
+th { font-size:12px; color:var(--mute); font-weight:600; position: sticky; top: 0; background: var(--card) }
+.nm { font-weight:600 } .sub { color:var(--mute); font-size:12px } code { font-size:11px; background:var(--nabg); padding:1px 4px; border-radius:4px }
+.kind { font-size:12px } tr.k-missing .kind { color: var(--nt) } tr.k-existing .kind { color: var(--mute) }
+.b { display:inline-block; font-size:11px; font-weight:700; padding:2px 7px; border-radius:999px; white-space:nowrap }
+.b-PASS { color:var(--pass); background:var(--passbg) } .b-FAIL { color:var(--fail); background:var(--failbg) }
+.b-NOTTESTED, .b-PARTIAL { color:var(--nt); background:var(--ntbg) } .b-NA { color:var(--na); background:var(--nabg) }
+.vf { font-size:10px; font-weight:600; color:var(--nt); border:1px solid currentColor; border-radius:4px; padding:0 3px }
+details summary { cursor:pointer; color: var(--acc) } details ul { margin: 6px 0 0; padding-left: 16px; font-size:12px }
+li.t-passed::marker { color: var(--pass) } li.t-failed { color: var(--fail) } li.t-todo { color: var(--nt) }
+.err { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap }
+h2 { font-size: 16px; margin: 28px 0 8px } .note { color:var(--mute); font-size:12px; margin-top: 12px; max-width: 90ch }
+</style></head>
+<body><main>
+<h1>Parts test dashboard</h1>
+<p class="lede">Every Tinkercad Circuits component and 3D Design shape or tool, against what Constructa implements, with the real result of each automated test. Generated 2026-11-27 12:48 UTC from <code>npm run test:dashboard</code>.</p>
+<div class="stats">
+  <div class="stat"><b>110 / 110</b><span>catalogue items implemented and under test</span></div>
+  <div class="stat"><b>0</b><span>pre-existing parts (own test suites)</span></div>
+  <div class="stat"><b>0</b><span>not implemented yet</span></div>
+  <div class="stat"><b>598</b><span>aspect checks passing</span></div>
+  <div class="stat"><b>0</b><span>aspect checks failing</span></div>
+  <div class="stat"><b>0</b><span>aspects not (fully) tested</span></div>
+  <div class="stat"><b>1176 / 1176</b><span>tests passing in the whole suite (49 files)</span></div>
+</div>
+<div class="bar">
+  <input type="search" id="q" placeholder="Filter by name, group or type…" aria-label="Filter rows">
+  <button data-f="all" aria-pressed="true">All</button><button data-f="circuits">Circuits</button><button data-f="3d">3D Design</button>
+  <button data-f="missing">Not implemented</button><button data-f="fail">Has failures</button>
+</div>
+<div class="wrap"><table>
+<thead><tr><th>Tinkercad item</th><th>Status</th><th>Model rendering</th><th>Placement & editing</th><th>Pin configuration</th><th>Wiring</th><th>Simulation</th><th>Code generation</th><th>Save & load</th><th>Tests</th></tr></thead>
+<tbody id="rows">
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="arduino uno r3 microcontrollers ">
+  <td><div class="nm">Arduino Uno R3</div>
+      <div class="sub">Microcontrollers · <code>arduino</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="attiny85 microcontrollers attiny85">
+  <td><div class="nm">ATtiny85 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Microcontrollers · <code>attiny85</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">attiny85 › model</li><li class="t-passed">attiny85 › pins</li><li class="t-passed">attiny85 › placement</li><li class="t-passed">attiny85 › wiring</li><li class="t-passed">attiny85 › simulation: blinks an LED on PB0 from a sketch, powered by a 3 V coin cell</li><li class="t-passed">attiny85 › simulation: reads a pushbutton on PB2 with INPUT_PULLUP (pull-up to its own VCC)</li><li class="t-passed">attiny85 › simulation: unpowered (no VCC) it raises an issue and its outputs stay at 0 V</li><li class="t-passed">attiny85 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="micro:bit microcontrollers microbit">
+  <td><div class="nm">micro:bit</div>
+      <div class="sub">Microcontrollers · <code>microbit</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>12</summary><ul><li class="t-passed">microbit › model</li><li class="t-passed">microbit › pins</li><li class="t-passed">microbit › placement</li><li class="t-passed">microbit › wiring</li><li class="t-passed">microbit › simulation: button A reads LOW only while pressed (on-board 10 kΩ pull-up to 3.3 V)</li><li class="t-passed">microbit › simulation: end to end: a sketch shows &quot;A&quot; on the display while button A is held</li><li class="t-passed">microbit › simulation: P0 drives an LED through 100 Ω at 3.3 V logic</li><li class="t-passed">microbit › codegen: block part_microbit_show_text</li><li class="t-passed">microbit › codegen: block part_microbit_clear</li><li class="t-passed">microbit › codegen: block part_microbit_button</li><li class="t-passed">microbit › codegen: example sketch compiles and runs</li><li class="t-passed">microbit › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="breadboard mini breadboards breadboard_mini">
+  <td><div class="nm">Breadboard Mini</div>
+      <div class="sub">Breadboards · <code>breadboard_mini</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>6</summary><ul><li class="t-passed">breadboard_mini › model</li><li class="t-passed">breadboard_mini › pins</li><li class="t-passed">breadboard_mini › placement</li><li class="t-passed">breadboard_mini › wiring</li><li class="t-passed">breadboard_mini › simulation: a column strip is one net; the two halves and different columns are separate</li><li class="t-passed">breadboard_mini › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="breadboard small breadboards breadboard_half">
+  <td><div class="nm">Breadboard Small</div>
+      <div class="sub">Breadboards · <code>breadboard_half</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">breadboard_half › model</li><li class="t-passed">breadboard_half › pins</li><li class="t-passed">breadboard_half › placement</li><li class="t-passed">breadboard_half › wiring</li><li class="t-passed">breadboard_half › simulation: a column strip is one net; the two halves and different columns are separate</li><li class="t-passed">breadboard_half › simulation: each power rail is one net along its length</li><li class="t-passed">breadboard_half › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="breadboard breadboards breadboard_full">
+  <td><div class="nm">Breadboard</div>
+      <div class="sub">Breadboards · <code>breadboard_full</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">breadboard_full › model</li><li class="t-passed">breadboard_full › pins</li><li class="t-passed">breadboard_full › placement</li><li class="t-passed">breadboard_full › wiring</li><li class="t-passed">breadboard_full › simulation: a column strip is one net; the two halves and different columns are separate</li><li class="t-passed">breadboard_full › simulation: each power rail is one net along its length</li><li class="t-passed">breadboard_full › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="resistor general resistor">
+  <td><div class="nm">Resistor</div>
+      <div class="sub">General · <code>resistor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">resistor › model</li><li class="t-passed">resistor › pins</li><li class="t-passed">resistor › placement</li><li class="t-passed">resistor › wiring</li><li class="t-passed">resistor › simulation: Ohm's law: 1 kΩ from a HIGH pin to GND carries ≈4.9 mA</li><li class="t-passed">resistor › simulation: two 10 kΩ in series from 5 V halve the voltage (divider into analogRead)</li><li class="t-passed">resistor › simulation: warns when it would overheat (10 Ω straight across 5 V = 2.5 W)</li><li class="t-passed">resistor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="capacitor general capacitor">
+  <td><div class="nm">Capacitor</div>
+      <div class="sub">General · <code>capacitor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">capacitor › model</li><li class="t-passed">capacitor › pins</li><li class="t-passed">capacitor › placement</li><li class="t-passed">capacitor › wiring</li><li class="t-passed">capacitor › simulation: RC charge: 100 kΩ + 100 nF from D13 reaches 63 % in one τ (≈10 ms)</li><li class="t-passed">capacitor › simulation: discharges with the same τ when the pin goes LOW</li><li class="t-passed">capacitor › simulation: raises an over-voltage error above its rating (a 4 V part on 5 V)</li><li class="t-passed">capacitor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="polarized capacitor general polarized_capacitor">
+  <td><div class="nm">Polarized Capacitor</div>
+      <div class="sub">General · <code>polarized_capacitor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">polarized_capacitor › model</li><li class="t-passed">polarized_capacitor › pins</li><li class="t-passed">polarized_capacitor › placement</li><li class="t-passed">polarized_capacitor › wiring</li><li class="t-passed">polarized_capacitor › simulation: RC charge: 1 kΩ + 100 µF from D13 — τ ≈ 0.1 s, 63 % after one τ</li><li class="t-passed">polarized_capacitor › simulation: error when wired backwards (stripe to 5 V)</li><li class="t-passed">polarized_capacitor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="inductor general inductor">
+  <td><div class="nm">Inductor</div>
+      <div class="sub">General · <code>inductor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">inductor › model</li><li class="t-passed">inductor › pins</li><li class="t-passed">inductor › placement</li><li class="t-passed">inductor › wiring</li><li class="t-passed">inductor › simulation: steady DC: only the winding resistance limits current (5 V → 220 Ω → 1 mH)</li><li class="t-passed">inductor › simulation: current ramps with τ = L/R (100 mH, 100 Ω: τ ≈ 0.8 ms)</li><li class="t-passed">inductor › simulation: warns above the rated current (straight across 5 V: 5 / 2.2 Ω ≈ 2.2 A)</li><li class="t-passed">inductor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="potentiometer general potentiometer">
+  <td><div class="nm">Potentiometer</div>
+      <div class="sub">General · <code>potentiometer</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">potentiometer › model</li><li class="t-passed">potentiometer › pins</li><li class="t-passed">potentiometer › placement</li><li class="t-passed">potentiometer › wiring</li><li class="t-passed">potentiometer › simulation: wiper divides 5 V: 25 % → 1.25 V → analogRead ≈ 256, 100 % → 1023</li><li class="t-passed">potentiometer › simulation: end to end: a sketch reads the knob with analogRead and lights the LED above half way</li><li class="t-passed">potentiometer › simulation: knob model turns with the slider (≈300° travel)</li><li class="t-passed">potentiometer › simulation: power error when the wiper shorts 5 V to GND at the track end</li><li class="t-passed">potentiometer › codegen: block part_potentiometer_percent</li><li class="t-passed">potentiometer › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="diode general diode">
+  <td><div class="nm">Diode</div>
+      <div class="sub">General · <code>diode</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">diode › model</li><li class="t-passed">diode › pins</li><li class="t-passed">diode › placement</li><li class="t-passed">diode › wiring</li><li class="t-passed">diode › simulation: forward drop ≈0.66 V at ≈9 mA (5 V through 470 Ω)</li><li class="t-passed">diode › simulation: blocks when reversed (band toward 5 V)</li><li class="t-passed">diode › simulation: raises an over-current error when placed straight across 5 V</li><li class="t-passed">diode › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="zener diode general zener_diode">
+  <td><div class="nm">Zener Diode</div>
+      <div class="sub">General · <code>zener_diode</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">zener_diode › model</li><li class="t-passed">zener_diode › pins</li><li class="t-passed">zener_diode › placement</li><li class="t-passed">zener_diode › wiring</li><li class="t-passed">zener_diode › simulation: 1N4728A (3.3 V) regulates: 5 V through 22 Ω holds ≈3.3 V, and a 330 Ω load barely moves it</li><li class="t-passed">zener_diode › simulation: 1N4733A (5.1 V) does not break down on a 5 V rail; forward it drops ≈0.6 V</li><li class="t-passed">zener_diode › simulation: warns over 1 W: a 3.3 V Zener across 5 V with no series resistor</li><li class="t-passed">zener_diode › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="npn transistor (bjt) general npn_transistor">
+  <td><div class="nm">NPN Transistor (BJT)</div>
+      <div class="sub">General · <code>npn_transistor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">npn_transistor › model</li><li class="t-passed">npn_transistor › pins</li><li class="t-passed">npn_transistor › placement</li><li class="t-passed">npn_transistor › wiring</li><li class="t-passed">npn_transistor › simulation: end to end: a sketch switches an LED low-side through the transistor (D8 → 1 kΩ → base)</li><li class="t-passed">npn_transistor › simulation: off with the base LOW; in the active region I_C = β·I_B</li><li class="t-passed">npn_transistor › simulation: warns when the base is driven straight from a pin with no resistor</li><li class="t-passed">npn_transistor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="pnp transistor (bjt) general pnp_transistor">
+  <td><div class="nm">PNP Transistor (BJT)</div>
+      <div class="sub">General · <code>pnp_transistor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">pnp_transistor › model</li><li class="t-passed">pnp_transistor › pins</li><li class="t-passed">pnp_transistor › placement</li><li class="t-passed">pnp_transistor › wiring</li><li class="t-passed">pnp_transistor › simulation: high-side switch: D8 LOW lights the LED, D8 HIGH turns it off</li><li class="t-passed">pnp_transistor › simulation: end to end: a sketch blinks the LED through the PNP (active-LOW)</li><li class="t-passed">pnp_transistor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="n-channel mosfet general n_mosfet">
+  <td><div class="nm">N-Channel MOSFET</div>
+      <div class="sub">General · <code>n_mosfet</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">n_mosfet › model</li><li class="t-passed">n_mosfet › pins</li><li class="t-passed">n_mosfet › placement</li><li class="t-passed">n_mosfet › wiring</li><li class="t-passed">n_mosfet › simulation: end to end: a sketch switches a 10 Ω load (0.5 A) from D9</li><li class="t-passed">n_mosfet › simulation: switches an LED low-side: pin HIGH → on, LOW → off</li><li class="t-passed">n_mosfet › simulation: below threshold (V_GS = 1 V from a divider) it stays off; body diode conducts when reversed</li><li class="t-passed">n_mosfet › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="p-channel mosfet general p_mosfet">
+  <td><div class="nm">P-Channel MOSFET</div>
+      <div class="sub">General · <code>p_mosfet</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">p_mosfet › model</li><li class="t-passed">p_mosfet › pins</li><li class="t-passed">p_mosfet › placement</li><li class="t-passed">p_mosfet › wiring</li><li class="t-passed">p_mosfet › simulation: high-side LED switch: gate LOW → on, gate HIGH → off</li><li class="t-passed">p_mosfet › simulation: not logic level: with −5 V gate drive a 2.2 Ω load leaves ≈1 V across it (warning)</li><li class="t-passed">p_mosfet › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="relay spdt general relay_spdt">
+  <td><div class="nm">Relay SPDT</div>
+      <div class="sub">General · <code>relay_spdt</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>9</summary><ul><li class="t-passed">relay_spdt › model</li><li class="t-passed">relay_spdt › pins</li><li class="t-passed">relay_spdt › placement</li><li class="t-passed">relay_spdt › wiring</li><li class="t-passed">relay_spdt › simulation: end to end: sketch → 1 kΩ → 2N2222A drives the coil (with 1N4007 flyback); NO lights an LED, NC when released</li><li class="t-passed">relay_spdt › simulation: without a flyback diode, switching off makes a large spike across the coil (flyback warning)</li><li class="t-passed">relay_spdt › simulation: coil straight from a pin: warns, overloads the pin, and the sagging 3.7 V does not pull it in</li><li class="t-passed">relay_spdt › simulation: pull-in / drop-out hysteresis (variable DC on the base through 10 kΩ)</li><li class="t-passed">relay_spdt › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="optocoupler general optocoupler">
+  <td><div class="nm">Optocoupler <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">General · <code>optocoupler</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">optocoupler › model</li><li class="t-passed">optocoupler › pins</li><li class="t-passed">optocoupler › placement</li><li class="t-passed">optocoupler › wiring</li><li class="t-passed">optocoupler › simulation: CTR: 10.7 mA in the LED gives ≈10.7 mA collector current (active region, 100 Ω emitter resistor)</li><li class="t-passed">optocoupler › simulation: end to end: a sketch drives the LED on D7 and reads the isolated output on D2 (10 kΩ pull-up)</li><li class="t-passed">optocoupler › simulation: error when the input LED is driven without a resistor</li><li class="t-passed">optocoupler › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="pushbutton inputs pushbutton">
+  <td><div class="nm">Pushbutton</div>
+      <div class="sub">Inputs · <code>pushbutton</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>9</summary><ul><li class="t-passed">pushbutton › model</li><li class="t-passed">pushbutton › pins</li><li class="t-passed">pushbutton › placement</li><li class="t-passed">pushbutton › wiring</li><li class="t-passed">pushbutton › simulation: reads LOW on an INPUT_PULLUP pin only while pressed</li><li class="t-passed">pushbutton › simulation: a floating INPUT pin with the button released reads LOW (no pull-up)</li><li class="t-passed">pushbutton › simulation: end to end: a C++ sketch lights an LED (via 220 Ω) while the button is held</li><li class="t-passed">pushbutton › codegen: block part_button_pressed</li><li class="t-passed">pushbutton › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="slideswitch inputs slideswitch">
+  <td><div class="nm">Slideswitch</div>
+      <div class="sub">Inputs · <code>slideswitch</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">slideswitch › model</li><li class="t-passed">slideswitch › pins</li><li class="t-passed">slideswitch › placement</li><li class="t-passed">slideswitch › wiring</li><li class="t-passed">slideswitch › simulation: COM on an INPUT_PULLUP pin reads LOW toward T1 (GND) and HIGH toward T2 (open)</li><li class="t-passed">slideswitch › simulation: selector: COM to A0 picks 5 V (T1) or GND (T2) — analogRead 1023 / 0</li><li class="t-passed">slideswitch › simulation: warns above its 0.5 A rating (5 V across 5 Ω through the switch = 1 A)</li><li class="t-passed">slideswitch › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="dip switch spst x4 inputs dip_switch_4">
+  <td><div class="nm">DIP Switch SPST x4</div>
+      <div class="sub">Inputs · <code>dip_switch_4</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">dip_switch_4 › model</li><li class="t-passed">dip_switch_4 › pins</li><li class="t-passed">dip_switch_4 › placement</li><li class="t-passed">dip_switch_4 › wiring</li><li class="t-passed">dip_switch_4 › simulation: each of the 4 switches pulls only its own INPUT_PULLUP pin LOW when ON</li><li class="t-passed">dip_switch_4 › simulation: end to end: a sketch reads the switches as a binary number</li><li class="t-passed">dip_switch_4 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="dip switch spst x6 inputs dip_switch_6">
+  <td><div class="nm">DIP Switch SPST x6</div>
+      <div class="sub">Inputs · <code>dip_switch_6</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">dip_switch_6 › model</li><li class="t-passed">dip_switch_6 › pins</li><li class="t-passed">dip_switch_6 › placement</li><li class="t-passed">dip_switch_6 › wiring</li><li class="t-passed">dip_switch_6 › simulation: each of the 6 switches pulls only its own INPUT_PULLUP pin LOW when ON</li><li class="t-passed">dip_switch_6 › simulation: end to end: a sketch reads the switches as a binary number</li><li class="t-passed">dip_switch_6 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="dip switch spst x8 inputs dip_switch_8">
+  <td><div class="nm">DIP Switch SPST x8</div>
+      <div class="sub">Inputs · <code>dip_switch_8</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">dip_switch_8 › model</li><li class="t-passed">dip_switch_8 › pins</li><li class="t-passed">dip_switch_8 › placement</li><li class="t-passed">dip_switch_8 › wiring</li><li class="t-passed">dip_switch_8 › simulation: each of the 8 switches pulls only its own INPUT_PULLUP pin LOW when ON</li><li class="t-passed">dip_switch_8 › simulation: end to end: a sketch reads the switches as a binary number</li><li class="t-passed">dip_switch_8 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="keypad 4x4 inputs keypad_4x4">
+  <td><div class="nm">Keypad 4x4</div>
+      <div class="sub">Inputs · <code>keypad_4x4</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>11</summary><ul><li class="t-passed">keypad_4x4 › model</li><li class="t-passed">keypad_4x4 › pins</li><li class="t-passed">keypad_4x4 › placement</li><li class="t-passed">keypad_4x4 › wiring</li><li class="t-passed">keypad_4x4 › simulation: pressing a key shorts its row to its column (R1–C1 for &quot;1&quot;), nothing else</li><li class="t-passed">keypad_4x4 › simulation: end to end: the Keypad library sketch prints the key pressed (wired 9…2)</li><li class="t-passed">keypad_4x4 › simulation: a mis-wired keypad behaves like hardware: R1/R2 swapped → &quot;1&quot; reads as &quot;4&quot;; unwired column → no key</li><li class="t-passed">keypad_4x4 › simulation: setHoldTime + getState: holding &quot;#&quot; past 200 ms reaches HOLD, then RELEASED</li><li class="t-passed">keypad_4x4 › codegen: block part_keypad_4x4_get_key</li><li class="t-passed">keypad_4x4 › codegen: example sketch compiles and runs</li><li class="t-passed">keypad_4x4 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="tilt sensor inputs tilt_sensor">
+  <td><div class="nm">Tilt Sensor</div>
+      <div class="sub">Inputs · <code>tilt_sensor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">tilt_sensor › model</li><li class="t-passed">tilt_sensor › pins</li><li class="t-passed">tilt_sensor › placement</li><li class="t-passed">tilt_sensor › wiring</li><li class="t-passed">tilt_sensor › simulation: INPUT_PULLUP pin reads LOW upright (closed) and HIGH tilted (open)</li><li class="t-passed">tilt_sensor › simulation: end to end: the sketch lights an LED when the sensor tips over</li><li class="t-passed">tilt_sensor › codegen: block part_tilt_sensor_tilted</li><li class="t-passed">tilt_sensor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="photoresistor inputs photoresistor">
+  <td><div class="nm">Photoresistor</div>
+      <div class="sub">Inputs · <code>photoresistor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">photoresistor › model</li><li class="t-passed">photoresistor › pins</li><li class="t-passed">photoresistor › placement</li><li class="t-passed">photoresistor › wiring</li><li class="t-passed">photoresistor › simulation: divider with 10 kΩ into A0: 10 lux → 2.5 V, 100 lux → 4.0 V, dark → 0.05 V</li><li class="t-passed">photoresistor › simulation: end to end: a night-light sketch turns the LED on only in the dark</li><li class="t-passed">photoresistor › simulation: flags over-power when wired straight across 5 V in bright light</li><li class="t-passed">photoresistor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="photodiode inputs photodiode">
+  <td><div class="nm">Photodiode</div>
+      <div class="sub">Inputs · <code>photodiode</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">photodiode › model</li><li class="t-passed">photodiode › pins</li><li class="t-passed">photodiode › placement</li><li class="t-passed">photodiode › wiring</li><li class="t-passed">photodiode › simulation: reverse-biased into 10 kΩ: 1000 lux → 75 µA → 0.75 V (analogRead 153); dark → ≈0</li><li class="t-passed">photodiode › simulation: photovoltaic: unbiased into A0 alone it makes Voc ≈ 0.35 V at 1000 lux</li><li class="t-passed">photodiode › simulation: warns when wired backwards (forward-biased from 5 V through 1 kΩ)</li><li class="t-passed">photodiode › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="ambient light sensor inputs ambient_light_sensor">
+  <td><div class="nm">Ambient Light Sensor</div>
+      <div class="sub">Inputs · <code>ambient_light_sensor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">ambient_light_sensor › model</li><li class="t-passed">ambient_light_sensor › pins</li><li class="t-passed">ambient_light_sensor › placement</li><li class="t-passed">ambient_light_sensor › wiring</li><li class="t-passed">ambient_light_sensor › simulation: emitter follower into 10 kΩ: 20 lux → 0.5 V, 100 lux → 2.5 V, 2000 lux → saturated near 5 V</li><li class="t-passed">ambient_light_sensor › simulation: end to end: analogRead tracks the light level</li><li class="t-passed">ambient_light_sensor › simulation: warns when collector and emitter are swapped</li><li class="t-passed">ambient_light_sensor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="temperature sensor [tmp36] inputs tmp36">
+  <td><div class="nm">Temperature Sensor [TMP36]</div>
+      <div class="sub">Inputs · <code>tmp36</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>11</summary><ul><li class="t-passed">tmp36 › model</li><li class="t-passed">tmp36 › pins</li><li class="t-passed">tmp36 › placement</li><li class="t-passed">tmp36 › wiring</li><li class="t-passed">tmp36 › simulation: Vout = 0.5 V + 10 mV/°C on A0: 25 °C → 0.75 V, −40 °C → 0.10 V, 125 °C → 1.75 V</li><li class="t-passed">tmp36 › simulation: end to end: the standard sketch formula prints ≈24.7 °C at 25 °C</li><li class="t-passed">tmp36 › simulation: works from 3.3 V (in its 2.7–5.5 V range)</li><li class="t-passed">tmp36 › simulation: unpowered from a pin below 2.7 V reads ≈0 and warns; reversed supply is an error</li><li class="t-passed">tmp36 › codegen: block part_tmp36_celsius</li><li class="t-passed">tmp36 › codegen: example sketch compiles and runs</li><li class="t-passed">tmp36 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="flex sensor inputs flex_sensor">
+  <td><div class="nm">Flex Sensor</div>
+      <div class="sub">Inputs · <code>flex_sensor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">flex_sensor › model</li><li class="t-passed">flex_sensor › pins</li><li class="t-passed">flex_sensor › placement</li><li class="t-passed">flex_sensor › wiring</li><li class="t-passed">flex_sensor › simulation: divider with 47 kΩ into A0: flat 3.26 V (668), 45° 2.15 V (439), 90° 1.60 V (327)</li><li class="t-passed">flex_sensor › simulation: end to end: a sketch maps the reading to a bend angle</li><li class="t-passed">flex_sensor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="force sensor inputs force_sensor">
+  <td><div class="nm">Force Sensor</div>
+      <div class="sub">Inputs · <code>force_sensor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">force_sensor › model</li><li class="t-passed">force_sensor › pins</li><li class="t-passed">force_sensor › placement</li><li class="t-passed">force_sensor › wiring</li><li class="t-passed">force_sensor › simulation: divider with 10 kΩ: untouched ≈0 V, 1 N → 3.13 V (639), 10 N → 4.55 V (930)</li><li class="t-passed">force_sensor › simulation: end to end: a sketch prints &quot;pressed&quot; once the reading passes a threshold</li><li class="t-passed">force_sensor › simulation: warns when pressed hard straight across 5 V (over its ≈1.3 mA rating)</li><li class="t-passed">force_sensor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="pir sensor inputs ">
+  <td><div class="nm">PIR Sensor</div>
+      <div class="sub">Inputs · <code>pir_sensor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="ultrasonic distance sensor (4-pin) inputs ">
+  <td><div class="nm">Ultrasonic Distance Sensor (4-pin)</div>
+      <div class="sub">Inputs · <code>ultrasonic</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="ultrasonic distance sensor (3-pin ping) inputs ping_sensor">
+  <td><div class="nm">Ultrasonic Distance Sensor (3-pin PING)</div>
+      <div class="sub">Inputs · <code>ping_sensor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">ping_sensor › model</li><li class="t-passed">ping_sensor › pins</li><li class="t-passed">ping_sensor › placement</li><li class="t-passed">ping_sensor › wiring</li><li class="t-passed">ping_sensor › simulation: after a trigger on SIG the echo is distance × 58 µs (100 cm → 5800 µs); none before</li><li class="t-passed">ping_sensor › simulation: end to end: the classic Parallax PING sketch prints the distance in cm</li><li class="t-passed">ping_sensor › simulation: from 3.3 V (or unpowered) it returns no echo, and warns about the supply</li><li class="t-passed">ping_sensor › codegen: block part_ping_sensor_cm</li><li class="t-passed">ping_sensor › codegen: example sketch compiles and runs</li><li class="t-passed">ping_sensor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="soil moisture sensor inputs ">
+  <td><div class="nm">Soil Moisture Sensor</div>
+      <div class="sub">Inputs · <code>soil_moisture</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="gas sensor inputs ">
+  <td><div class="nm">Gas Sensor</div>
+      <div class="sub">Inputs · <code>gas_sensor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="ir sensor (receiver) inputs ir_receiver">
+  <td><div class="nm">IR Sensor (receiver)</div>
+      <div class="sub">Inputs · <code>ir_receiver</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>12</summary><ul><li class="t-passed">ir_receiver › model</li><li class="t-passed">ir_receiver › pins</li><li class="t-passed">ir_receiver › placement</li><li class="t-passed">ir_receiver › wiring</li><li class="t-passed">ir_receiver › simulation: powered from 5 V, OUT idles HIGH through its 30 kΩ pull-up; draws ≈0.45 mA</li><li class="t-passed">ir_receiver › simulation: IRremote ≥3 API: IrReceiver.decode() gets command 0x1C for remote button &quot;5&quot;</li><li class="t-passed">ir_receiver › simulation: IRrecv object API: decode() + decodedRawData = 0xE31CFF00, and repeats arrive while held</li><li class="t-passed">ir_receiver › simulation: no code when the receiver is unpowered or the sketch listens on the wrong pin</li><li class="t-passed">ir_receiver › simulation: reversed supply is an error</li><li class="t-passed">ir_receiver › codegen: block part_ir_receiver_code</li><li class="t-passed">ir_receiver › codegen: example sketch compiles and runs</li><li class="t-passed">ir_receiver › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="ir remote inputs ir_remote">
+  <td><div class="nm">IR Remote</div>
+      <div class="sub">Inputs · <code>ir_remote</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">ir_remote › model</li><li class="t-passed">ir_remote › pins</li><li class="t-passed">ir_remote › placement</li><li class="t-passed">ir_remote › wiring</li><li class="t-passed">ir_remote › simulation: frames carry the real NEC codes (POWER 0x45 → 0xFFA25D classic, 0xBA45FF00 raw); one frame per press</li><li class="t-passed">ir_remote › simulation: end to end: pressing remote buttons → the receiver sketch prints their NEC commands</li><li class="t-passed">ir_remote › simulation: without its coin cell the remote sends nothing</li><li class="t-passed">ir_remote › saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="led outputs ">
+  <td><div class="nm">LED</div>
+      <div class="sub">Outputs · <code>led</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="rgb led outputs rgb_led">
+  <td><div class="nm">RGB LED</div>
+      <div class="sub">Outputs · <code>rgb_led</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>11</summary><ul><li class="t-passed">rgb_led › model</li><li class="t-passed">rgb_led › pins</li><li class="t-passed">rgb_led › placement</li><li class="t-passed">rgb_led › wiring</li><li class="t-passed">rgb_led › simulation: common cathode, each colour from its own pin through 220 Ω: real per-colour currents</li><li class="t-passed">rgb_led › simulation: PWM mixing: red 255 + blue 200 glows magenta-red, and half duty is dimmer than full</li><li class="t-passed">rgb_led › simulation: common-anode wiring: COM to 5 V, a LOW pin lights its colour; wrong common lights nothing</li><li class="t-passed">rgb_led › simulation: no resistor: red straight between a HIGH pin and GND is over-current</li><li class="t-passed">rgb_led › simulation: end to end: a sketch fades blue with analogWrite while red stays on</li><li class="t-passed">rgb_led › codegen: block part_rgb_led_color</li><li class="t-passed">rgb_led › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="light bulb outputs light_bulb">
+  <td><div class="nm">Light Bulb</div>
+      <div class="sub">Outputs · <code>light_bulb</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">light_bulb › model</li><li class="t-passed">light_bulb › pins</li><li class="t-passed">light_bulb › placement</li><li class="t-passed">light_bulb › wiring</li><li class="t-passed">light_bulb › simulation: 6.3 V 0.15 A lamp on the 5 V pin: cold inrush, then the hot filament settles</li><li class="t-passed">light_bulb › simulation: a 2.5 V lamp on 5 V burns out and goes open-circuit</li><li class="t-passed">light_bulb › simulation: in series with 47 Ω from 5 V the lamp glows only dimly (filament stays cooler)</li><li class="t-passed">light_bulb › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="led bar graph outputs led_bar_graph">
+  <td><div class="nm">LED Bar Graph</div>
+      <div class="sub">Outputs · <code>led_bar_graph</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">led_bar_graph › model</li><li class="t-passed">led_bar_graph › pins</li><li class="t-passed">led_bar_graph › placement</li><li class="t-passed">led_bar_graph › wiring</li><li class="t-passed">led_bar_graph › simulation: one segment via 220 Ω from a HIGH pin: ≈12.6 mA, neighbours dark</li><li class="t-passed">led_bar_graph › simulation: plugged in backwards (anode to GND, cathode to 5 V) nothing lights; no resistor = over-current</li><li class="t-passed">led_bar_graph › simulation: end to end: a sketch lights the first 4 bars from pins 2–5</li><li class="t-passed">led_bar_graph › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="neopixel outputs neopixel">
+  <td><div class="nm">NeoPixel</div>
+      <div class="sub">Outputs · <code>neopixel</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>9</summary><ul><li class="t-passed">neopixel › model</li><li class="t-passed">neopixel › pins</li><li class="t-passed">neopixel › placement</li><li class="t-passed">neopixel › wiring</li><li class="t-passed">neopixel › simulation: end to end: a 16-pixel chain (Ring 12 → Strip 4) updates on show() only; an unwired Jewel stays dark</li><li class="t-passed">neopixel › simulation: end to end: NEO_RGB on WS2812B (GRB) swaps red/green; setBrightness(50) scales 255 → 50; unpowered pixel ignores data</li><li class="t-passed">neopixel › codegen: block part_neopixel_set</li><li class="t-passed">neopixel › codegen: block part_neopixel_show</li><li class="t-passed">neopixel › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="neopixel strip 4 outputs neopixel_strip_4">
+  <td><div class="nm">NeoPixel Strip 4</div>
+      <div class="sub">Outputs · <code>neopixel_strip_4</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">neopixel_strip_4 › model</li><li class="t-passed">neopixel_strip_4 › pins</li><li class="t-passed">neopixel_strip_4 › placement</li><li class="t-passed">neopixel_strip_4 › wiring</li><li class="t-passed">neopixel_strip_4 › simulation: end to end: a sketch lights pixel 0 red and pixel 3 blue; the rest stay off</li><li class="t-passed">neopixel_strip_4 › codegen: block part_neopixel_strip_4_pixel</li><li class="t-passed">neopixel_strip_4 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="neopixel strip 20 outputs neopixel_strip_20">
+  <td><div class="nm">NeoPixel Strip 20</div>
+      <div class="sub">Outputs · <code>neopixel_strip_20</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">neopixel_strip_20 › model</li><li class="t-passed">neopixel_strip_20 › pins</li><li class="t-passed">neopixel_strip_20 › placement</li><li class="t-passed">neopixel_strip_20 › wiring</li><li class="t-passed">neopixel_strip_20 › simulation: end to end: a sketch lights pixel 0 red and pixel 19 blue; the rest stay off</li><li class="t-passed">neopixel_strip_20 › codegen: block part_neopixel_strip_20_pixel</li><li class="t-passed">neopixel_strip_20 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="neopixel ring 12 outputs neopixel_ring_12">
+  <td><div class="nm">NeoPixel Ring 12</div>
+      <div class="sub">Outputs · <code>neopixel_ring_12</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">neopixel_ring_12 › model</li><li class="t-passed">neopixel_ring_12 › pins</li><li class="t-passed">neopixel_ring_12 › placement</li><li class="t-passed">neopixel_ring_12 › wiring</li><li class="t-passed">neopixel_ring_12 › simulation: end to end: a sketch lights pixel 0 red and pixel 11 blue; the rest stay off</li><li class="t-passed">neopixel_ring_12 › codegen: block part_neopixel_ring_12_pixel</li><li class="t-passed">neopixel_ring_12 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="neopixel ring 16 outputs neopixel_ring_16">
+  <td><div class="nm">NeoPixel Ring 16</div>
+      <div class="sub">Outputs · <code>neopixel_ring_16</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">neopixel_ring_16 › model</li><li class="t-passed">neopixel_ring_16 › pins</li><li class="t-passed">neopixel_ring_16 › placement</li><li class="t-passed">neopixel_ring_16 › wiring</li><li class="t-passed">neopixel_ring_16 › simulation: end to end: a sketch lights pixel 0 red and pixel 15 blue; the rest stay off</li><li class="t-passed">neopixel_ring_16 › codegen: block part_neopixel_ring_16_pixel</li><li class="t-passed">neopixel_ring_16 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="neopixel ring 24 outputs neopixel_ring_24">
+  <td><div class="nm">NeoPixel Ring 24</div>
+      <div class="sub">Outputs · <code>neopixel_ring_24</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">neopixel_ring_24 › model</li><li class="t-passed">neopixel_ring_24 › pins</li><li class="t-passed">neopixel_ring_24 › placement</li><li class="t-passed">neopixel_ring_24 › wiring</li><li class="t-passed">neopixel_ring_24 › simulation: end to end: a sketch lights pixel 0 red and pixel 23 blue; the rest stay off</li><li class="t-passed">neopixel_ring_24 › simulation: 24 pixels at full white draw ≈1.44 A from the 5 V pin (supply warning); an all-off ring idles at ≈24 mA</li><li class="t-passed">neopixel_ring_24 › codegen: block part_neopixel_ring_24_pixel</li><li class="t-passed">neopixel_ring_24 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="neopixel jewel outputs neopixel_jewel">
+  <td><div class="nm">NeoPixel Jewel</div>
+      <div class="sub">Outputs · <code>neopixel_jewel</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">neopixel_jewel › model</li><li class="t-passed">neopixel_jewel › pins</li><li class="t-passed">neopixel_jewel › placement</li><li class="t-passed">neopixel_jewel › wiring</li><li class="t-passed">neopixel_jewel › simulation: end to end: a sketch lights pixel 0 red and pixel 6 blue; the rest stay off</li><li class="t-passed">neopixel_jewel › codegen: block part_neopixel_jewel_pixel</li><li class="t-passed">neopixel_jewel › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="7 segment display outputs seven_segment">
+  <td><div class="nm">7 Segment Display</div>
+      <div class="sub">Outputs · <code>seven_segment</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">seven_segment › model</li><li class="t-passed">seven_segment › pins</li><li class="t-passed">seven_segment › placement</li><li class="t-passed">seven_segment › wiring</li><li class="t-passed">seven_segment › simulation: common cathode: one segment via 220 Ω from a HIGH pin draws ≈12.6 mA</li><li class="t-passed">seven_segment › simulation: wrong common: a common-cathode display wired as common anode stays dark; no resistor = over-current</li><li class="t-passed">seven_segment › simulation: end to end: a sketch draws the digit 2 (a b g e d) on a common-cathode display</li><li class="t-passed">seven_segment › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="lcd 16 x 2 outputs lcd_16x2">
+  <td><div class="nm">LCD 16 x 2</div>
+      <div class="sub">Outputs · <code>lcd_16x2</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>12</summary><ul><li class="t-passed">lcd_16x2 › model</li><li class="t-passed">lcd_16x2 › pins</li><li class="t-passed">lcd_16x2 › placement</li><li class="t-passed">lcd_16x2 › wiring</li><li class="t-passed">lcd_16x2 › simulation: end to end: classic 4-bit wiring — the sketch shows &quot;Hello&quot; in row 0 and a float + int in row 1</li><li class="t-passed">lcd_16x2 › simulation: wiring errors show nothing: a data line on the wrong pin, or RW left floating (pulled up = read mode)</li><li class="t-passed">lcd_16x2 › simulation: end to end: 8-bit constructor, createChar, scrollDisplayLeft, clear/home and noDisplay</li><li class="t-passed">lcd_16x2 › codegen: block part_lcd_16x2_print</li><li class="t-passed">lcd_16x2 › codegen: block part_lcd_16x2_setcursor</li><li class="t-passed">lcd_16x2 › codegen: block part_lcd_16x2_clear</li><li class="t-passed">lcd_16x2 › codegen: example sketch compiles and runs</li><li class="t-passed">lcd_16x2 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="lcd 16 x 2 (i2c) outputs lcd_16x2_i2c">
+  <td><div class="nm">LCD 16 x 2 (I2C)</div>
+      <div class="sub">Outputs · <code>lcd_16x2_i2c</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>12</summary><ul><li class="t-passed">lcd_16x2_i2c › model</li><li class="t-passed">lcd_16x2_i2c › pins</li><li class="t-passed">lcd_16x2_i2c › placement</li><li class="t-passed">lcd_16x2_i2c › wiring</li><li class="t-passed">lcd_16x2_i2c › simulation: end to end: init + backlight + print shows &quot;Hello&quot; in row 0 at 0x27 on SDA/SCL</li><li class="t-passed">lcd_16x2_i2c › simulation: wrong address (0x3F module, sketch says 0x27) or SDA/SCL swapped: nothing shown</li><li class="t-passed">lcd_16x2_i2c › simulation: end to end: clear() and noBacklight(); with VCC unwired nothing is shown</li><li class="t-passed">lcd_16x2_i2c › codegen: block part_lcd_16x2_i2c_print</li><li class="t-passed">lcd_16x2_i2c › codegen: block part_lcd_16x2_i2c_setcursor</li><li class="t-passed">lcd_16x2_i2c › codegen: block part_lcd_16x2_i2c_clear</li><li class="t-passed">lcd_16x2_i2c › codegen: example sketch compiles and runs</li><li class="t-passed">lcd_16x2_i2c › saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="piezo outputs ">
+  <td><div class="nm">Piezo</div>
+      <div class="sub">Outputs · <code>buzzer</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="vibration motor outputs vibration_motor">
+  <td><div class="nm">Vibration Motor</div>
+      <div class="sub">Outputs · <code>vibration_motor</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>9</summary><ul><li class="t-passed">vibration_motor › model</li><li class="t-passed">vibration_motor › pins</li><li class="t-passed">vibration_motor › placement</li><li class="t-passed">vibration_motor › wiring</li><li class="t-passed">vibration_motor › simulation: switched from 5 V it draws ≈100 mA and vibrates</li><li class="t-passed">vibration_motor › simulation: driven straight from a pin: ≈67 mA over the 40 mA pin limit, issue raised</li><li class="t-passed">vibration_motor › simulation: below the ≈2 V start voltage it does not spin (100 Ω in series from 5 V)</li><li class="t-passed">vibration_motor › simulation: end to end: a sketch pulses the motor through the pin (and trips the pin limit)</li><li class="t-passed">vibration_motor › saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="dc motor outputs ">
+  <td><div class="nm">DC Motor</div>
+      <div class="sub">Outputs · <code>motor_dc</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="hobby gearmotor outputs ">
+  <td><div class="nm">Hobby Gearmotor</div>
+      <div class="sub">Outputs · <code>motor_bo</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="micro servo outputs ">
+  <td><div class="nm">Micro Servo</div>
+      <div class="sub">Outputs · <code>servo</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="circuits" data-kind="tested" data-text="positional micro servo outputs ">
+  <td><div class="nm">Positional Micro Servo</div>
+      <div class="sub">Outputs · <code>servo</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">model</li><li class="t-passed">pins</li><li class="t-passed">placement</li><li class="t-passed">wiring</li><li class="t-passed">simulation</li><li class="t-passed">codegen</li><li class="t-passed">saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="555 timer ics timer_555">
+  <td><div class="nm">555 Timer</div>
+      <div class="sub">ICs · <code>timer_555</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">timer_555 › model</li><li class="t-passed">timer_555 › pins</li><li class="t-passed">timer_555 › placement</li><li class="t-passed">timer_555 › wiring</li><li class="t-passed">timer_555 › simulation: astable R1 = 1 kΩ, R2 = 10 kΩ, C = 10 µF oscillates at 1.44/((R1+2R2)C) ≈ 6.86 Hz, duty ≈ 52 %, blinking an LED</li><li class="t-passed">timer_555 › simulation: monostable R = 10 kΩ, C = 10 µF: a short TRIG pulse gives one 1.1·R·C = 110 ms output pulse</li><li class="t-passed">timer_555 › simulation: RESET low holds OUT low and discharge on; floating RESET warns</li><li class="t-passed">timer_555 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="shift register 74hc595 ics shift_register_74hc595">
+  <td><div class="nm">Shift Register 74HC595</div>
+      <div class="sub">ICs · <code>shift_register_74hc595</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">shift_register_74hc595 › model</li><li class="t-passed">shift_register_74hc595 › pins</li><li class="t-passed">shift_register_74hc595 › placement</li><li class="t-passed">shift_register_74hc595 › wiring</li><li class="t-passed">shift_register_74hc595 › simulation: end to end: shiftOut(MSBFIRST, 0b10110001) + latch lights exactly the LEDs on QA, QE, QF, QH</li><li class="t-passed">shift_register_74hc595 › simulation: bit-banged SRCLK/RCLK edges shift and latch; nothing shows before RCLK ↑</li><li class="t-passed">shift_register_74hc595 › simulation: daisy chain: QH' → second chip's SER, two shiftOut bytes land on the right chips</li><li class="t-passed">shift_register_74hc595 › simulation: OE high turns the outputs off (high-Z); SRCLR low clears the shift register</li><li class="t-passed">shift_register_74hc595 › codegen: block part_shift_register_74hc595_shift_out</li><li class="t-passed">shift_register_74hc595 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="h-bridge motor driver l293d ics motor_driver_l293d">
+  <td><div class="nm">H-bridge Motor Driver L293D</div>
+      <div class="sub">ICs · <code>motor_driver_l293d</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>11</summary><ul><li class="t-passed">motor_driver_l293d › model</li><li class="t-passed">motor_driver_l293d › pins</li><li class="t-passed">motor_driver_l293d › placement</li><li class="t-passed">motor_driver_l293d › wiring</li><li class="t-passed">motor_driver_l293d › simulation: forward / reverse / brake: motor sees ≈3.56 V of a 6 V supply (2 × saturation drops)</li><li class="t-passed">motor_driver_l293d › simulation: EN low: outputs high-impedance, motor stops</li><li class="t-passed">motor_driver_l293d › simulation: PWM on EN (analogWrite 128) roughly halves the motor voltage</li><li class="t-passed">motor_driver_l293d › simulation: no logic supply (VCC1 open) → outputs off and an issue</li><li class="t-passed">motor_driver_l293d › simulation: end to end: a sketch drives the motor forward then reverse</li><li class="t-passed">motor_driver_l293d › codegen: block part_motor_driver_l293d_drive</li><li class="t-passed">motor_driver_l293d › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="operational amplifier lm741 ics opamp_lm741">
+  <td><div class="nm">Operational Amplifier LM741 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">ICs · <code>opamp_lm741</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">opamp_lm741 › model</li><li class="t-passed">opamp_lm741 › pins</li><li class="t-passed">opamp_lm741 › placement</li><li class="t-passed">opamp_lm741 › wiring</li><li class="t-passed">opamp_lm741 › simulation: inverting amplifier on ±12 V: Rin 10 kΩ, Rf 22 kΩ, 3.3 V in → −2.2 × 3.3 = −7.26 V</li><li class="t-passed">opamp_lm741 › simulation: comparator (no feedback) saturates ≈1.5 V inside the ±12 V rails</li><li class="t-passed">opamp_lm741 › simulation: on a single 5 V supply the output only swings ≈1.5–3.5 V (and warns)</li><li class="t-passed">opamp_lm741 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="voltage regulator lm7805 ics regulator_lm7805">
+  <td><div class="nm">Voltage Regulator LM7805 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">ICs · <code>regulator_lm7805</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">regulator_lm7805 › model</li><li class="t-passed">regulator_lm7805 › pins</li><li class="t-passed">regulator_lm7805 › placement</li><li class="t-passed">regulator_lm7805 › wiring</li><li class="t-passed">regulator_lm7805 › simulation: 9 V in, 100 Ω load → 5.00 V out, 50 mA, ≈55 mA from the input</li><li class="t-passed">regulator_lm7805 › simulation: input below 7 V drops out: 6 V in → ≈4.0 V out and a warning</li><li class="t-passed">regulator_lm7805 › simulation: a 1 Ω load hits the 1.5 A current limit (Vout = 1.5 V) and overheats</li><li class="t-passed">regulator_lm7805 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="voltage regulator lm317 ics regulator_lm317">
+  <td><div class="nm">Voltage Regulator LM317 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">ICs · <code>regulator_lm317</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">regulator_lm317 › model</li><li class="t-passed">regulator_lm317 › pins</li><li class="t-passed">regulator_lm317 › placement</li><li class="t-passed">regulator_lm317 › wiring</li><li class="t-passed">regulator_lm317 › simulation: R1 = 240 Ω, R2 = 720 Ω, 9 V in → 1.25·(1 + 720/240) + 50 µA·720 = 5.036 V</li><li class="t-passed">regulator_lm317 › simulation: holds 5.04 V with a 50 Ω (100 mA) extra load; drops out at 6 V in → 4.5 V</li><li class="t-passed">regulator_lm317 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="bcd to 7-segment decoder cd4511 ics decoder_cd4511">
+  <td><div class="nm">BCD to 7-Segment Decoder CD4511 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">ICs · <code>decoder_cd4511</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">decoder_cd4511 › model</li><li class="t-passed">decoder_cd4511 › pins</li><li class="t-passed">decoder_cd4511 › placement</li><li class="t-passed">decoder_cd4511 › wiring</li><li class="t-passed">decoder_cd4511 › simulation: decodes 0–9 (no tails on 6 and 9) and lights the right segment LEDs</li><li class="t-passed">decoder_cd4511 › simulation: codes 10–15 blank; LT low lights all; BI low blanks</li><li class="t-passed">decoder_cd4511 › simulation: LE high latches the digit; inputs changing while latched are ignored</li><li class="t-passed">decoder_cd4511 › simulation: end to end: a sketch writes 4 to DCBA and the decoder shows 4</li><li class="t-passed">decoder_cd4511 › codegen: block part_decoder_cd4511_show</li><li class="t-passed">decoder_cd4511 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="quad nand gate 74hc00 logic logic_74hc00">
+  <td><div class="nm">Quad NAND Gate 74HC00 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Logic · <code>logic_74hc00</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>11</summary><ul><li class="t-passed">logic_74hc00 › model</li><li class="t-passed">logic_74hc00 › pins</li><li class="t-passed">logic_74hc00 › placement</li><li class="t-passed">logic_74hc00 › wiring</li><li class="t-passed">logic_74hc00 › simulation: truth table of all 4 gates (inputs from pins, outputs read back on pins)</li><li class="t-passed">logic_74hc00 › simulation: an output lights an LED through 220 Ω (≈11 mA, VOH ≈ 4.5 V)</li><li class="t-passed">logic_74hc00 › simulation: one gate drives the next gate (output → input chain)</li><li class="t-passed">logic_74hc00 › simulation: no output and an issue when VCC is not wired</li><li class="t-passed">logic_74hc00 › simulation: warns about a floating input of a gate in use</li><li class="t-passed">logic_74hc00 › simulation: XOR built from four NANDs: n = A NAND B, Y = (A NAND n) NAND (B NAND n)</li><li class="t-passed">logic_74hc00 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="quad nor gate 74hc02 logic logic_74hc02">
+  <td><div class="nm">Quad NOR Gate 74HC02 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Logic · <code>logic_74hc02</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">logic_74hc02 › model</li><li class="t-passed">logic_74hc02 › pins</li><li class="t-passed">logic_74hc02 › placement</li><li class="t-passed">logic_74hc02 › wiring</li><li class="t-passed">logic_74hc02 › simulation: truth table of all 4 gates (inputs from pins, outputs read back on pins)</li><li class="t-passed">logic_74hc02 › simulation: an output lights an LED through 220 Ω (≈11 mA, VOH ≈ 4.5 V)</li><li class="t-passed">logic_74hc02 › simulation: one gate drives the next gate (output → input chain)</li><li class="t-passed">logic_74hc02 › simulation: no output and an issue when VCC is not wired</li><li class="t-passed">logic_74hc02 › simulation: warns about a floating input of a gate in use</li><li class="t-passed">logic_74hc02 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="hex inverter 74hc04 logic logic_74hc04">
+  <td><div class="nm">Hex Inverter 74HC04 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Logic · <code>logic_74hc04</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">logic_74hc04 › model</li><li class="t-passed">logic_74hc04 › pins</li><li class="t-passed">logic_74hc04 › placement</li><li class="t-passed">logic_74hc04 › wiring</li><li class="t-passed">logic_74hc04 › simulation: truth table of all 6 gates (inputs from pins, outputs read back on pins)</li><li class="t-passed">logic_74hc04 › simulation: an output lights an LED through 220 Ω (≈11 mA, VOH ≈ 4.5 V)</li><li class="t-passed">logic_74hc04 › simulation: one gate drives the next gate (output → input chain)</li><li class="t-passed">logic_74hc04 › simulation: no output and an issue when VCC is not wired</li><li class="t-passed">logic_74hc04 › simulation: warns about a floating input of a gate in use</li><li class="t-passed">logic_74hc04 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="quad and gate 74hc08 logic logic_74hc08">
+  <td><div class="nm">Quad AND Gate 74HC08 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Logic · <code>logic_74hc08</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">logic_74hc08 › model</li><li class="t-passed">logic_74hc08 › pins</li><li class="t-passed">logic_74hc08 › placement</li><li class="t-passed">logic_74hc08 › wiring</li><li class="t-passed">logic_74hc08 › simulation: truth table of all 4 gates (inputs from pins, outputs read back on pins)</li><li class="t-passed">logic_74hc08 › simulation: an output lights an LED through 220 Ω (≈11 mA, VOH ≈ 4.5 V)</li><li class="t-passed">logic_74hc08 › simulation: one gate drives the next gate (output → input chain)</li><li class="t-passed">logic_74hc08 › simulation: no output and an issue when VCC is not wired</li><li class="t-passed">logic_74hc08 › simulation: warns about a floating input of a gate in use</li><li class="t-passed">logic_74hc08 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="quad or gate 74hc32 logic logic_74hc32">
+  <td><div class="nm">Quad OR Gate 74HC32 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Logic · <code>logic_74hc32</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">logic_74hc32 › model</li><li class="t-passed">logic_74hc32 › pins</li><li class="t-passed">logic_74hc32 › placement</li><li class="t-passed">logic_74hc32 › wiring</li><li class="t-passed">logic_74hc32 › simulation: truth table of all 4 gates (inputs from pins, outputs read back on pins)</li><li class="t-passed">logic_74hc32 › simulation: an output lights an LED through 220 Ω (≈11 mA, VOH ≈ 4.5 V)</li><li class="t-passed">logic_74hc32 › simulation: one gate drives the next gate (output → input chain)</li><li class="t-passed">logic_74hc32 › simulation: no output and an issue when VCC is not wired</li><li class="t-passed">logic_74hc32 › simulation: warns about a floating input of a gate in use</li><li class="t-passed">logic_74hc32 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="quad xor gate 74hc86 logic logic_74hc86">
+  <td><div class="nm">Quad XOR Gate 74HC86 <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Logic · <code>logic_74hc86</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">logic_74hc86 › model</li><li class="t-passed">logic_74hc86 › pins</li><li class="t-passed">logic_74hc86 › placement</li><li class="t-passed">logic_74hc86 › wiring</li><li class="t-passed">logic_74hc86 › simulation: truth table of all 4 gates (inputs from pins, outputs read back on pins)</li><li class="t-passed">logic_74hc86 › simulation: an output lights an LED through 220 Ω (≈11 mA, VOH ≈ 4.5 V)</li><li class="t-passed">logic_74hc86 › simulation: one gate drives the next gate (output → input chain)</li><li class="t-passed">logic_74hc86 › simulation: no output and an issue when VCC is not wired</li><li class="t-passed">logic_74hc86 › simulation: warns about a floating input of a gate in use</li><li class="t-passed">logic_74hc86 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="9v battery power battery_9v">
+  <td><div class="nm">9V Battery</div>
+      <div class="sub">Power · <code>battery_9v</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>9</summary><ul><li class="t-passed">battery_9v › model</li><li class="t-passed">battery_9v › pins</li><li class="t-passed">battery_9v › placement</li><li class="t-passed">battery_9v › wiring</li><li class="t-passed">battery_9v › simulation: 1 kΩ load with no Arduino: I = 9 / (1000 + 1.7) = 8.985 mA</li><li class="t-passed">battery_9v › simulation: sags under a heavy load: 8 Ω motor gets 9·8/9.7 = 7.42 V at 0.93 A (overload warning)</li><li class="t-passed">battery_9v › simulation: a wire across the terminals is a short circuit: 9 / 1.7 = 5.3 A, flagged as an error</li><li class="t-passed">battery_9v › simulation: powers an Arduino-referenced LED: + to an LED via 470 Ω, − to GND</li><li class="t-passed">battery_9v › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="coin cell 3v battery power battery_coin_cr2032">
+  <td><div class="nm">Coin Cell 3V Battery</div>
+      <div class="sub">Power · <code>battery_coin_cr2032</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">battery_coin_cr2032 › model</li><li class="t-passed">battery_coin_cr2032 › pins</li><li class="t-passed">battery_coin_cr2032 › placement</li><li class="t-passed">battery_coin_cr2032 › wiring</li><li class="t-passed">battery_coin_cr2032 › simulation: LED throwie: a red LED straight across the cell draws ≈26 mA and does not burn out</li><li class="t-passed">battery_coin_cr2032 › simulation: a short circuit only draws 3 / 40 = 75 mA (still flagged)</li><li class="t-passed">battery_coin_cr2032 › simulation: 10 kΩ load: 3·10000/10040 = 2.988 V</li><li class="t-passed">battery_coin_cr2032 › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="1.5v battery power battery_aa">
+  <td><div class="nm">1.5V Battery</div>
+      <div class="sub">Power · <code>battery_aa</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">battery_aa › model</li><li class="t-passed">battery_aa › pins</li><li class="t-passed">battery_aa › placement</li><li class="t-passed">battery_aa › wiring</li><li class="t-passed">battery_aa › simulation: 10 Ω load: I = 1.5 / 10.15 = 147.8 mA</li><li class="t-passed">battery_aa › simulation: a short draws 1.5 / 0.15 = 10 A and is flagged</li><li class="t-passed">battery_aa › simulation: two cells in series (+ to −) drive 3.0 V into 100 Ω: I = 3 / 100.3 = 29.9 mA</li><li class="t-passed">battery_aa › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="aa battery pack (2xaa) power battery_pack_2aa">
+  <td><div class="nm">AA Battery Pack (2xAA)</div>
+      <div class="sub">Power · <code>battery_pack_2aa</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">battery_pack_2aa › model</li><li class="t-passed">battery_pack_2aa › pins</li><li class="t-passed">battery_pack_2aa › placement</li><li class="t-passed">battery_pack_2aa › wiring</li><li class="t-passed">battery_pack_2aa › simulation: red LED + 220 Ω from 3 V: I = (3 − 1.72 V) / 220.4 Ω ≈ 5.8 mA</li><li class="t-passed">battery_pack_2aa › simulation: a 9 V battery in parallel forces current backwards into the pack: (9 − 3) / (1.7 + 0.4) = 2.86 A</li><li class="t-passed">battery_pack_2aa › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="aa battery pack (4xaa) power battery_pack_4aa">
+  <td><div class="nm">AA Battery Pack (4xAA)</div>
+      <div class="sub">Power · <code>battery_pack_4aa</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>7</summary><ul><li class="t-passed">battery_pack_4aa › model</li><li class="t-passed">battery_pack_4aa › pins</li><li class="t-passed">battery_pack_4aa › placement</li><li class="t-passed">battery_pack_4aa › wiring</li><li class="t-passed">battery_pack_4aa › simulation: 8 Ω DC motor on 6 V: I = 6 / 8.8 = 0.682 A, motor sees 5.45 V</li><li class="t-passed">battery_pack_4aa › simulation: leads touching: 6 / 0.8 = 7.5 A short circuit</li><li class="t-passed">battery_pack_4aa › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="solar cell power solar_cell">
+  <td><div class="nm">Solar Cell <span class="vf" title="Least certain catalogue entry — check against Tinkercad's in-app search">verify</span></div>
+      <div class="sub">Power · <code>solar_cell</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">solar_cell › model</li><li class="t-passed">solar_cell › pins</li><li class="t-passed">solar_cell › placement</li><li class="t-passed">solar_cell › wiring</li><li class="t-passed">solar_cell › simulation: open circuit at full sun: Voc = 6.00 V (datasheet)</li><li class="t-passed">solar_cell › simulation: short circuit at full sun: Isc ≈ 110 mA (datasheet); half light halves it</li><li class="t-passed">solar_cell › simulation: Voc falls only logarithmically with light: 50 % → ≈5.76 V; dark → 0 V</li><li class="t-passed">solar_cell › simulation: rated point: a 50 Ω load at full sun gets ≈4.98 V at ≈99.6 mA (≈0.5 W)</li><li class="t-passed">solar_cell › simulation: in the dark a 6 V pack wired straight across discharges into it (reverse-current warning)</li><li class="t-passed">solar_cell › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="power supply power power_supply">
+  <td><div class="nm">Power Supply</div>
+      <div class="sub">Power · <code>power_supply</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>10</summary><ul><li class="t-passed">power_supply › model</li><li class="t-passed">power_supply › pins</li><li class="t-passed">power_supply › placement</li><li class="t-passed">power_supply › wiring</li><li class="t-passed">power_supply › simulation: CV: 12 V into 1 kΩ (limit 1 A) → 12.00 V, 12 mA, CV</li><li class="t-passed">power_supply › simulation: CC: 12 V set, 5 mA limit, 1 kΩ (would draw 12 mA) → 5 mA and V = 5 mA·1 kΩ = 5.00 V, CC</li><li class="t-passed">power_supply › simulation: safe LED test: 5 V with a 20 mA limit across a bare red LED → CC at 20 mA, LED at ≈1.9 V</li><li class="t-passed">power_supply › simulation: shorted output: limits at exactly 1 A with ≈0 V and warns</li><li class="t-passed">power_supply › simulation: voltage slider: 3.3 V into 330 Ω → 10 mA</li><li class="t-passed">power_supply › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="multimeter instruments multimeter">
+  <td><div class="nm">Multimeter</div>
+      <div class="sub">Instruments · <code>multimeter</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>12</summary><ul><li class="t-passed">multimeter › model</li><li class="t-passed">multimeter › pins</li><li class="t-passed">multimeter › placement</li><li class="t-passed">multimeter › wiring</li><li class="t-passed">multimeter › simulation: DC volts: reads a 9 V battery as 9·10 MΩ/(10 MΩ + 1.7 Ω) = 9.000 V</li><li class="t-passed">multimeter › simulation: DC volts: midpoint of a 10 k / 10 k divider on 9 V = 4.5 V (10 MΩ load lowers it by 0.05 %)</li><li class="t-passed">multimeter › simulation: resistance: the Ω button, then a 4.7 kΩ resistor reads 4.700 kΩ</li><li class="t-passed">multimeter › simulation: resistance: 1 MΩ reads 1.000 MΩ, open leads read OL</li><li class="t-passed">multimeter › simulation: resistance on a powered resistor warns (the reading would be wrong)</li><li class="t-passed">multimeter › simulation: series current: 9 V → 1 kΩ → mA → COM reads 9 / (1000 + 1.7 + 1) = 8.976 mA</li><li class="t-passed">multimeter › simulation: current mode straight across a 9 V battery: 9 / (1.7 + 1) = 3.3 A blows the 200 mA fuse</li><li class="t-passed">multimeter › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="function generator instruments function_generator">
+  <td><div class="nm">Function Generator</div>
+      <div class="sub">Instruments · <code>function_generator</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>8</summary><ul><li class="t-passed">function_generator › model</li><li class="t-passed">function_generator › pins</li><li class="t-passed">function_generator › placement</li><li class="t-passed">function_generator › wiring</li><li class="t-passed">function_generator › simulation: RC low-pass at its corner frequency attenuates by 1/√2 (1 kΩ + 50 Ω, 1 µF, f = 151.6 Hz)</li><li class="t-passed">function_generator › simulation: triangle 1 V peak on a +2 V offset swings 1 V … 3 V on a 1 MΩ scope</li><li class="t-passed">function_generator › simulation: 50 Ω output: a 50 Ω load halves the amplitude; a wire across the posts is flagged</li><li class="t-passed">function_generator › saveload</li></ul></details></td>
+</tr>
+<tr class="k-catalogue" data-area="circuits" data-kind="catalogue" data-text="oscilloscope instruments oscilloscope">
+  <td><div class="nm">Oscilloscope</div>
+      <div class="sub">Instruments · <code>oscilloscope</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>9</summary><ul><li class="t-passed">oscilloscope › model</li><li class="t-passed">oscilloscope › pins</li><li class="t-passed">oscilloscope › placement</li><li class="t-passed">oscilloscope › wiring</li><li class="t-passed">oscilloscope › simulation: probing a 100 Hz, 2 V sine: period 10.00 ms, Vpp = 4·1e6/(1e6 + 50) = 3.9998 V</li><li class="t-passed">oscilloscope › simulation: 50 Hz square, 5 V peak, +1 V offset: +6 V / −4 V levels, 20 ms period</li><li class="t-passed">oscilloscope › simulation: a 9 V battery is a flat DC line at 9·1e6/(1e6 + 1.7) V (no period)</li><li class="t-passed">oscilloscope › simulation: warns when the − probe (ground clip) is left unconnected</li><li class="t-passed">oscilloscope › saveload</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="box basic shapes ">
+  <td><div class="nm">Box</div>
+      <div class="sub">Basic Shapes · <code>box</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a closed solid of the right size (and volume, within tessellation error)</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">saveload: the saved object rebuilds the same geometry</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="cylinder basic shapes ">
+  <td><div class="nm">Cylinder</div>
+      <div class="sub">Basic Shapes · <code>cylinder</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a closed solid of the right size (and volume, within tessellation error)</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">saveload: the saved object rebuilds the same geometry</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="sphere basic shapes ">
+  <td><div class="nm">Sphere</div>
+      <div class="sub">Basic Shapes · <code>sphere</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a closed solid of the right size (and volume, within tessellation error)</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">saveload: the saved object rebuilds the same geometry</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="scribble basic shapes ">
+  <td><div class="nm">Scribble</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>6</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li><li class="t-passed">model: a freehand stroke becomes a clean normalised outline</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="roof basic shapes ">
+  <td><div class="nm">Roof</div>
+      <div class="sub">Basic Shapes · <code>prism</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a closed solid of the right size (and volume, within tessellation error)</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">saveload: the saved object rebuilds the same geometry</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="cone basic shapes ">
+  <td><div class="nm">Cone</div>
+      <div class="sub">Basic Shapes · <code>cone</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a closed solid of the right size (and volume, within tessellation error)</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">saveload: the saved object rebuilds the same geometry</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="round roof basic shapes ">
+  <td><div class="nm">Round Roof</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>5</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="text basic shapes ">
+  <td><div class="nm">Text</div>
+      <div class="sub">Basic Shapes · <code>text</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a solid of the typed text, larger for longer text</li><li class="t-passed">placement: a Text object starts with editable content</li><li class="t-passed">saveload: content, size and height survive a round trip</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="star basic shapes ">
+  <td><div class="nm">Star</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>5</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="heart basic shapes ">
+  <td><div class="nm">Heart</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>4</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="half sphere basic shapes ">
+  <td><div class="nm">Half Sphere</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>5</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="polygon basic shapes ">
+  <td><div class="nm">Polygon</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>5</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="icosahedron basic shapes ">
+  <td><div class="nm">Icosahedron</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>5</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="paraboloid basic shapes ">
+  <td><div class="nm">Paraboloid</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>5</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="torus basic shapes ">
+  <td><div class="nm">Torus</div>
+      <div class="sub">Basic Shapes · <code>torus</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a closed solid of the right size (and volume, within tessellation error)</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">saveload: the saved object rebuilds the same geometry</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="tube basic shapes ">
+  <td><div class="nm">Tube</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>5</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li><li class="t-passed">model: parameters change the geometry within their limits</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="wedge basic shapes ">
+  <td><div class="nm">Wedge</div>
+      <div class="sub">Basic Shapes</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>4</summary><ul><li class="t-passed">model: builds a closed solid at the expected size</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">placement: grouping it with a hole (Boolean subtract) removes material</li><li class="t-passed">saveload: parameters survive a JSON round trip and rebuild the same shape</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="pyramid basic shapes ">
+  <td><div class="nm">Pyramid</div>
+      <div class="sub">Basic Shapes · <code>pyramid</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a closed solid of the right size (and volume, within tessellation error)</li><li class="t-passed">placement: add, move, rotate, resize, delete</li><li class="t-passed">saveload: the saved object rebuilds the same geometry</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="box hole basic shapes ">
+  <td><div class="nm">Box Hole</div>
+      <div class="sub">Basic Shapes · <code>box</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a hole shape cuts its volume out of a solid when grouped</li><li class="t-passed">placement: toggling Hole / Solid flips the object</li><li class="t-passed">saveload: the hole flag is saved</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="cylinder hole basic shapes ">
+  <td><div class="nm">Cylinder Hole</div>
+      <div class="sub">Basic Shapes · <code>cylinder</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a hole shape cuts its volume out of a solid when grouped</li><li class="t-passed">placement: toggling Hole / Solid flips the object</li><li class="t-passed">saveload: the hole flag is saved</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="workplane tools ">
+  <td><div class="nm">Workplane</div>
+      <div class="sub">Tools</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>3</summary><ul><li class="t-passed">model: a picked face becomes a plane through that point along its normal</li><li class="t-passed">placement: new objects are created ON the workplane, standing along its normal</li><li class="t-passed">saveload: a workplane is plain data</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="ruler tools ">
+  <td><div class="nm">Ruler</div>
+      <div class="sub">Tools</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td>
+  <td><details><summary>2</summary><ul><li class="t-passed">model: reads the offset of the box corner from the ruler and the size</li><li class="t-passed">placement: typing an offset moves the object; typing a size resizes it from the ruler side</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="notes tools ">
+  <td><div class="nm">Notes</div>
+      <div class="sub">Tools</div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>2</summary><ul><li class="t-passed">placement: a note is an object with text that is never printed</li><li class="t-passed">saveload: the text survives a JSON round trip</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="align tools ">
+  <td><div class="nm">Align</div>
+      <div class="sub">Tools · <code>align</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td>
+  <td><details><summary>2</summary><ul><li class="t-passed">placement: dragging near another object snaps it into line</li><li class="t-passed">placement: an object far away is left where it is</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="mirror / flip tools ">
+  <td><div class="nm">Mirror / Flip</div>
+      <div class="sub">Tools · <code>mirror</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-PASS">PASS</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td>
+  <td><details><summary>2</summary><ul><li class="t-passed">placement: mirroring reflects the position and negates the scale on that axis</li><li class="t-passed">model: a mirrored mesh is the reflection (same size, mirrored bounding box)</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="group / ungroup tools ">
+  <td><div class="nm">Group / Ungroup</div>
+      <div class="sub">Tools · <code>group</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td>
+  <td><details><summary>2</summary><ul><li class="t-passed">placement: grouping replaces both parts with one; ungrouping restores them</li><li class="t-passed">saveload: a group keeps its members (so it can be ungrouped after reloading)</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="duplicate tools ">
+  <td><div class="nm">Duplicate</div>
+      <div class="sub">Tools · <code>duplicate</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td>
+  <td><details><summary>1</summary><ul><li class="t-passed">placement: duplicates an object with its properties, as a separate object</li></ul></details></td>
+</tr>
+<tr class="k-tested" data-area="3d" data-kind="tested" data-text="hole / solid tools ">
+  <td><div class="nm">Hole / Solid</div>
+      <div class="sub">Tools · <code>hole</code></div></td>
+  <td><span class="kind">Implemented</span></td>
+  <td><span class="b b-NA">N/A</span></td><td><span class="b b-PASS">PASS</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td><td><span class="b b-NA">N/A</span></td>
+  <td><details><summary>1</summary><ul><li class="t-passed">placement: two solids union; a solid and a hole subtract</li></ul></details></td>
+</tr></tbody></table></div>
+
+<p class="note">Pre-existing parts (Arduino, LED, servo, motors, the module sensors …) were built before the catalogue and are covered by their own suites in <code>tests/components</code>, <code>tests/esp32</code> and others, all of which pass; the per-aspect catalogue contract does not run against them, so their cells read NOT TESTED. "Model rendering" builds each model headlessly and checks its size against the real part's datasheet dimensions; it does not take a GPU screenshot.</p>
+</main>
+<script>
+const q = document.getElementById('q'); let f = 'all'
+const apply = () => { const t = q.value.trim().toLowerCase()
+  for (const tr of document.querySelectorAll('#rows tr')) {
+    const okF = f === 'all' || tr.dataset.area === f || tr.dataset.kind === f || (f === 'fail' && tr.querySelector('.b-FAIL'))
+    tr.hidden = !(okF && (!t || tr.dataset.text.includes(t))) } }
+q.addEventListener('input', apply)
+for (const b of document.querySelectorAll('.bar button')) b.addEventListener('click', () => {
+  f = b.dataset.f; for (const x of document.querySelectorAll('.bar button')) x.setAttribute('aria-pressed', String(x === b)); apply() })
+</script></body></html>

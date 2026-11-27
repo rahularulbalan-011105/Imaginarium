@@ -1,4 +1,5 @@
 import * as Blockly from 'blockly'
+import { onPartsRegistered } from '../parts/registry.js'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Arduino C++ code generator for the block workspace.
@@ -31,6 +32,7 @@ arduinoGenerator.init = function (workspace) {
   this._workspace = workspace
   this.includes_ = new Set(['<Arduino.h>'])
   this.definitions_ = Object.create(null)
+  this.setups_ = Object.create(null)       // lines a part block needs at the top of setup() (lcd.begin …)
   this._loopVar = 0
 
   // Variable name database — required for getVariableName()
@@ -75,7 +77,9 @@ const G = arduinoGenerator.forBlock
 G['arduino_setup_loop'] = function (block, gen) {
   const setup = gen.statementToCode(block, 'SETUP')
   const loop  = gen.statementToCode(block, 'LOOP')
-  return `void setup() {\n${setup}}\n\nvoid loop() {\n${loop}}\n`
+  // Once-only lines part blocks registered (lcd.begin, strip.begin …) open setup().
+  const pre = Object.values(gen.setups_ ?? {}).map(l => gen.INDENT + l + '\n').join('')
+  return `void setup() {\n${pre}${setup}}\n\nvoid loop() {\n${loop}}\n`
 }
 
 // ── Pins / IO ───────────────────────────────────────────────────────────────
@@ -336,3 +340,18 @@ G['text_print'] = function (block, gen) {
   const v = gen.valueToCode(block, 'TEXT', Order.NONE) || '""'
   return `Serial.println(${v});\n`
 }
+
+// ── Catalogue parts (src/parts): each part's blocks bring their generators ────
+// helpers handed to a part generator: include('<LiquidCrystal.h>'), define(key,
+// line) for a global, setup(key, line) for a once-only setup() line.
+export const PART_GEN_HELPERS = {
+  Order,
+  include: (gen, inc) => gen.includes_.add(inc),
+  define: (gen, key, line) => { gen.definitions_[key] = line },
+  setup: (gen, key, line) => { gen.setups_[key] = line },
+}
+onPartsRegistered((p) => {
+  for (const [type, fn] of Object.entries(p.blockly?.generators ?? {})) {
+    G[type] = (block, gen) => fn(block, gen, PART_GEN_HELPERS)
+  }
+})

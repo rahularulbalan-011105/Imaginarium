@@ -396,6 +396,65 @@ class SceneManager {
     this.orbitControls.update()
   }
 
+  /**
+   * Surface under the cursor for the 3D Design tools (Workplane / Ruler / Notes):
+   * { point, normal (world, unit), objectId } on the nearest object face, or the
+   * floor (y = 0) when the cursor is over empty space, or null (sky).
+   */
+  pickSurface(event, canvasBounds) {
+    const raycaster = new THREE.Raycaster()
+    const mouse = new THREE.Vector2(
+      ((event.clientX - canvasBounds.left) / canvasBounds.width) * 2 - 1,
+      -((event.clientY - canvasBounds.top) / canvasBounds.height) * 2 + 1
+    )
+    raycaster.setFromCamera(mouse, this.camera)
+    const meshes = objectManager.getAllMeshes().filter(o => !o.userData.isWire && !o.userData.isJointHelper)
+    const hit = raycaster.intersectObjects(meshes, true).find(h => h.face && !h.object.userData.isPatchMesh && !h.object.userData.isPinSphere && !h.object.userData.isPinLabel)
+    if (hit) {
+      const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize()
+      return { point: hit.point.clone(), normal, objectId: objectManager.resolveId(hit.object) }
+    }
+    const p = new THREE.Vector3()
+    if (raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), p)) return { point: p, normal: new THREE.Vector3(0, 1, 0), objectId: null }
+    return null
+  }
+
+  /** Put the grid on a workplane ({origin, normal}) — or back on the floor (null). */
+  setWorkplane(wp) {
+    if (!this.grid) return
+    if (!wp) { this.grid.position.set(0, 0, 0); this.grid.quaternion.identity() }
+    else {
+      this.grid.position.set(wp.origin.x, wp.origin.y, wp.origin.z)
+      this.grid.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(wp.normal.x, wp.normal.y, wp.normal.z).normalize())
+    }
+    this.requestRender()
+  }
+
+  /** The Ruler's 3D marker: an L of two 10-unit arms with 1-unit ticks (null hides it). */
+  setRulerMarker(origin, quaternion = null) {
+    if (this._ruler) { this.scene.remove(this._ruler); this._ruler.traverse(c => { c.geometry?.dispose?.(); c.material?.dispose?.() }); this._ruler = null }
+    if (origin) {
+      const g = new THREE.Group()
+      const mat = new THREE.LineBasicMaterial({ color: 0xf97316, depthTest: false, transparent: true })
+      const pts = [new THREE.Vector3(10, 0, 0), new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, 10)]
+      for (let i = 1; i <= 10; i++) {
+        const t = i % 5 === 0 ? 0.35 : 0.18
+        pts.push(new THREE.Vector3(i, 0, 0), new THREE.Vector3(i, 0, -t), new THREE.Vector3(i, 0, 0))
+      }
+      g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat))
+      const zTicks = []
+      for (let i = 1; i <= 10; i++) { const t = i % 5 === 0 ? 0.35 : 0.18; zTicks.push(new THREE.Vector3(0, 0, i), new THREE.Vector3(-t, 0, i)) }
+      g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(zTicks), mat))
+      g.position.set(origin.x, origin.y + 0.01, origin.z)
+      if (quaternion) g.quaternion.copy(quaternion)
+      g.renderOrder = 999
+      g.userData.isRuler = true
+      this.scene.add(g)
+      this._ruler = g
+    }
+    this.requestRender()
+  }
+
   pickObject(event, canvasBounds) {
     const raycaster = new THREE.Raycaster()
     const mouse = new THREE.Vector2(

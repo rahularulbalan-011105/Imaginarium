@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import * as THREE from 'three'
 import { useSceneStore } from '../stores/sceneStore.js'
+import { NEW_SHAPE_TYPES } from '../utils/shapes3d.js'
 import { useRigidStore } from '../stores/rigidStore.js'
 import { objectManager } from '../managers/ObjectManager.js'
 import { useHistory } from '../hooks/useHistory.js'
@@ -50,7 +51,7 @@ const ELEC_TYPES = new Set(['arduino', 'subo', 'motor', 'motor_bo', 'motor_dc', 
 const GEOMETRY_TYPES = new Set(['box', 'sphere', 'cylinder', 'cone', 'torus', 'plane',
   'tetrahedron', 'pyramid', 'pentpyramid', 'octahedron', 'dodecahedron', 'rectprism',
   'capsule', 'prism', 'diamond', 'hexagon', 'star', 'text',
-  'csg', 'model', 'gear', 'bolt', 'screw', 'wheel', 'caster'])
+  'csg', 'model', 'gear', 'bolt', 'screw', 'wheel', 'caster', ...NEW_SHAPE_TYPES])
 
 export function isBooleanCandidate(obj) {
   if (!obj) return false

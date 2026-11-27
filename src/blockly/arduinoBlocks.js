@@ -1,4 +1,6 @@
 import * as Blockly from 'blockly'
+import { allParts } from '../parts/registry.js'
+import { PART_CATEGORIES } from '../parts/definePart.js'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Custom Arduino blocks for the visual coding workspace.
@@ -278,6 +280,9 @@ let _registered = false
 export function defineArduinoBlocks() {
   if (_registered) return
   Blockly.defineBlocksWithJsonArray(CUSTOM_BLOCKS)
+  // Catalogue parts' blocks (src/parts/catalog/**: part.blockly.blocks).
+  const partBlocks = allParts().flatMap(p => p.blockly?.blocks ?? [])
+  if (partBlocks.length) Blockly.defineBlocksWithJsonArray(partBlocks)
   _registered = true
 }
 
@@ -408,4 +413,23 @@ export const ARDUINO_TOOLBOX = {
       kind: 'category', name: 'Variables', colour: '330', custom: 'VARIABLE',
     },
   ],
+}
+
+// The toolbox plus one category per catalogue section that has blocks, placed
+// after Sensors. Call once the catalogue is loaded (BlocksPanel awaits loadParts).
+export function toolboxWithParts() {
+  const toolbox = { ...ARDUINO_TOOLBOX, contents: [...ARDUINO_TOOLBOX.contents] }
+  const groups = new Map()
+  for (const p of allParts()) {
+    const items = p.blockly?.toolbox ?? (p.blockly?.blocks ?? []).map(b => ({ kind: 'block', type: b.type }))
+    if (!items.length) continue
+    if (!groups.has(p.category)) groups.set(p.category, [])
+    groups.get(p.category).push(...items)
+  }
+  const at = toolbox.contents.findIndex(c => c.name === 'Sensors') + 1
+  const cats = PART_CATEGORIES.filter(c => groups.has(c.key)).map(c => ({
+    kind: 'category', name: c.label, colour: c.color, contents: groups.get(c.key),
+  }))
+  toolbox.contents.splice(at, 0, ...cats)
+  return toolbox
 }

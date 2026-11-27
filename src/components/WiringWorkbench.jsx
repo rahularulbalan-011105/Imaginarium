@@ -7,6 +7,8 @@ import ConnectionMenu from './ConnectionMenu.jsx'
 import Icon from './ui/Icon.jsx'
 import { ELEC_TYPES, PIN_DEFS, pinRole, wireStyle, isDuplicate, ROLE_COLORS } from '../utils/wiring.js'
 import { ESP32_PINS } from '../utils/esp32Board.js'
+import { getPart } from '../parts/registry.js'
+import { pinsOf, PART_CATEGORIES } from '../parts/definePart.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Wiring Workbench — every electronics part drawn as a 2D component (board,
@@ -216,9 +218,9 @@ const SHAPES = {
     }
   },
   arduino: () => {
-    const w = 280, h = 150, pins = PIN_DEFS.arduino
+    const w = 380, h = 160, pins = PIN_DEFS.arduino
     return { w, h, title: 'ARDUINO', art: <Board w={w} h={h} fill="#0f8f96" label="ARDUINO" sub="UNO" />,
-      pins: [...edge(pins.slice(0, 10), 'top', w, h, 0.1, 0.9), ...edge(pins.slice(10, 13), 'bottom', w, h, 0.22, 0.5), ...edge(pins.slice(13), 'bottom', w, h, 0.72, 0.84)] }
+      pins: [...edge(pins.slice(0, 17).reverse(), 'top', w, h, 0.22, 0.97), ...edge(pins.slice(17, 22), 'bottom', w, h, 0.3, 0.56), ...edge(pins.slice(22), 'bottom', w, h, 0.64, 0.95)] }
   },
   subo: () => {
     const w = 320, h = 160, pins = PIN_DEFS.subo
@@ -323,7 +325,9 @@ const SHAPES = {
 // PIN_DEFS, so a newly added board can't silently fall back to the generic
 // module art (which is how the ESP32 first appeared: one blue box, 30 pins on
 // a single edge).
-export function shapeOf(type) {
+export function shapeOf(type, obj) {
+  const part = getPart(type)
+  if (part) return catalogShape(part, obj)
   if (type === 'arduino') return SHAPES.arduino()
   if (type === 'subo') return SHAPES.subo()
   if (type === 'esp32') return SHAPES.esp32()
@@ -339,6 +343,31 @@ export function shapeOf(type) {
   return SHAPES.module(type)
 }
 
+// Catalogue part (src/parts): its own workbench art if it has one, else a card
+// whose pins sit on the edge nearest their real position on the part (front
+// row → bottom edge, back row → top edge, each row in its real left→right order).
+function catalogShape(part, obj) {
+  const pins3d = pinsOf(part, obj)
+  if (part.workbench) return part.workbench({ pins: pins3d.map(p => p.name), edge, obj })
+  const zs = pins3d.map(p => p.z), zMid = (Math.min(...zs) + Math.max(...zs)) / 2
+  const split = Math.max(...zs) - Math.min(...zs) > 0.2
+  const bottom = pins3d.filter(p => !split || p.z >= zMid).sort((a, b) => a.x - b.x).map(p => p.name)
+  const top = split ? pins3d.filter(p => p.z < zMid).sort((a, b) => a.x - b.x).map(p => p.name) : []
+  const most = Math.max(bottom.length, top.length)
+  const w = Math.max(110, 24 + most * 24), h = 84
+  const color = part.workbenchColor ?? PART_CATEGORIES.find(c => c.key === part.category)?.color ?? '#475569'
+  const title = (part.shortName ?? part.label).toUpperCase()
+  return {
+    w, h, title,
+    art: (
+      <Module w={w} h={h} fill={color}>
+        <text x={w / 2} y={h / 2 + 2} textAnchor="middle" fontSize="11" fontWeight="800" fill="#fff">{title.length > 16 ? title.slice(0, 15) + '…' : title}</text>
+      </Module>
+    ),
+    pins: [...edge(bottom, 'bottom', w, h, 0.1, 0.9), ...edge(top, 'top', w, h, 0.1, 0.9)],
+  }
+}
+
 // Card positions survive leaving and re-opening the Workbench (session only).
 const savedPos = new Map()
 const LABEL_PAD = 22   // room for pin labels outside the body
@@ -351,7 +380,7 @@ export default function WiringWorkbench({ onClose, embedded = false }) {
   const { snapshot } = useHistory()
 
   const comps = useMemo(() => objects.filter(o => ELEC_TYPES.has(o.type)), [objects])
-  const shapes = useMemo(() => Object.fromEntries(comps.map(c => [c.id, shapeOf(c.type)])), [comps])
+  const shapes = useMemo(() => Object.fromEntries(comps.map(c => [c.id, shapeOf(c.type, c)])), [comps])
 
   const surfRef = useRef(null)
   const drag    = useRef(null)      // { type:'card'|'wire', … }
