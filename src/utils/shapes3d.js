@@ -9,6 +9,7 @@
 // shapeParamKey() tells ObjectManager when a parameter change needs a rebuild.
 // ─────────────────────────────────────────────────────────────────────────────
 import * as THREE from 'three'
+import { createExtrudeSketchGeometry, createRevolveSketchGeometry, isSketchType, DEFAULT_SKETCH } from './sketch3d.js'
 
 /** Editable parameters per shape: key → { label, min, max, step, default }. */
 export const SHAPE_PARAMS = {
@@ -24,11 +25,18 @@ export const SHAPE_PARAMS = {
   icosahedron: { detail: { label: 'Detail', min: 0, max: 3, step: 1, default: 0 } },
   wedge:       {},
   scribble:    { thickness: { label: 'Thickness', min: 0.1, max: 4, step: 0.1, default: 0.6 } },
+  // Sketch shapes (utils/sketch3d.js): the profile itself lives in obj.sketch.
+  extrude_sketch: { height: { label: 'Height', min: 0.1, max: 10, step: 0.1, default: 1 } },
+  revolve_sketch: { angle: { label: 'Angle (°)', min: 10, max: 360, step: 5, default: 360 },
+                    segments: { label: 'Segments', min: 6, max: 96, step: 1, default: 48 } },
 }
 export const NEW_SHAPE_TYPES = Object.keys(SHAPE_PARAMS)
 
 export function shapeDefaults(type) {
-  return Object.fromEntries(Object.entries(SHAPE_PARAMS[type] ?? {}).map(([k, p]) => [k, p.default]))
+  const d = Object.fromEntries(Object.entries(SHAPE_PARAMS[type] ?? {}).map(([k, p]) => [k, p.default]))
+  // A new sketch shape starts from its default profile (kept on the object so it saves).
+  if (isSketchType(type)) d.sketch = JSON.parse(JSON.stringify(DEFAULT_SKETCH[type]))
+  return d
 }
 const P = (obj, type, key) => {
   const v = obj?.[key], d = SHAPE_PARAMS[type]?.[key]
@@ -39,6 +47,7 @@ const P = (obj, type, key) => {
 export function shapeParamKey(type, obj) {
   const keys = Object.keys(SHAPE_PARAMS[type] ?? {})
   return type + '|' + keys.map(k => P(obj, type, k)).join('|') + (type === 'scribble' ? '|' + JSON.stringify(obj?.scribblePoints ?? null) : '')
+    + (isSketchType(type) ? '|' + JSON.stringify(obj?.sketch?.points ?? null) : '')
 }
 
 // A closed 2-D profile (x ≥ 0) spun around Y — always a watertight solid.
@@ -112,6 +121,8 @@ export function createShape3d(type, obj = {}) {
       const s = new THREE.Shape(pts)
       return extrudeCentered(s, P(obj, type, 'thickness')).rotateX(-Math.PI / 2)
     }
+    case 'extrude_sketch': return createExtrudeSketchGeometry(obj, P(obj, type, 'height'))
+    case 'revolve_sketch': return createRevolveSketchGeometry(obj, P(obj, type, 'angle'), P(obj, type, 'segments'))
     default: return null
   }
 }
