@@ -27,7 +27,7 @@ const MODE = { 0: 'input', 1: 'output', 2: 'pullup' }
 export function runSketch(kit, cpp) {
   const { code, error } = parseAndTranspile(cpp, new Set())
   if (error) throw new Error('transpile failed: ' + error)
-  const html = bootstrapHtml(code, `${kit.board === 'attiny85' ? ATTINY_CONSTS : kit.board === 'microbit' ? MICROBIT_CONSTS : UNO_CONSTS}\n${partSandboxConsts()}\nIN.parts = ${JSON.stringify(kit.input())};`, partSandboxRuntime())
+  const html = bootstrapHtml(code, `${kit.board === 'attiny85' ? ATTINY_CONSTS : kit.board === 'microbit' ? MICROBIT_CONSTS : UNO_CONSTS}\n${partSandboxConsts()}\nIN.parts = ${JSON.stringify(kit.input())};\nIN.i2cBus = ${JSON.stringify(kit.bridge.i2cBus())};`, partSandboxRuntime())
   const script = html.match(/<script>([\s\S]*)<\/script>/)[1].replace(/<\\\/script>/g, '</script>')
 
   const out = []
@@ -59,7 +59,7 @@ export function runSketch(kit, cpp) {
   const push = () => {
     const dread = {}, aread = {}
     for (const p of kit.bridge.circuitPins()) { dread[p] = kit.digitalRead(p); aread[p] = kit.analogRead(p) }
-    onMsg?.({ data: { t: 'in', s: { aread, dread, pulse: kit.bridge.pulses(), enc: {}, lib: {}, parts: kit.input(), shiftIn: {}, i2c: [], ctrl: {}, serialIn: '', quad: {}, uno: true } } })
+    onMsg?.({ data: { t: 'in', s: { aread, dread, pulse: kit.bridge.pulses(), enc: {}, lib: {}, parts: kit.input(), i2cBus: kit.bridge.i2cBus(), shiftIn: {}, i2c: [], ctrl: {}, serialIn: '', quad: {}, uno: true } } })
   }
   return {
     out,

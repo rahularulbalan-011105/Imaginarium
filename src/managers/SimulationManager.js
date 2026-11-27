@@ -788,7 +788,7 @@ class SimulationManager {
         // The I²C bus is seeded up front: setup() runs before the first per-frame
         // snapshot arrives, and bmp.begin() / mpu.begin() must see the boards.
         extraRuntime: partSandboxRuntime(),        // catalogue parts' libraries (LiquidCrystal, Keypad …)
-        consts: `${this._board === 'esp32' ? ESP32_CONSTS : this._board === 'attiny85' ? ATTINY_CONSTS : this._board === 'microbit' ? MICROBIT_CONSTS : SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}\n${partSandboxConsts()}\nIN.parts = ${JSON.stringify(this._circuit?.input() ?? {})};\nIN.i2c =${JSON.stringify(this._i2cInput ? this._i2cInput() : [])};`,
+        consts: `${this._board === 'esp32' ? ESP32_CONSTS : this._board === 'attiny85' ? ATTINY_CONSTS : this._board === 'microbit' ? MICROBIT_CONSTS : SUBO_CONSTS}\n${SENSOR_CONSTS}\n${SUBO_NOTE_DEFS}\n${partSandboxConsts()}\nIN.parts = ${JSON.stringify(this._circuit?.input() ?? {})};\nIN.i2cBus = ${JSON.stringify(this._circuit?.i2cBus() ?? {})};\nIN.i2c =${JSON.stringify(this._i2cInput ? this._i2cInput() : [])};`,
         onOut: dispatch,
         onError: (msg) => onRuntimeError(msg),
         getInput: () => self._buildInput(sensorMap, pinMap, digitalRead, analogRead, pulseIn, libReaders),
@@ -965,6 +965,7 @@ class SimulationManager {
       quad, uno: this._board === 'arduino',
       aread, dread, pulse, lib, enc, touch,
       parts: this._circuit?.input() ?? {},
+      i2cBus: this._circuit?.i2cBus() ?? {},
       i2c: this._i2cInput ? this._i2cInput() : [],
       imu: roboticsHardware.imu() ?? null,
       battery: roboticsHardware.battery() ?? null,

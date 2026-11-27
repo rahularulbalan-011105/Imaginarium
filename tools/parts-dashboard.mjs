@@ -72,10 +72,13 @@ const byTinkercad = new Map()
 for (const p of parts) for (const n of p.tinkercad.split(/\s*;\s*/)) byTinkercad.set(n, [...(byTinkercad.get(n) ?? []), p])
 
 const rows = TINKERCAD_CATALOG.map((e) => {
-  const impl = byTinkercad.get(e.name) ?? []
-  const shapeKey = e.area === '3d' ? (e.group === 'Tools' ? `tool:${e.name}` : `shape:${e.name}`) : null
-  // 3D items read shape:/tool: groups; pre-existing circuit parts read legacy: groups (tests/parts/legacy.test.js).
-  const sg = (shapeKey ? groups.get(shapeKey) : null) ?? groups.get(`legacy:${e.name}`) ?? null
+  // An entry is credited through its official name or any of its `match` names.
+  const names = [e.name, ...(e.match ?? [])]
+  const impl = [...new Set(names.flatMap(n => byTinkercad.get(n) ?? []))]
+  // 3D items read shape:/tool: groups; pre-existing circuit parts read legacy: groups.
+  const keys = names.flatMap(n => [`shape:${n}`, `tool:${n}`, `legacy:${n}`])
+  const found = keys.map(k => groups.get(k)).filter(Boolean)
+  const sg = found.length ? { aspects: Object.fromEntries(ASPECTS.map(a => [a, found.flatMap(g => g.aspects[a] ?? [])])), tests: found.flatMap(g => g.tests) } : null
   let kind, aspects
   if (impl.length) {
     kind = 'catalogue'
@@ -94,12 +97,16 @@ const rows = TINKERCAD_CATALOG.map((e) => {
   return { ...e, kind, aspects, impl: impl.map(p => p.type), tests }
 })
 // Catalogue parts that are not in the Tinkercad list (Constructa extras).
-const extras = parts.filter(p => !TINKERCAD_CATALOG.some(e => p.tinkercad.split(/\s*;\s*/).includes(e.name)))
+const extras = parts.filter(p => !TINKERCAD_CATALOG.some(e => !e.extra && [e.name, ...(e.match ?? [])].some(n => p.tinkercad.split(/\s*;\s*/).includes(n))))
 
-const counts = { total: rows.length, done: rows.filter(r => r.kind === 'catalogue' || r.kind === 'tested').length,
-  existing: rows.filter(r => r.kind === 'existing').length, missing: rows.filter(r => r.kind === 'missing').length }
+// Coverage counts only official Tinkercad entries; Constructa extras are listed but never counted.
+const official = rows.filter(r => !r.extra)
+const counts = { total: official.length, done: official.filter(r => r.kind === 'catalogue' || r.kind === 'tested').length,
+  existing: official.filter(r => r.kind === 'existing').length, missing: official.filter(r => r.kind === 'missing').length,
+  circuits: official.filter(r => r.area === 'circuits').length, circuitsDone: official.filter(r => r.area === 'circuits' && (r.kind === 'catalogue' || r.kind === 'tested')).length,
+  d3: official.filter(r => r.area === '3d').length, d3Done: official.filter(r => r.area === '3d' && (r.kind === 'catalogue' || r.kind === 'tested')).length }
 let cells = { PASS: 0, FAIL: 0, 'NOT TESTED': 0, PARTIAL: 0, NA: 0 }
-for (const r of rows) for (const a of ASPECTS) cells[r.aspects[a]]++
+for (const r of official) for (const a of ASPECTS) cells[r.aspects[a]]++
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const badge = (s) => `<span class="b b-${s.replace(' ', '')}">${s === 'NA' ? 'N/A' : s}</span>`
@@ -152,7 +159,9 @@ h2 { font-size: 16px; margin: 28px 0 8px } .note { color:var(--mute); font-size:
 <h1>Parts test dashboard</h1>
 <p class="lede">Every Tinkercad Circuits component and 3D Design shape or tool, against what Constructa implements, with the real result of each automated test. Generated ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC from <code>npm run test:dashboard</code>.</p>
 <div class="stats">
-  <div class="stat"><b>${counts.done} / ${counts.total}</b><span>catalogue items implemented and under test</span></div>
+  <div class="stat"><b>${counts.done} / ${counts.total}</b><span>official Tinkercad items implemented and under test</span></div>
+  <div class="stat"><b>${counts.circuitsDone} / ${counts.circuits}</b><span>Circuits components</span></div>
+  <div class="stat"><b>${counts.d3Done} / ${counts.d3}</b><span>3D Design shapes and tools</span></div>
   <div class="stat"><b>${counts.existing}</b><span>pre-existing parts (own test suites)</span></div>
   <div class="stat"><b>${counts.missing}</b><span>not implemented yet</span></div>
   <div class="stat"><b>${cells.PASS}</b><span>aspect checks passing</span></div>
@@ -186,5 +195,5 @@ for (const b of document.querySelectorAll('.bar button')) b.addEventListener('cl
 
 mkdirSync(join(root, 'docs'), { recursive: true })
 writeFileSync(join(root, 'docs/parts-test-dashboard.html'), html)
-console.log(`dashboard: ${counts.done}/${counts.total} implemented · ${cells.PASS} pass · ${cells.FAIL} fail · ${cells['NOT TESTED'] + cells.PARTIAL} not tested → docs/parts-test-dashboard.html`)
+console.log(`dashboard: ${counts.done}/${counts.total} implemented (circuits ${counts.circuitsDone}/${counts.circuits}, 3D ${counts.d3Done}/${counts.d3}) · ${cells.PASS} pass · ${cells.FAIL} fail · ${cells['NOT TESTED'] + cells.PARTIAL} not tested → docs/parts-test-dashboard.html`)
 if (suiteTotals.failed) process.exitCode = 1

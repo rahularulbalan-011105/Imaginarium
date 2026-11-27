@@ -17,7 +17,7 @@ function sync() {
   if (sceneManager.transformControls?.dragging) { schedule(); return }   // wait for the gizmo to let go
   const scene = useSceneStore.getState()
   const objects = scene.objects
-  if (!objects.some(o => getPart(o.type)?.breadboard)) { clearPlugs(); return }
+  if (!objects.some(o => getPart(o.type)?.breadboard || getPart(o.type)?.socket)) { clearPlugs(); return }
 
   // 1. Snap parts that moved onto a board's grid.
   const moved = lastObjects ? objects.filter(o => {

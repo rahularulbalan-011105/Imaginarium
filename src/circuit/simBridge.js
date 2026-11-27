@@ -103,6 +103,7 @@ export class CircuitBridge {
 
   // ── a catalogue part's library call from the sandbox ───────────────────────
   partCall(type, fn, args) {
+    if (type === '*i2c') { this._i2cWrite(args); return }
     const part = getPart(type)
     const handler = part?.sim?.calls?.[fn]
     if (!handler) return
@@ -162,6 +163,31 @@ export class CircuitBridge {
     const root = this.sim.uf.find(`${objId}:${pinName}`)
     for (const st of this.sim.pins.values()) if (this.sim.uf.find(`${st.board}:${st.pinName}`) === root) return st.pinNum
     return null
+  }
+
+  // ── I2C bus (sketchSandbox Wire) ───────────────────────────────────────────
+  // A part on the bus declares sim.i2c = { address(api) → 7-bit addr | null
+  // (null = not answering: unpowered, SDA/SCL not wired), write(bytes, api),
+  // read(api) → bytes it presents to requestFrom() }.
+  _i2cDevices() {
+    const out = []
+    for (const o of this.catalog) {
+      const part = getPart(o.type)
+      if (!part.sim.i2c) continue
+      const api = this._partApi(o)
+      const addr = part.sim.i2c.address(api)
+      if (addr != null) out.push({ o, part, api, addr })
+    }
+    return out
+  }
+  _i2cWrite([addr, bytes]) {
+    for (const d of this._i2cDevices()) if (d.addr === Number(addr)) d.part.sim.i2c.write(Array.isArray(bytes) ? bytes : [], d.api)
+  }
+  /** IN.i2cBus: { addr: [bytes] } for every device answering this frame. */
+  i2cBus() {
+    const bus = {}
+    for (const d of this._i2cDevices()) bus[d.addr] = (d.part.sim.i2c.read?.(d.api) ?? []).map(b => Number(b) & 255)
+    return bus
   }
 
   /** pulseIn() values parts provide: { boardPin: µs } (e.g. a PING))) sensor's echo). */

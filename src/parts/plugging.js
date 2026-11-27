@@ -53,13 +53,37 @@ function nearestHole(idx, w, radius) {
 }
 
 /**
- * Every plug between a part pin and a breadboard hole.
+ * Sockets: a part with `socket = { accepts: type, slot: {x,y,z}, radius, pairs: [[theirPin, ourPin], …] }`
+ * (e.g. a micro:bit breakout) connects an accepted object whose origin sits
+ * within `radius` of the slot: each pair becomes a plug. Its world slot point.
+ */
+function socketSlot(sock, obj) {
+  return new Vector3(sock.slot.x, sock.slot.y, sock.slot.z).applyMatrix4(objectMatrix(obj))
+}
+export function computeSocketPlugs(objects) {
+  const out = []
+  for (const s of objects) {
+    const sock = getPart(s.type)?.socket
+    if (!sock) continue
+    const slot = socketSlot(sock, s)
+    for (const o of objects) {
+      if (o.type !== sock.accepts || o.id === s.id) continue
+      const p = o.position ?? { x: 0, y: 0, z: 0 }
+      if (slot.distanceTo(new Vector3(p.x, p.y, p.z)) > sock.radius) continue
+      for (const [theirs, ours] of sock.pairs) out.push({ fromPinId: `${o.id}:${theirs}`, toPinId: `${s.id}:${ours}` })
+    }
+  }
+  return out
+}
+
+/**
+ * Every plug between a part pin and a breadboard hole (and socket plugs).
  * @returns {{ fromPinId: string, toPinId: string }[]}  part pin → hole
  */
 export function computePlugs(objects) {
   const boards = objects.filter(o => getPart(o.type)?.breadboard).map(boardIndex)
-  if (!boards.length) return []
-  const out = []
+  const out = computeSocketPlugs(objects)
+  if (!boards.length) return out
   for (const o of objects) {
     const part = getPart(o.type)
     if (!part || part.breadboard) continue
@@ -79,6 +103,14 @@ export function computePlugs(objects) {
  * (so a rotated or mis-sized part never jumps).
  */
 export function snapOffset(o, objects) {
+  // Seated in a socket: land exactly on its slot point.
+  for (const s of objects) {
+    const sock = getPart(s.type)?.socket
+    if (!sock || sock.accepts !== o.type || s.id === o.id) continue
+    const slot = socketSlot(sock, s), p = o.position ?? { x: 0, y: 0, z: 0 }
+    const d = slot.clone().sub(new Vector3(p.x, p.y, p.z))
+    if (d.length() <= sock.radius) return d.length() < 1e-4 ? null : d
+  }
   const part = getPart(o.type)
   if (!part || part.breadboard) return null
   const boards = objects.filter(b => b.id !== o.id && getPart(b.type)?.breadboard).map(boardIndex)

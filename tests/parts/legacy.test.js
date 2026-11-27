@@ -17,7 +17,8 @@ import { objectManager } from '../../src/managers/ObjectManager.js'
 import { PIN_DEFS as PIN_3D, addPinSpheresToGroup } from '../../src/utils/electronicsFactory.js'
 import { PIN_DEFS as WIRE_PINS, pinRole } from '../../src/utils/wiring.js'
 import { useSceneStore } from '../../src/stores/sceneStore.js'
-import { buildPinToComponentMap, buildSensorInputMap } from '../../src/stores/electronicsStore.js'
+import { buildPinToComponentMap, buildSensorInputMap, pinNameToNumber, isSupplyPinName, isGroundPinName } from '../../src/stores/electronicsStore.js'
+import { quadCount, quadLevels, pulsesPerWheelTurn, encoderWiring, ENCODER_EXAMPLE_SKETCH } from '../../src/utils/encoderMotor.js'
 import { buildNets } from '../../src/circuit/CircuitSim.js'
 import { createKit } from '../../src/parts/testkit.js'
 import { runSketch } from '../../src/parts/sketchRunner.js'
@@ -165,6 +166,23 @@ const ITEMS = [
     },
     code: () => compiles('void setup() { Serial.begin(9600); }\nvoid loop() { int v = analogRead(A0); if (v > 512) { Serial.println("gas!"); } delay(200); }'),
   },
+  {
+    name: 'DC motor with encoder', type: 'motor_enc', glb: 'motor_bo', pins: 6,
+    sim() {
+      // 11 pulses per motor turn, ×4 quadrature edges; 1:48 gearbox → 11·48 = 528 per wheel turn.
+      expect(quadCount(1)).toBe(44); expect(pulsesPerWheelTurn(48)).toBe(528)
+      // A/B step through 00 → 10 → 11 → 01 going forward (A leads B).
+      expect([0, 1, 2, 3].map(c => { const l = quadLevels(c); return `${l.A}${l.B}` })).toEqual(['00', '10', '11', '01'])
+      // Wired A→D2, B→D4 and powered: the simulator counts on those pins; unpowered it sees no pulses.
+      const objs = [{ id: 'U', type: 'arduino' }, { id: 'm', type: 'motor_enc' }]
+      const conns = { a: { fromPinId: 'm:ENC_A', toPinId: 'U:D2' }, b: { fromPinId: 'U:D4', toPinId: 'm:ENC_B' }, v: { fromPinId: 'm:VCC', toPinId: 'U:5V' }, g: { fromPinId: 'm:GND', toPinId: 'U:GND1' } }
+      const deps = { pinNum: pinNameToNumber, isSupply: isSupplyPinName, isGround: isGroundPinName }
+      expect(encoderWiring(conns, objs, deps).m).toEqual({ pinA: 2, pinB: 4, powered: true })
+      const { v, ...noVcc } = conns; void v
+      expect(encoderWiring(noVcc, objs, deps).m.powered).toBe(false)
+    },
+    code: () => compiles(ENCODER_EXAMPLE_SKETCH),
+  },
 ]
 
 for (const item of ITEMS) {
@@ -207,13 +225,13 @@ for (const item of ITEMS) {
       if (item.type !== 'arduino') {
         // Wire its drive / output pin to D7: the two pins form one net, and the
         // simulator's pin map routes D7 to this part (actuators) or reads it (sensors).
-        const sig = { led: 'ANODE', buzzer: 'SIGNAL', motor_dc: 'TERM_A', motor_bo: 'TERM_A', servo: 'SIGNAL',
+        const sig = { motor_enc: 'TERM_A', led: 'ANODE', buzzer: 'SIGNAL', motor_dc: 'TERM_A', motor_bo: 'TERM_A', servo: 'SIGNAL',
           pir_sensor: 'OUT', ultrasonic: 'ECHO', soil_moisture: 'AO', gas_sensor: 'AO' }[item.type]
         const objs = [{ id: 'U', type: 'arduino' }, { id: 'X', type: item.type }]
         const conns = { w: { fromPinId: 'U:D7', toPinId: `X:${sig}` }, v: { fromPinId: 'X:VCC', toPinId: 'U:5V' }, g: { fromPinId: 'X:GND', toPinId: 'U:GND1' } }
         const uf = buildNets(objs, conns)
         expect(uf.find(`X:${sig}`)).toBe(uf.find('U:D7'))
-        if (['led', 'buzzer', 'motor_dc', 'motor_bo', 'servo'].includes(item.type)) {
+        if (['led', 'buzzer', 'motor_dc', 'motor_bo', 'motor_enc', 'servo'].includes(item.type)) {
           expect(buildPinToComponentMap(conns, objs)[7]?.some(c => c.id === 'X'), 'D7 drives it').toBe(true)
         } else {
           expect(buildSensorInputMap(conns, objs)[7]?.id, 'D7 reads it (powered)').toBe('X')

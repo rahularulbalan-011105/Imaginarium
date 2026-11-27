@@ -95,6 +95,19 @@ Sandbox rules: ES5 (`var`, `function`, prototypes), no backticks, prefix private
 `__<type>_`. One library class belongs to exactly one part file. Methods that take time
 on real hardware are fine to make instant.
 
+**d. I²C devices.** The sketch's `Wire` is a real I²C master. A part on the bus declares
+`sim.i2c = { address(api), write(bytes, api), read(api) }`:
+- `address(api)` returns its 7-bit address, or null when it can't answer (unpowered, or
+  SDA/SCL not wired to the board's SDA/SCL: check with `api.boardPin('SDA')`).
+- `write` receives each transmission's bytes.
+- `read` returns the bytes `requestFrom()` will get this frame.
+- `endTransmission()` returns 2 (NACK) when nothing answers at that address.
+
+**e. Sockets.** A part that seats another declares
+`socket = { accepts: '<type>', slot: {x,y,z}, radius, pairs: [[theirPin, ourPin], …] }`. An
+accepted object placed within `radius` of the slot snaps onto it, and each pair becomes a plug.
+Join the socket contacts to the part's own header with `internal`.
+
 **Visuals.** `sim.visual(root, { solved, state, off }, obj)` updates the 3D model every
 frame (glow, text, segments, rotation). It is called with `off: true` when the
 simulation stops; restore the unpowered look then. Use `setGlow(mesh, color, 0…1)`.

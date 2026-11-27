@@ -54,7 +54,7 @@ export function bootstrapHtml(userJs, consts, extraRuntime = '') {
   // access to anything outside itself.
   const runtime = `
 'use strict';
-var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, parts:{}, shiftIn:{}, i2c:[], imu:null, battery:null, hwActive:false,
+var IN = { aread:{}, dread:{}, pulse:{}, enc:{}, lib:{}, parts:{}, shiftIn:{}, i2cBus:{}, i2c:[], imu:null, battery:null, hwActive:false,
            touch:{}, ctrl:{}, wifi:null, ble:null, net:null, serialIn:'' };
 var RUNNING = true;
 var send = function (f, a) { try { parent.postMessage({ t:'out', f:f, a:a }, '*') } catch (e) {} };
@@ -222,9 +222,34 @@ var Serial = {
 };
 var tone = function (p, f, d) { send('tone', [Number(p), Number(f), d == null ? 0 : Number(d)]) };
 var noTone = function (p) { send('noTone', [Number(p)]) };
+// I2C master (Wire). Bytes written in a transmission go to the catalogue part
+// answering at that 7-bit address (parent side: simBridge routes '*i2c'
+// calls to part.sim.i2c); reads come from IN.i2cBus[addr], the bytes each
+// device presents this frame. endTransmission() returns 2 (address NACK) when
+// nothing answers at that address, as on hardware.
 var Wire = {
-  begin: function () {}, beginTransmission: function () {}, write: function (v) { send('serial', [String(v == null ? '' : v)]) },
-  endTransmission: function () { return 0 }, println: function (v) { send('serial', [String(v == null ? '' : v) + '\\n']) },
+  _addr: -1, _tx: [], _rx: [],
+  begin: function () {}, setClock: function () {}, end: function () {},
+  beginTransmission: function (a) { this._addr = Number(a) & 0x7f; this._tx = []; },
+  write: function (v) {
+    if (typeof v === 'string') { for (var i = 0; i < v.length; i++) this._tx.push(v.charCodeAt(i) & 255); return v.length; }
+    if (Array.isArray(v)) { for (var j = 0; j < v.length; j++) this._tx.push(Number(v[j]) & 255); return v.length; }
+    this._tx.push(Number(v) & 255); return 1;
+  },
+  endTransmission: function () {
+    var bus = IN.i2cBus || {};
+    if (bus[this._addr] == null) return 2;
+    __part('*i2c', 'write', [this._addr, this._tx]);
+    return 0;
+  },
+  requestFrom: function (a, n) {
+    var d = (IN.i2cBus || {})[Number(a) & 0x7f];
+    this._rx = d ? d.slice(0, Number(n) || 0) : [];
+    return this._rx.length;
+  },
+  available: function () { return this._rx.length; },
+  read: function () { return this._rx.length ? this._rx.shift() : -1; },
+  println: function (v) { send('serial', [String(v == null ? '' : v) + '\\n']) },
 };
 function Adafruit_SSD1306() { this._lines = []; this._cur = '' }
 Adafruit_SSD1306.prototype = {
